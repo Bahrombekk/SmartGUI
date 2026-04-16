@@ -14,10 +14,29 @@ import sys
 import os
 from pathlib import Path
 
+# ── Venv Python ni majburan ishlatish ────────────────────────────────────
+# Agar boshqa Python bilan ishga tushirilsa, venv Python'iga o'tadi
+_BASE = Path(__file__).parent.resolve()
+_VENV_PYTHON = _BASE / "venv" / "Scripts" / "python.exe"
+if _VENV_PYTHON.exists() and Path(sys.executable).resolve() != _VENV_PYTHON.resolve():
+    os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON)] + sys.argv)
+
 # ── SmartGUI papkasini sys.path ga qo'shish ──────────────────────────────
 BASE_DIR = Path(__file__).parent.resolve()
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
+
+# ── torch va ultralytics AVVAL import — PyQt6 dan oldin ──────────────────
+# Windows da Qt DLL'lari CUDA DLL yuklashiga to'sqinlik qiladi.
+# Shuning uchun torch PyQt6 dan OLDIN import qilinishi shart.
+try:
+    import torch
+    try:
+        import ultralytics  # noqa: F401
+    except Exception:
+        pass
+except Exception as _torch_err:
+    print(f"[main] torch yuklanmadi: {_torch_err}")
 
 # ── PyQt6 import ─────────────────────────────────────────────────────────
 try:
@@ -116,9 +135,19 @@ def main():
             window = MainWindow()
             window.show()
         except Exception as e:
+            import traceback, datetime
+            tb = traceback.format_exc()
+            log_path = BASE_DIR / "logs" / f"crash_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+            log_path.parent.mkdir(exist_ok=True)
+            log_path.write_text(
+                f"Python: {sys.executable}\n"
+                f"sys.path:\n" + "\n".join(sys.path) + f"\n\nError:\n{tb}",
+                encoding="utf-8"
+            )
             QMessageBox.critical(
                 None, "Xatolik",
                 f"Dastur ochilmadi:\n{e}\n\n"
+                f"Batafsil: {log_path}\n\n"
                 "Sozlamalarni tekshiring va qayta urinib ko'ring."
             )
             sys.exit(1)

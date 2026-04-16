@@ -443,16 +443,38 @@ class DetectionWorker(QThread):
         }
         self.violation_detected.emit(violation_data)
 
-        # Telegram
+        # Telegram (arxa fonda)
         if self._notifier:
-            try:
-                self._notifier.send_violation_photos(
-                    violation_data.get("crop_frame"),
-                    frame.copy(),
-                    track_id, timestamp
-                )
-            except Exception as e:
-                print(f"[Worker] Telegram xato: {e}")
+            notifier_ref = self._notifier
+            crop_f = violation_data.get("crop_frame")
+            full_f = frame.copy()
+
+            def _send_telegram():
+                try:
+                    notifier_ref.send_violation_photos(crop_f, full_f, track_id, timestamp)
+                except Exception as e:
+                    print(f"[Worker] Telegram xato: {e}")
+
+            threading.Thread(target=_send_telegram, daemon=True).start()
+
+        # Backend (arxa fonda)
+        if self._backend:
+            backend_ref = self._backend
+            company_id  = self.cfg.company_id
+            cam_name    = self.cfg.camera_name
+            crop_f2     = violation_data.get("crop_frame")
+            full_f2     = frame.copy()
+
+            def _send_backend():
+                try:
+                    if crop_f2 is not None and crop_f2.size > 0:
+                        backend_ref.send_violation(cam_name, company_id, crop_f2, full_f2)
+                    else:
+                        backend_ref.send_violation(cam_name, company_id, full_f2, full_f2)
+                except Exception as e:
+                    print(f"[Worker] Backend xato: {e}")
+
+            threading.Thread(target=_send_backend, daemon=True).start()
 
     # ── QThread.run() ─────────────────────────────────────────────────────
 

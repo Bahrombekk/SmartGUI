@@ -155,6 +155,14 @@ class ConfigManager:
         return bool(self._settings.get("backend_enabled", False))
 
     @property
+    def save_violations(self) -> bool:
+        return bool(self._settings.get("save_violations", True))
+
+    @property
+    def company_id(self) -> str:
+        return self._settings.get("company_id", "")
+
+    @property
     def violations_dir(self) -> Path:
         d = self._settings.get("violations_dir", "")
         if d:

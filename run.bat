@@ -8,21 +8,22 @@ echo    SmartHelmet -- Xavfsizlik Tizimi
 echo  =========================================
 echo.
 
-:: SmartHelmet venv ishlatish (agar mavjud bo'lsa)
-set VENV_PATH=C:\Users\User\Desktop\SmartHelmet\venv\Scripts\activate.bat
+:: SmartGUI venv Python ni to'g'ridan-to'g'ri ishlatish
+set PYTHON=%~dp0venv\Scripts\python.exe
 
-if exist "%VENV_PATH%" (
-    echo  [*] SmartHelmet venv aktivlashtirilmoqda...
-    call "%VENV_PATH%"
-) else (
-    echo  [!] SmartHelmet venv topilmadi, tizim Python ishlatiladi
+if not exist "%PYTHON%" (
+    echo  [!] SmartGUI venv topilmadi!
+    echo  [!] Avval: python -m venv venv
+    pause
+    exit /b 1
 )
 
+echo  [*] Python: %PYTHON%
 echo  [*] SmartHelmet GUI ishga tushirilmoqda...
 echo.
 
 cd /d "%~dp0"
-python main.py
+"%PYTHON%" main.py
 
 if errorlevel 1 (
     echo.

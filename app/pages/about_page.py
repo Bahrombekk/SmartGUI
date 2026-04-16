@@ -120,7 +120,7 @@ class AboutPage(QWidget):
                 "GPU", gpu_name,
                 C("success") if cuda_ok else C("warning")
             ))
-        except ImportError:
+        except Exception:
             s_layout.addLayout(_info_row("PyTorch", "O'rnatilmagan", C("danger")))
 
         try:
@@ -138,7 +138,7 @@ class AboutPage(QWidget):
         try:
             import ultralytics
             s_layout.addLayout(_info_row("Ultralytics", ultralytics.__version__))
-        except ImportError:
+        except Exception:
             s_layout.addLayout(_info_row("Ultralytics", "O'rnatilmagan", C("danger")))
 
         # SmartHelmet yo'li
