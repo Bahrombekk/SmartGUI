@@ -1,0 +1,21 @@
+# SmartHelmet GUI — talab qilinadigan kutubxonalar
+# O'rnatish: pip install -r requirements.txt
+
+# ── GUI ──────────────────────────────────────────────────────────────────
+PyQt6>=6.5.0
+
+# ── Kompyuter ko'rish ─────────────────────────────────────────────────────
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# ── YOLO / PyTorch (SmartHelmet da allaqachon o'rnatilgan bo'lishi kerak) ─
+ultralytics>=8.0.0
+# torch>=2.0.0        # pytorch.org dan alohida o'rnatish tavsiya etiladi
+# torchvision>=0.15.0
+
+# ── Telegram xabarnoma ────────────────────────────────────────────────────
+requests>=2.31.0
+
+# ── Boshqa ───────────────────────────────────────────────────────────────
+# sqlite3  — Python standart kutubxonasi (alohida o'rnatish shart emas)
+# pathlib  — Python standart kutubxonasi
