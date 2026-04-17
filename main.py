@@ -48,8 +48,8 @@ except ImportError:
     print("  pip install PyQt6")
     sys.exit(1)
 
-from app.utils.theme import get_main_stylesheet
-from app.pages.main_window import MainWindow
+from app.ui.theme import get_main_stylesheet
+from app.ui.pages.main_window import MainWindow
 
 
 # ── Splash Screen ─────────────────────────────────────────────────────────
