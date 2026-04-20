@@ -1,5 +1,4 @@
 import numpy as np
-from datetime import datetime
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QFrame, QScrollArea, QPushButton, QGridLayout)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
@@ -42,8 +41,6 @@ class DashboardPage(QWidget):
         root.setContentsMargins(12, 8, 12, 8)
         root.setSpacing(10)
 
-        root.addWidget(self._make_top_bar())
-
         self._cameras_scroll = QScrollArea()
         self._cameras_scroll.setWidgetResizable(True)
         self._cameras_scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -58,92 +55,6 @@ class DashboardPage(QWidget):
         root.addWidget(self._cameras_scroll, 1)
 
         root.addWidget(self._make_bottom_bar())
-
-    # ── Top bar (stat kartalar) ───────────────────────────────────────────
-
-    def _make_top_bar(self) -> QFrame:
-        bar = QFrame()
-        bar.setFixedHeight(72)
-        bar.setStyleSheet(
-            f"background:{C('bg_panel')};"
-            f"border:1px solid {C('border')};"
-            f"border-radius:10px;"
-        )
-        lay = QHBoxLayout(bar)
-        lay.setContentsMargins(16, 0, 16, 0)
-        lay.setSpacing(6)
-
-        self._g_today   = self._stat_card(lay, "⚠", "Bugungi",   C('warning'),  C('warning_dim'))
-        lay.addWidget(self._vsep())
-        self._g_total   = self._stat_card(lay, "◆", "Jami",      C('info'),     C('info_dim'))
-        lay.addWidget(self._vsep())
-        self._g_cams    = self._stat_card(lay, "📷", "Kameralar", C('accent'),   C('accent_dim'))
-        lay.addWidget(self._vsep())
-        self._g_persons = self._stat_card(lay, "◉", "Odamlar",   C('success'),  C('success_dim'))
-
-        lay.addStretch()
-
-        # Oxirgi buzilish
-        right = QVBoxLayout()
-        right.setSpacing(2)
-        top_r = QLabel("Oxirgi buzilish")
-        top_r.setStyleSheet(
-            f"color:{C('text_muted')};font-size:10px;background:transparent;"
-        )
-        self._last_viol_lbl = QLabel("—")
-        self._last_viol_lbl.setStyleSheet(
-            f"color:{C('text_secondary')};font-size:12px;background:transparent;"
-        )
-        self._last_viol_lbl.setWordWrap(True)
-        self._last_viol_lbl.setMaximumWidth(260)
-        right.addWidget(top_r)
-        right.addWidget(self._last_viol_lbl)
-        lay.addLayout(right)
-
-        return bar
-
-    def _stat_card(self, parent_lay: QHBoxLayout,
-                   icon: str, label: str,
-                   color: str, bg: str) -> QLabel:
-        col = QVBoxLayout()
-        col.setSpacing(1)
-        col.setContentsMargins(8, 0, 8, 0)
-
-        icon_row = QHBoxLayout()
-        icon_row.setSpacing(5)
-
-        icon_bg = QLabel(icon)
-        icon_bg.setFixedSize(24, 24)
-        icon_bg.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_bg.setStyleSheet(
-            f"color:{color};font-size:14px;"
-            f"background:{bg};border-radius:5px;"
-        )
-        lbl = QLabel(label)
-        lbl.setStyleSheet(
-            f"color:{C('text_muted')};font-size:10px;background:transparent;"
-        )
-        icon_row.addWidget(icon_bg)
-        icon_row.addWidget(lbl)
-        icon_row.addStretch()
-
-        val_lbl = QLabel("0")
-        val_lbl.setStyleSheet(
-            f"color:{color};font-size:22px;font-weight:bold;background:transparent;"
-        )
-        col.addLayout(icon_row)
-        col.addWidget(val_lbl)
-
-        parent_lay.addLayout(col)
-        return val_lbl
-
-    @staticmethod
-    def _vsep() -> QFrame:
-        sep = QFrame()
-        sep.setFixedWidth(1)
-        sep.setFixedHeight(44)
-        sep.setStyleSheet(f"background:{C('border')};")
-        return sep
 
     # ── Bottom bar ────────────────────────────────────────────────────────
 
@@ -243,7 +154,7 @@ class DashboardPage(QWidget):
         for c in range(cols):
             self._cameras_grid.setColumnStretch(c, 1)
 
-        self._g_cams.setText(str(len(cameras)))
+        pass
 
     # ── Tashqi yangilanishlar ─────────────────────────────────────────────
 
@@ -259,13 +170,6 @@ class DashboardPage(QWidget):
 
         self._rebuild_recent_cards()
         self._refresh_stats()
-
-        ts = data.get("timestamp", 0)
-        dt = datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M:%S") if ts else "—"
-        cam = data.get("camera", "?")
-        self._last_viol_lbl.setText(
-            f"{dt}  ·  {cam}  (ID:{data.get('track_id','?')})"
-        )
 
     def on_stats(self, cam_id: int, stats: dict):
         panel = self._panels.get(cam_id)
@@ -294,10 +198,7 @@ class DashboardPage(QWidget):
     # ── Ichki metodlar ────────────────────────────────────────────────────
 
     def _refresh_stats(self):
-        today = self.db.get_today_count()
-        total = self.db.get_total_count()
-        self._g_today.setText(str(today))
-        self._g_total.setText(str(total))
+        pass
 
     def _rebuild_recent_cards(self):
         while self._cards_row.count():
@@ -319,15 +220,5 @@ class DashboardPage(QWidget):
         dlg = ViolationDetailDialog(violation, self)
         dlg.exec()
 
-    # ── Eski API compat ───────────────────────────────────────────────────
-
-    def update_frame_single(self, frame: np.ndarray):
-        if self._panels:
-            first_id = next(iter(self._panels))
-            self._panels[first_id].set_frame(frame)
-
-    def set_active_cameras_count(self, count: int):
-        self._g_cams.setText(str(count))
-
     def set_total_persons(self, count: int):
-        self._g_persons.setText(str(count))
+        pass

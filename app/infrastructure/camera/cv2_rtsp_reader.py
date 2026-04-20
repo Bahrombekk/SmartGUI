@@ -44,12 +44,13 @@ class CV2RTSPReader(threading.Thread):
         self._reconnect_count = 0
 
     def run(self):
-        while self._running and self._reconnect_count <= self.max_reconnects:
+        while self._running:
             cap = None
             try:
                 cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 8_000)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 2)
+                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 10_000)
+                cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 10_000)
 
                 if not cap.isOpened():
                     raise RuntimeError("VideoCapture ochilmadi")
@@ -97,7 +98,7 @@ class CV2RTSPReader(threading.Thread):
 
             if self._running:
                 self._reconnect_count += 1
-                time.sleep(self.reconnect_delay)
+                time.sleep(min(self.reconnect_delay * (1 + self._reconnect_count // 10), 30))
 
     def get_frame(self):
         with self._lock:

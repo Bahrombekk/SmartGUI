@@ -457,19 +457,6 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(14)
 
-        sh_grp = QGroupBox("SmartHelmet loyihasi")
-        sh_layout = QVBoxLayout(sh_grp)
-        sh_layout.addWidget(QLabel("SmartHelmet papkasi yo'li:"))
-        h_sh = QHBoxLayout()
-        self._sh_path_edit = QLineEdit()
-        h_sh.addWidget(self._sh_path_edit, 1)
-        sh_browse = QPushButton("...")
-        sh_browse.setFixedWidth(36)
-        sh_browse.clicked.connect(self._browse_sh)
-        h_sh.addWidget(sh_browse)
-        sh_layout.addLayout(h_sh)
-        layout.addWidget(sh_grp)
-
         grp = QGroupBox("YOLO Model")
         g = QVBoxLayout(grp)
         g.setSpacing(10)
@@ -661,7 +648,6 @@ class SettingsDialog(QDialog):
 
         # Model
         c = self.cfg
-        self._sh_path_edit.setText(c.get("smarthelmet_path", ""))
         self._model_edit.setText(c.get("model_path", ""))
         self._conf_spin.setValue(float(c.get("confidence", 0.6)))
         imgsz = str(c.get("yolo_imgsz", 1024))
@@ -692,7 +678,6 @@ class SettingsDialog(QDialog):
         chat_ids = [x.strip() for x in ids_raw.split(",") if x.strip()]
 
         self.cfg.update({
-            "smarthelmet_path": self._sh_path_edit.text().strip(),
             "model_path":       self._model_edit.text().strip(),
             "confidence":       self._conf_spin.value(),
             "yolo_imgsz":       int(self._imgsz_combo.currentText()),
@@ -731,11 +716,6 @@ class SettingsDialog(QDialog):
         )
         if path:
             self._model_edit.setText(path)
-
-    def _browse_sh(self):
-        path = QFileDialog.getExistingDirectory(self, "SmartHelmet papkasi")
-        if path:
-            self._sh_path_edit.setText(path)
 
     def _browse_dir(self):
         path = QFileDialog.getExistingDirectory(self, "Rasmlar papkasi")

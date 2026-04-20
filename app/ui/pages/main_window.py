@@ -12,9 +12,10 @@ import numpy as np
 
 from PyQt6.QtWidgets import (QMainWindow, QStackedWidget, QStatusBar,
                               QToolBar, QLabel, QPushButton, QMessageBox,
-                              QSizePolicy, QWidget, QHBoxLayout)
+                              QSizePolicy, QWidget, QHBoxLayout, QApplication,
+                              QStyle)
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor
+from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QPainter, QBrush
 
 from app.config.settings_manager import ConfigManager, CameraConfigProxy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
@@ -82,10 +83,30 @@ class MainWindow(QMainWindow):
 
         self._setup_toolbar()
 
+    @staticmethod
+    def _si(sp) -> QIcon:
+        """QStyle standard icon olish."""
+        return QApplication.style().standardIcon(sp)
+
+    @staticmethod
+    def _dot_icon(color: str, size: int = 16) -> QIcon:
+        """Rangli doira icon yasash."""
+        px = QPixmap(size, size)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QBrush(QColor(color)))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.drawEllipse(1, 1, size - 2, size - 2)
+        p.end()
+        return QIcon(px)
+
     def _setup_toolbar(self):
+        SP = QStyle.StandardPixmap
         tb = QToolBar()
         tb.setMovable(False)
         tb.setFixedHeight(52)
+        tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         tb.setStyleSheet(f"""
             QToolBar {{
                 background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
@@ -126,7 +147,7 @@ class MainWindow(QMainWindow):
         logo_lay = QHBoxLayout(logo_wrap)
         logo_lay.setContentsMargins(6, 0, 6, 0)
         logo_lay.setSpacing(0)
-        logo_lbl = QLabel("⛑  SmartHelmet")
+        logo_lbl = QLabel("SmartHelmet")
         logo_lbl.setStyleSheet(
             f"color:{C('accent')};font-size:15px;font-weight:bold;"
             f"letter-spacing:0.5px;background:transparent;"
@@ -138,12 +159,12 @@ class MainWindow(QMainWindow):
         # Nav tugmalari
         self._nav_actions = {}
         nav_items = [
-            ("🖥  Dashboard",   self.PAGE_DASHBOARD,  "Ctrl+1"),
-            ("⚠  Buzilishlar", self.PAGE_VIOLATIONS, "Ctrl+2"),
-            ("📊  Analitika",   self.PAGE_ANALYTICS,  "Ctrl+3"),
+            (self._si(SP.SP_DesktopIcon),         "Dashboard",   self.PAGE_DASHBOARD,  "Ctrl+1"),
+            (self._si(SP.SP_MessageBoxWarning),    "Buzilishlar", self.PAGE_VIOLATIONS, "Ctrl+2"),
+            (self._si(SP.SP_FileDialogDetailedView), "Analitika", self.PAGE_ANALYTICS,  "Ctrl+3"),
         ]
-        for label, page, shortcut in nav_items:
-            act = QAction(label, self)
+        for icon, label, page, shortcut in nav_items:
+            act = QAction(icon, label, self)
             act.setCheckable(True)
             act.setShortcut(shortcut)
             act.triggered.connect(lambda _, p=page: self._switch_page(p))
@@ -175,14 +196,14 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
 
         # Pauza / Davom
-        self._pause_act = QAction("⏸  Pauza", self)
+        self._pause_act = QAction(self._si(SP.SP_MediaPause), "Pauza", self)
         self._pause_act.setShortcut("Space")
         self._pause_act.triggered.connect(self._toggle_pause_all)
         self._pause_act.setEnabled(False)
         tb.addAction(self._pause_act)
 
         # Qayta ishga tushirish
-        restart_act = QAction("⟳  Qayta", self)
+        restart_act = QAction(self._si(SP.SP_BrowserReload), "Qayta", self)
         restart_act.setToolTip("Barcha kameralarni qayta ishga tushirish")
         restart_act.triggered.connect(self._restart_all_cameras)
         tb.addAction(restart_act)
@@ -190,27 +211,27 @@ class MainWindow(QMainWindow):
         tb.addSeparator()
 
         # Screenshot
-        screen_act = QAction("📷  Screenshot", self)
+        screen_act = QAction(self._si(SP.SP_DialogSaveButton), "Screenshot", self)
         screen_act.setToolTip("Screenshot saqlash (Ctrl+S)")
         screen_act.setShortcut("Ctrl+S")
         screen_act.triggered.connect(self._save_screenshot)
         tb.addAction(screen_act)
 
         # Sozlamalar
-        settings_act = QAction("⚙  Sozlamalar", self)
+        settings_act = QAction(self._si(SP.SP_FileDialogDetailedView), "Sozlamalar", self)
         settings_act.setShortcut("Ctrl+,")
         settings_act.triggered.connect(self._open_settings)
         tb.addAction(settings_act)
 
         # Haqida
-        about_act = QAction("ℹ  Haqida", self)
+        about_act = QAction(self._si(SP.SP_MessageBoxInformation), "Haqida", self)
         about_act.triggered.connect(lambda: self._switch_page(self.PAGE_ABOUT))
         tb.addAction(about_act)
 
         tb.addSeparator()
 
         # Chiqish
-        quit_act = QAction("✕", self)
+        quit_act = QAction(self._si(SP.SP_DialogCloseButton), "Chiqish", self)
         quit_act.setToolTip("Dasturdan chiqish (Ctrl+Q)")
         quit_act.setShortcut("Ctrl+Q")
         quit_act.triggered.connect(self.close)
@@ -334,12 +355,14 @@ class MainWindow(QMainWindow):
         if first_worker.is_paused():
             for w in self._workers.values():
                 w.resume()
-            self._pause_act.setText("⏸  Pauza")
+            self._pause_act.setIcon(self._si(QStyle.StandardPixmap.SP_MediaPause))
+            self._pause_act.setText("Pauza")
             self._sb_status.setText("Davom etmoqda")
         else:
             for w in self._workers.values():
                 w.pause()
-            self._pause_act.setText("▶  Davom")
+            self._pause_act.setIcon(self._si(QStyle.StandardPixmap.SP_MediaPlay))
+            self._pause_act.setText("Davom")
             self._sb_status.setText("Pauza")
 
     # ── Worker signallari ─────────────────────────────────────────────────
@@ -378,7 +401,7 @@ class MainWindow(QMainWindow):
         count = len(cameras)
         total = len(self.cfg.get_cameras())
         self._cam_count_act_widget.setText(
-            f"📷 {count}/{total} kamera"
+            f"{count}/{total} kamera"
         )
 
     def _refresh_sb_cams(self):

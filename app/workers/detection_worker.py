@@ -1,9 +1,14 @@
-import sys
+"""
+DetectionWorker — SmartHelmet'ga bog'liq bo'lmagan standalone detection.
+Ultralytics YOLO + CV2RTSPReader orqali ishlaydi.
+"""
+from __future__ import annotations
+
 import time
 from pathlib import Path
 
-import numpy as np
 import cv2
+import numpy as np
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
@@ -12,27 +17,29 @@ from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.infrastructure.camera.cv2_rtsp_reader import CV2RTSPReader
 
 
-# ── DetectionWorker ────────────────────────────────────────────────────────
+_NO_HELMET_KEYS = ("no_helmet", "no-helmet", "without", "head", "bare", "violation", "nohel")
+_HELMET_KEYS    = ("helmet", "with_helmet", "safe", "hardhat", "hard_hat")
+
 
 class DetectionWorker(QThread):
     """
     Arxa fon detection threadi.
 
     Signals:
-        frame_ready(np.ndarray)  — qayta ishlangan frame (GUI ga)
-        violation_detected(dict) — yangi buzilish ma'lumoti
+        frame_ready(np.ndarray)  — qayta ishlangan frame
+        violation_detected(dict) — yangi buzilish
         stats_updated(dict)      — fps, today_count, active_persons, connected
-        status_changed(str)      — holat matni (status bar uchun)
-        error_occurred(str)      — xatolik xabari
-        model_loaded()           — model muvaffaqiyatli yuklandi
+        status_changed(str)      — holat matni
+        error_occurred(str)      — xatolik
+        model_loaded()           — model yuklandi
     """
 
-    frame_ready       = pyqtSignal(object)   # np.ndarray
+    frame_ready        = pyqtSignal(object)
     violation_detected = pyqtSignal(dict)
-    stats_updated     = pyqtSignal(dict)
-    status_changed    = pyqtSignal(str)
-    error_occurred    = pyqtSignal(str)
-    model_loaded      = pyqtSignal()
+    stats_updated      = pyqtSignal(dict)
+    status_changed     = pyqtSignal(str)
+    error_occurred     = pyqtSignal(str)
+    model_loaded       = pyqtSignal()
 
     def __init__(self, config_manager, db: ViolationsDB, parent=None):
         super().__init__(parent)
@@ -43,136 +50,155 @@ class DetectionWorker(QThread):
         self._running  = False
         self._paused   = False
         self._reader   = None
+        self._model    = None
 
-        # Statistika
-        self._frame_count  = 0
-        self._total_time   = 0.0
-        self._fps          = 0.0
-        self._today_count  = 0
+        self._frame_count   = 0
+        self._fps           = 0.0
+        self._today_count   = 0
+        self._fps_samples: list[float] = []
+        self._last_fps_ts: float | None = None
 
-        # Detector / Tracker (SmartHelmet modullaridan)
-        self._detector = None
-        self._tracker  = None
+        self._saved_violations: set[int] = set()
+        self._no_helmet_frames: dict[int, int] = {}
+
         self._notifier = None
         self._backend  = None
 
-        # Saqlangan buzilishlar (track_id lar)
-        self._saved_violations: set = set()
+    # ── Model yuklash ─────────────────────────────────────────────────────
 
-    # ── SmartHelmet import ─────────────────────────────────────────────────
-
-    def _import_smarthelmet(self) -> bool:
-        """SmartHelmet modullarini sys.path orqali import qilish."""
-        sh_path = self.cfg.smarthelmet_path
-        if not sh_path:
-            return False  # Konfiguratsiya qilinmagan — video rejimi
-        if not Path(sh_path).exists():
-            self.error_occurred.emit(
-                f"SmartHelmet papkasi topilmadi: {sh_path}\n"
-                "Sozlamalarda to'g'ri yo'lni ko'rsating."
-            )
+    def _load_model(self) -> bool:
+        model_path = self.cfg.model_path
+        if not model_path:
+            self.status_changed.emit("Model yo'li ko'rsatilmagan — video rejim")
             return False
 
-        if sh_path not in sys.path:
-            sys.path.insert(0, sh_path)
+        p = Path(model_path)
+        if not p.is_absolute():
+            p = Path(__file__).parent.parent.parent / model_path
+        if not p.exists():
+            self.error_occurred.emit(f"Model topilmadi: {p}")
+            return False
 
         try:
-            from core.detector import HelmetDetector
-            from core.tracker  import HelmetTracker
+            from ultralytics import YOLO
+            self._model = YOLO(str(p))
 
-            # Config'ni vaqtincha o'zgartirish
-            import config.config as conf_module
-            conf_module.MODEL_PATH          = self.cfg.model_path
-            conf_module.CONFIDENCE_THRESHOLD = self.cfg.confidence
-            conf_module.TRACKER_TYPE        = self.cfg.get_tracker_config()
-            conf_module.YOLO_IMGSZ          = int(self.cfg.get("yolo_imgsz", 1024))
-            conf_module.USE_GPU             = bool(self.cfg.get("use_gpu", True))
-            conf_module.HALF_PRECISION      = bool(self.cfg.get("half_precision", True))
-            conf_module.HELMET_ZONE_BOTTOM  = float(self.cfg.get("helmet_zone_bottom", 0.35))
-            conf_module.VIOLATION_COOLDOWN  = int(self.cfg.get("violation_cooldown", 10))
-            conf_module.CONFIRMATION_WINDOW    = int(self.cfg.get("confirmation_window", 10))
-            conf_module.CONFIRMATION_THRESHOLD = int(self.cfg.get("confirmation_threshold", 10))
-            conf_module.CAMERA_NAME         = self.cfg.camera_name
-
-            self._detector = HelmetDetector()
-            self._tracker  = HelmetTracker()
-
-            # Telegram (ixtiyoriy)
-            if self.cfg.telegram_enabled:
+            use_gpu = bool(self.cfg.get("use_gpu", True))
+            if use_gpu:
                 try:
-                    from core.notifier import TelegramNotifier
-                    conf_module.TELEGRAM_BOT_TOKEN = self.cfg.telegram_token
-                    conf_module.TELEGRAM_CHAT_ID   = self.cfg.telegram_chat_ids
-                    conf_module.TELEGRAM_BOT_ENABLED = True
-                    self._notifier = TelegramNotifier()
-                except Exception as e:
-                    print(f"[Worker] Telegram yuklanmadi: {e}")
-                    self._notifier = None
+                    import torch
+                    if torch.cuda.is_available():
+                        self._model.to("cuda")
+                except Exception:
+                    pass
 
-            # Backend (ixtiyoriy)
-            if self.cfg.backend_enabled:
-                try:
-                    from core.backend_client import BackendClient
-                    conf_module.BACKEND_API_URL = self.cfg.get("backend_url", "")
-                    conf_module.LOGGIN_BK       = self.cfg.get("backend_login", "")
-                    conf_module.PASSWORD_BK     = self.cfg.get("backend_password", "")
-                    conf_module.COMPANY_ID      = self.cfg.get("company_id", "")
-                    conf_module.USE_BACKEND_API = True
-                    self._backend = BackendClient()
-                except Exception as e:
-                    print(f"[Worker] Backend yuklanmadi: {e}")
-                    self._backend = None
-
+            self.model_loaded.emit()
             return True
-
         except Exception as e:
-            self.error_occurred.emit(f"SmartHelmet import xatosi: {e}")
+            self.error_occurred.emit(f"Model yuklanmadi: {e}")
             return False
 
-    # ── Polygon filter ────────────────────────────────────────────────────
+    # ── Xabarnomalar ──────────────────────────────────────────────────────
 
-    def _apply_polygon_filter(self, persons: list) -> list:
-        """Polygon filtrni qo'llash (agar yoqilgan bo'lsa)."""
-        if not self.cfg.use_polygon or not self.cfg.polygon_points:
+    def _setup_notifiers(self):
+        if self.cfg.telegram_enabled and self.cfg.telegram_token and self.cfg.telegram_chat_ids:
+            try:
+                from app.infrastructure.notifications.telegram_notifier import TelegramNotifier
+                self._notifier = TelegramNotifier(
+                    self.cfg.telegram_token,
+                    self.cfg.telegram_chat_ids,
+                )
+            except Exception as e:
+                print(f"[Worker] Telegram yuklanmadi: {e}")
+
+        if self.cfg.backend_enabled:
+            try:
+                from app.infrastructure.notifications.backend_client import BackendClient
+                self._backend = BackendClient(
+                    api_url  = self.cfg.get("backend_url", ""),
+                    login    = self.cfg.get("backend_login", ""),
+                    password = self.cfg.get("backend_password", ""),
+                )
+            except Exception as e:
+                print(f"[Worker] Backend yuklanmadi: {e}")
+
+    # ── Natijalarni tahlil qilish ─────────────────────────────────────────
+
+    def _parse_results(self, results) -> list[dict]:
+        persons = []
+        if not results:
+            return persons
+        r = results[0]
+        if r.boxes is None:
             return persons
 
-        try:
-            import config.config as conf_module
-            conf_module.POLYGON_POINTS    = [tuple(p) for p in self.cfg.polygon_points]
-            conf_module.USE_POLYGON_FILTER = True
+        names = self._model.names
+        for box in r.boxes:
+            cls_id   = int(box.cls[0])
+            conf     = float(box.conf[0])
+            track_id = int(box.id[0]) if box.id is not None else -1
+            xyxy     = box.xyxy[0].cpu().tolist()
+            cname    = names.get(cls_id, str(cls_id)).lower()
 
-            from core.polygon_filter import PolygonFilter
-            pf = PolygonFilter()
-            return pf.filter_persons(persons)
-        except Exception:
-            return persons
+            if any(k in cname for k in _NO_HELMET_KEYS):
+                has_helmet = False
+            elif any(k in cname for k in _HELMET_KEYS):
+                has_helmet = True
+            else:
+                has_helmet = None
 
-    # ── Frame chizish ────────────────────────────────────────────────────
+            persons.append({
+                "track_id":  track_id,
+                "box":       xyxy,
+                "has_helmet": has_helmet,
+                "score":     conf,
+                "class":     cname,
+            })
+        return persons
+
+    # ── Confirmation window ───────────────────────────────────────────────
+
+    def _check_violations(self, persons: list[dict]) -> list[dict]:
+        threshold = int(self.cfg.get("confirmation_threshold", 10))
+        active_ids = {p["track_id"] for p in persons}
+        self._no_helmet_frames = {
+            k: v for k, v in self._no_helmet_frames.items() if k in active_ids
+        }
+        for p in persons:
+            tid = p["track_id"]
+            if p.get("has_helmet") is False:
+                self._no_helmet_frames[tid] = self._no_helmet_frames.get(tid, 0) + 1
+                p["is_new_violation"] = (
+                    self._no_helmet_frames[tid] == threshold
+                    and tid not in self._saved_violations
+                )
+            else:
+                self._no_helmet_frames[tid] = 0
+                p["is_new_violation"] = False
+        return persons
+
+    # ── Frame chizish ─────────────────────────────────────────────────────
 
     @staticmethod
     def _draw_overlay(frame, persons, fps, today_count, cam_name, connected):
-        """Frame ustiga detection natijalarini chizish."""
         h, w = frame.shape[:2]
 
         for p in persons:
             box      = p.get("box", [])
             track_id = p.get("track_id", -1)
             has_hel  = p.get("has_helmet", None)
-            score    = p.get("score", 0.0)
-
             if len(box) < 4:
                 continue
-
             x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
 
             if has_hel is True:
-                color = (0, 200, 0)    # Yashil — helmet bor
+                color = (0, 200, 0)
                 label = f"HELMET  ID:{track_id}"
             elif has_hel is False:
-                color = (0, 0, 220)    # Qizil — helmet yo'q
+                color = (0, 0, 220)
                 label = f"NO HELMET  ID:{track_id}"
             else:
-                color = (0, 140, 255)  # Sariq — noma'lum
+                color = (0, 140, 255)
                 label = f"PERSON  ID:{track_id}"
 
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
@@ -181,7 +207,6 @@ class DetectionWorker(QThread):
             cv2.putText(frame, label, (x1 + 2, y1 - 4),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
 
-        # HUD: status bar
         status_color = (0, 200, 0) if connected else (0, 150, 220)
         status_text  = "ULANGAN" if connected else "ULANMOQDA..."
         cv2.rectangle(frame, (0, 0), (w, 36), (10, 14, 20), -1)
@@ -192,18 +217,15 @@ class DetectionWorker(QThread):
         cv2.putText(frame, status_text, (w - 280, 22),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_color, 1)
 
-        # Bugungi buzilishlar
         viol_txt = f"Bugun: {today_count} buzilish"
         cv2.rectangle(frame, (0, h - 32), (w, h), (10, 14, 20), -1)
         cv2.putText(frame, viol_txt, (8, h - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.55, (240, 100, 30), 1)
-
         return frame
 
     # ── Buzilish qayta ishlash ────────────────────────────────────────────
 
     def _handle_violation(self, frame: np.ndarray, person: dict):
-        """Yangi buzilishni saqlash va signallar yuborish."""
         track_id = person.get("track_id", -1)
         if track_id in self._saved_violations:
             return
@@ -227,29 +249,24 @@ class DetectionWorker(QThread):
     def run(self):
         self._running = True
         self._today_count = self.db.get_today_count()
-        self._fps_samples: list[float] = []
-        self._last_fps_ts: float | None = None
 
         self.status_changed.emit("Yuklanmoqda...")
-        has_detection = self._import_smarthelmet()
-        if has_detection:
-            self.model_loaded.emit()
+        has_detection = self._load_model()
+        self._setup_notifiers()
 
         self.status_changed.emit("Kameraga ulanmoqda...")
 
-        # RTSP yoki video ochish
-        rtsp_url = self.cfg.rtsp_url
+        rtsp_url  = self.cfg.rtsp_url
         is_stream = rtsp_url.startswith(("rtsp://", "rtmp://"))
 
         if is_stream:
             self._reader = CV2RTSPReader(
                 rtsp_url,
-                reconnect_delay = int(self.cfg.get("reconnect_delay", 3)),
-                max_reconnects  = int(self.cfg.get("max_reconnects", 50)),
+                reconnect_delay=int(self.cfg.get("reconnect_delay", 3)),
+                max_reconnects=int(self.cfg.get("max_reconnects", 999)),
             )
             self._reader.start()
-
-            deadline = time.time() + 20
+            deadline = time.time() + 25
             while time.time() < deadline and self._running:
                 ok, _ = self._reader.get_frame()
                 if ok:
@@ -258,7 +275,7 @@ class DetectionWorker(QThread):
         else:
             self._reader = cv2.VideoCapture(rtsp_url)
 
-        step = int(self.cfg.get("process_every_n", 1))
+        step      = int(self.cfg.get("process_every_n", 1))
         raw_count = 0
 
         while self._running:
@@ -285,7 +302,6 @@ class DetectionWorker(QThread):
             if raw_count % step != 0:
                 continue
 
-            # Frame-to-frame FPS hisoblash
             now = time.perf_counter()
             if self._last_fps_ts is not None:
                 dt = now - self._last_fps_ts
@@ -297,21 +313,16 @@ class DetectionWorker(QThread):
             self._last_fps_ts = now
             self._frame_count += 1
 
-            # ── Video rejimi (SmartHelmet yo'q) ──────────────────────────
             if not has_detection:
                 display = self._draw_overlay(
-                    frame.copy(), [],
-                    self._fps, self._today_count,
+                    frame.copy(), [], self._fps, self._today_count,
                     self.cfg.camera_name, connected,
                 )
                 self.frame_ready.emit(display)
-
                 if self._frame_count % 30 == 0:
                     self.stats_updated.emit({
-                        "fps":            self._fps,
-                        "today_count":    self._today_count,
-                        "active_persons": 0,
-                        "connected":      connected,
+                        "fps": self._fps, "today_count": self._today_count,
+                        "active_persons": 0, "connected": connected,
                     })
                     self.status_changed.emit(
                         f"Ulangan  |  FPS: {self._fps:.1f}" if connected
@@ -319,41 +330,43 @@ class DetectionWorker(QThread):
                     )
                 continue
 
-            # ── Detection rejimi ──────────────────────────────────────────
             try:
-                results = self._detector.detect_objects(frame)
+                half   = bool(self.cfg.get("half_precision", False))
+                imgsz  = int(self.cfg.get("yolo_imgsz", 640))
+                conf   = float(self.cfg.confidence)
 
-                results["person_detections"] = self._apply_polygon_filter(
-                    results.get("person_detections", [])
+                results = self._model.track(
+                    frame,
+                    persist=True,
+                    conf=conf,
+                    imgsz=imgsz,
+                    half=half,
+                    verbose=False,
+                    tracker="bytetrack.yaml",
                 )
 
-                updated = self._tracker.update_helmet_status(results, self._detector)
+                persons = self._parse_results(results)
+                persons = self._check_violations(persons)
 
-                for person in updated:
-                    if person.get("is_new_violation", False):
-                        self._handle_violation(frame, person)
+                for p in persons:
+                    if p.get("is_new_violation", False):
+                        self._handle_violation(frame, p)
 
                 display = self._draw_overlay(
-                    frame.copy(), updated,
-                    self._fps, self._today_count,
+                    frame.copy(), persons, self._fps, self._today_count,
                     self.cfg.camera_name, connected,
                 )
                 self.frame_ready.emit(display)
 
                 if self._frame_count % 30 == 0:
                     self.stats_updated.emit({
-                        "fps":            self._fps,
-                        "today_count":    self._today_count,
-                        "active_persons": len(updated),
-                        "connected":      connected,
+                        "fps": self._fps, "today_count": self._today_count,
+                        "active_persons": len(persons), "connected": connected,
                     })
-                    if connected:
-                        self.status_changed.emit(
-                            f"Ulangan  |  FPS: {self._fps:.1f}  |  "
-                            f"Bugun: {self._today_count} buzilish"
-                        )
-                    else:
-                        self.status_changed.emit("Qayta ulanmoqda...")
+                    self.status_changed.emit(
+                        f"Ulangan  |  FPS: {self._fps:.1f}  |  Bugun: {self._today_count}"
+                        if connected else "Qayta ulanmoqda..."
+                    )
 
             except Exception as e:
                 print(f"[Worker] Frame xatosi: {e}")
