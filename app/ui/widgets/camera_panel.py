@@ -1,27 +1,26 @@
 """
 Dashboard — CameraPanel widget.
-Har kamera uchun: header (nom + status badge) + video + footer (metrikalar).
+SmartHelmet dizayniga mos: header (status + nom) + video + footer (vaqt + fps).
 """
 
+import datetime
 import numpy as np
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QFrame, QSizePolicy)
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPainter, QColor, QFont, QPen
+
 from app.ui.theme import C
 from app.ui.widgets.video_label import VideoLabel
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  CameraPanel
-# ══════════════════════════════════════════════════════════════════════════════
-
 class CameraPanel(QFrame):
     """
     Bitta kamera uchun widget:
-      ┌─ header: nom | #id | status badge ──────────┐
-      │  VideoLabel                                  │
-      └─ footer: FPS · Odamlar · Bugungi buzilish ──┘
+      ┌─ header: status dot | #NN CamName  |  ● REC / Live / Offline ──┐
+      │  VideoLabel                                                      │
+      └─ footer: 10:20:58  ───────────────────────── 30 fps  2 kishi ──┘
     """
 
     def __init__(self, cam_id: int, cam_name: str, rtsp_url: str,
@@ -32,31 +31,17 @@ class CameraPanel(QFrame):
         self.rtsp_url   = rtsp_url
         self.company_id = company_id
 
-        self._connected  = False
-        self._pulse_on   = True
+        self._connected = False
+        self._pulse_on  = True
 
         self.setProperty("cam_panel", True)
-        self.setMinimumSize(320, 240)
+        self.setMinimumSize(260, 180)
 
-        # Pulsing LIVE dot
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(900)
         self._pulse_timer.timeout.connect(self._pulse_dot)
 
         self._setup_ui()
-
-    # ── IP qisqartirish ───────────────────────────────────────────────────
-
-    def _short_ip(self) -> str:
-        url = self.rtsp_url
-        try:
-            if "@" in url:
-                return url.split("@")[1].split(":")[0]
-            elif url.startswith("rtsp://"):
-                return url[7:].split("/")[0].split(":")[0]
-        except Exception:
-            pass
-        return url[:18]
 
     # ── UI ────────────────────────────────────────────────────────────────
 
@@ -64,55 +49,55 @@ class CameraPanel(QFrame):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-
         root.addWidget(self._build_header())
         root.addWidget(self._build_video(), 1)
         root.addWidget(self._build_footer())
 
     def _build_header(self) -> QWidget:
-        header = QWidget()
-        header.setFixedHeight(42)
-        header.setStyleSheet(
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 {C('accent_dim')}, stop:0.55 {C('bg_panel')}, stop:1 {C('bg_panel')});"
-            f"border-radius: 10px 10px 0 0;"
+        hdr = QWidget()
+        hdr.setFixedHeight(36)
+        hdr.setStyleSheet(
+            "background: rgba(13,17,23,0.96);"
+            f"border-bottom: 1px solid {C('border')};"
+            "border-radius: 8px 8px 0 0;"
         )
-        lay = QHBoxLayout(header)
-        lay.setContentsMargins(12, 0, 10, 0)
-        lay.setSpacing(8)
+        lay = QHBoxLayout(hdr)
+        lay.setContentsMargins(10, 0, 10, 0)
+        lay.setSpacing(6)
 
-        # Kamera nomi
-        name_lbl = QLabel(f"📷  {self.cam_name}")
-        name_lbl.setStyleSheet(
-            f"color:{C('accent_light')};font-size:13px;font-weight:bold;"
-            f"background:transparent;"
+        # Status dot
+        self._dot = QLabel("●")
+        self._dot.setFixedWidth(14)
+        self._dot.setStyleSheet(
+            f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
         )
-        lay.addWidget(name_lbl, 1)
+        lay.addWidget(self._dot)
 
-        # IP badge
-        ip_lbl = QLabel(self._short_ip())
-        ip_lbl.setStyleSheet(
-            f"color:{C('text_muted')};font-size:10px;"
-            f"background:{C('bg_main')};border:1px solid {C('border')};"
-            f"border-radius:3px;padding:1px 6px;"
+        # Camera number
+        num = QLabel(f"{self.cam_id:02d}")
+        num.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 11px; font-weight: bold;"
+            " background: transparent;"
         )
-        lay.addWidget(ip_lbl)
+        lay.addWidget(num)
 
-        # ID badge
-        id_lbl = QLabel(f"#{self.cam_id}")
-        id_lbl.setStyleSheet(
-            f"color:{C('accent')};font-size:10px;font-weight:bold;"
-            f"background:{C('accent_subtle')};border:1px solid {C('accent_dim')};"
-            f"border-radius:3px;padding:1px 6px;"
+        # Camera name
+        name = QLabel(self.cam_name)
+        name.setStyleSheet(
+            f"color: {C('text_primary')}; font-size: 11px; font-weight: 600;"
+            " background: transparent;"
         )
-        lay.addWidget(id_lbl)
+        lay.addWidget(name, 1)
 
         # Status badge
-        self._status_badge = QLabel("◌  ULANMOQDA")
-        self._status_badge.setStyleSheet(self._badge_style(C('warning'), C('warning_dim')))
-        lay.addWidget(self._status_badge)
+        self._badge = QLabel("Ulanmoqda")
+        self._badge.setStyleSheet(
+            f"color: {C('warning')}; font-size: 10px; font-weight: bold;"
+            " background: transparent;"
+        )
+        lay.addWidget(self._badge)
 
-        return header
+        return hdr
 
     def _build_video(self) -> VideoLabel:
         self._video = VideoLabel()
@@ -124,115 +109,108 @@ class CameraPanel(QFrame):
         return self._video
 
     def _build_footer(self) -> QWidget:
-        footer = QWidget()
-        footer.setFixedHeight(36)
-        footer.setStyleSheet(
-            f"background:{C('bg_main')};"
-            f"border-radius:0 0 10px 10px;"
-            f"border-top:1px solid {C('border')};"
+        ftr = QWidget()
+        ftr.setFixedHeight(26)
+        ftr.setStyleSheet(
+            "background: rgba(13,17,23,0.96);"
+            f"border-top: 1px solid {C('border')};"
+            "border-radius: 0 0 8px 8px;"
         )
-        lay = QHBoxLayout(footer)
+        lay = QHBoxLayout(ftr)
         lay.setContentsMargins(10, 0, 10, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(8)
 
-        self._fps_lbl     = self._metric_lbl("⚡", "—", C('info'))
-        self._persons_lbl = self._metric_lbl("◉", "—", C('text_secondary'))
-        self._viol_lbl    = self._metric_lbl("⚠", "—", C('text_muted'))
-
-        lay.addWidget(self._fps_lbl)
-        lay.addWidget(self._sep())
-        lay.addWidget(self._persons_lbl)
-        lay.addWidget(self._sep())
-        lay.addWidget(self._viol_lbl)
+        self._time_lbl = QLabel("--:--:--")
+        self._time_lbl.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+        )
+        lay.addWidget(self._time_lbl)
         lay.addStretch()
 
-        if self.company_id:
-            short = self.company_id[:10] + ("…" if len(self.company_id) > 10 else "")
-            co = QLabel(f"🏢 {short}")
-            co.setStyleSheet(
-                f"color:{C('text_muted')};font-size:10px;background:transparent;"
-            )
-            lay.addWidget(co)
-
-        return footer
-
-    @staticmethod
-    def _metric_lbl(icon: str, value: str, icon_color: str) -> QLabel:
-        lbl = QLabel(f"{icon} {value}")
-        lbl.setStyleSheet(
-            f"color:{icon_color};font-size:11px;background:transparent;"
+        self._fps_lbl = QLabel("-- fps")
+        self._fps_lbl.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
         )
-        lbl.setMinimumWidth(50)
-        return lbl
+        lay.addWidget(self._fps_lbl)
+
+        lay.addWidget(self._vsep())
+
+        self._persons_lbl = QLabel("0 kishi")
+        self._persons_lbl.setStyleSheet(
+            f"color: {C('text_secondary')}; font-size: 10px; background: transparent;"
+        )
+        lay.addWidget(self._persons_lbl)
+
+        return ftr
 
     @staticmethod
-    def _sep() -> QLabel:
-        s = QLabel("│")
-        s.setStyleSheet(f"color:{C('border')};font-size:12px;background:transparent;")
+    def _vsep() -> QLabel:
+        s = QLabel("|")
+        s.setStyleSheet(f"color: {C('border')}; font-size: 11px; background: transparent;")
         return s
-
-    @staticmethod
-    def _badge_style(color: str, bg: str) -> str:
-        return (
-            f"color:{color};font-size:10px;font-weight:bold;"
-            f"background:{bg};border-radius:4px;padding:2px 8px;"
-        )
 
     # ── Pulsing dot ───────────────────────────────────────────────────────
 
     def _pulse_dot(self):
         self._pulse_on = not self._pulse_on
         if self._connected:
-            dot = "●" if self._pulse_on else "○"
-            self._status_badge.setText(f"{dot}  JONLI")
+            col = C('success') if self._pulse_on else "#1a5a28"
+            self._dot.setStyleSheet(
+                f"color: {col}; font-size: 9px; background: transparent;"
+            )
 
     # ── Tashqi yangilanishlar ─────────────────────────────────────────────
 
     def set_frame(self, frame: np.ndarray):
         self._video.set_frame(frame)
+        self._time_lbl.setText(datetime.datetime.now().strftime("%H:%M:%S"))
 
     def set_stats(self, fps: float, persons: int, today: int, connected: bool):
-        self._fps_lbl.setText(f"⚡ {fps:.1f}")
-        self._persons_lbl.setText(f"◉ {persons}")
-
-        if today > 0:
-            self._viol_lbl.setText(f"⚠ {today}")
-            self._viol_lbl.setStyleSheet(
-                f"color:{C('danger')};font-size:11px;font-weight:bold;background:transparent;"
-            )
-        else:
-            self._viol_lbl.setText("⚠ 0")
-            self._viol_lbl.setStyleSheet(
-                f"color:{C('text_muted')};font-size:11px;background:transparent;"
-            )
+        self._fps_lbl.setText(f"{fps:.0f} fps")
+        self._persons_lbl.setText(f"{persons} kishi")
 
         self._connected = connected
         if connected:
             if not self._pulse_timer.isActive():
                 self._pulse_timer.start()
-            self._status_badge.setText("●  JONLI")
-            self._status_badge.setStyleSheet(
-                self._badge_style(C('success'), C('success_dim'))
+            self._dot.setStyleSheet(
+                f"color: {C('success')}; font-size: 9px; background: transparent;"
+            )
+            self._badge.setText("● REC")
+            self._badge.setStyleSheet(
+                f"color: {C('danger')}; font-size: 10px; font-weight: bold;"
+                " background: transparent;"
             )
         else:
             self._pulse_timer.stop()
-            self._status_badge.setText("◌  ULANMOQDA")
-            self._status_badge.setStyleSheet(
-                self._badge_style(C('warning'), C('warning_dim'))
+            self._dot.setStyleSheet(
+                f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
             )
+            self._badge.setText("Offline")
+            self._badge.setStyleSheet(
+                f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            )
+            if not self._video._has_frame:
+                self._video.show_error()
 
     def set_error(self, msg: str):
         self._video.show_error(msg)
         self._pulse_timer.stop()
         self._connected = False
-        self._status_badge.setText("✕  XATOLIK")
-        self._status_badge.setStyleSheet(
-            self._badge_style(C('danger'), C('danger_dim'))
+        self._dot.setStyleSheet(
+            f"color: {C('danger')}; font-size: 9px; background: transparent;"
+        )
+        self._badge.setText("Offline")
+        self._badge.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
         )
 
     def set_model_loading(self):
-        self._video.show_loading()
-        self._status_badge.setText("◌  YUKLANMOQDA")
-        self._status_badge.setStyleSheet(
-            self._badge_style(C('warning'), C('warning_dim'))
+        self._video.show_connecting()
+        self._dot.setStyleSheet(
+            f"color: {C('warning')}; font-size: 9px; background: transparent;"
+        )
+        self._badge.setText("Yuklanmoqda")
+        self._badge.setStyleSheet(
+            f"color: {C('warning')}; font-size: 10px; background: transparent;"
         )

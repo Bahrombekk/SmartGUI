@@ -1,56 +1,57 @@
 """
-Qorong'i mavzu — SmartHelmet uchun rang palitrasi (sabzi-oranj uslub).
+Qorong'i mavzu — SmartHelmet uchun rang palitrasi.
 C(key) funksiya orqali rangga murojaat qilinadi.
 """
 
 _DARK = {
-    # Asosiy fonlar (iliq qoʻngʻir-qora)
-    "bg_main":        "#0e0b08",
-    "bg_card":        "#181210",
-    "bg_input":       "#221a12",
-    "bg_hover":       "#2e2016",
-    "bg_sidebar":     "#130e08",
-    "bg_panel":       "#1c1510",
+    # Asosiy fonlar (qoyu ko'k-qora)
+    "bg_main":        "#0d1117",
+    "bg_card":        "#1c2128",
+    "bg_input":       "#0d1117",
+    "bg_hover":       "#30363d",
+    "bg_sidebar":     "#161b22",
+    "bg_panel":       "#21262d",
 
-    # Aksent rang — yorqin sabzi-oranj
+    # Aksent — yorqin sabzi-oranj
     "accent":         "#ff6b1a",
     "accent_hover":   "#ff4d00",
-    "accent_dim":     "#4d1f08",
-    "accent_light":   "#ffa060",
-    "accent_subtle":  "#3a1808",
+    "accent_dim":     "#2d1800",
+    "accent_light":   "#ff9966",
+    "accent_subtle":  "#1a0d00",
 
     # Matn
-    "text_primary":   "#f2e8dc",
-    "text_secondary": "#c8a882",
-    "text_muted":     "#7a6554",
-    "text_link":      "#ff6b1a",
+    "text_primary":   "#e6edf3",
+    "text_secondary": "#8b949e",
+    "text_muted":     "#6e7681",
+    "text_link":      "#58a6ff",
 
     # Holat ranglari
     "danger":         "#f85149",
-    "danger_dim":     "#5c2222",
+    "danger_dim":     "#3d1515",
     "success":        "#3fb950",
-    "success_dim":    "#1a3a20",
-    "warning":        "#e3a020",
-    "warning_dim":    "#4a3000",
+    "success_dim":    "#0f2a15",
+    "warning":        "#e3b341",
+    "warning_dim":    "#2d2200",
     "info":           "#58a6ff",
-    "info_dim":       "#1a2e4a",
+    "info_dim":       "#0d2a4a",
 
-    # Chegaralar (iliq)
-    "border":         "#3d2a1a",
-    "border_light":   "#281e14",
+    # Chegaralar
+    "border":         "#30363d",
+    "border_light":   "#21262d",
     "border_accent":  "#ff6b1a",
-    "border_hover":   "#5a3a20",
+    "border_hover":   "#8b949e",
 
     # Boshqalar
-    "shadow":         "#00000090",
-    "overlay":        "#0000009a",
-    "scrollbar":      "#3d2a1a",
-    "scrollbar_hover": "#5a3f28",
+    "shadow":         "#00000060",
+    "overlay":        "#0000008a",
+    "scrollbar":      "#30363d",
+    "scrollbar_hover": "#484f58",
 
-    # Kamera status badge ranglari
-    "cam_active":     "#ff6b1a",
-    "cam_idle":       "#4a3520",
+    # Kamera holat ranglari
+    "cam_active":     "#3fb950",
+    "cam_idle":       "#6e7681",
     "cam_error":      "#f85149",
+    "cam_rec":        "#f85149",
 }
 
 
@@ -72,9 +73,8 @@ def get_main_stylesheet() -> str:
 
     /* ── Toolbar ─────────────────────────────────────────── */
     QToolBar {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 #1c1208, stop:1 {C('bg_sidebar')});
-        border-bottom: 2px solid {C('accent_dim')};
+        background: {C('bg_sidebar')};
+        border-bottom: 1px solid {C('border')};
         spacing: 4px;
         padding: 0 8px;
     }}
@@ -82,16 +82,16 @@ def get_main_stylesheet() -> str:
         background: transparent;
         color: {C('text_secondary')};
         border: none;
-        border-radius: 4px;
+        border-radius: 6px;
         padding: 6px 14px;
         font-size: 13px;
     }}
     QToolBar QToolButton:hover {{
-        background-color: {C('accent_subtle')};
-        color: {C('accent_light')};
+        background-color: {C('bg_hover')};
+        color: {C('text_primary')};
     }}
     QToolBar QToolButton:checked {{
-        background-color: {C('accent_dim')};
+        background-color: {C('bg_hover')};
         color: {C('accent')};
         font-weight: bold;
         border-bottom: 2px solid {C('accent')};
@@ -104,8 +104,7 @@ def get_main_stylesheet() -> str:
 
     /* ── StatusBar ───────────────────────────────────────── */
     QStatusBar {{
-        background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-            stop:0 {C('bg_sidebar')}, stop:1 #0a0705);
+        background: {C('bg_sidebar')};
         color: {C('text_muted')};
         border-top: 1px solid {C('border')};
         font-size: 12px;
@@ -115,25 +114,25 @@ def get_main_stylesheet() -> str:
 
     /* ── ScrollBar ───────────────────────────────────────── */
     QScrollBar:vertical {{
-        background: {C('bg_card')};
-        width: 8px;
-        border-radius: 4px;
+        background: transparent;
+        width: 6px;
+        border-radius: 3px;
     }}
     QScrollBar::handle:vertical {{
         background: {C('scrollbar')};
-        border-radius: 4px;
+        border-radius: 3px;
         min-height: 30px;
     }}
     QScrollBar::handle:vertical:hover {{ background: {C('scrollbar_hover')}; }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
     QScrollBar:horizontal {{
-        background: {C('bg_card')};
-        height: 8px;
-        border-radius: 4px;
+        background: transparent;
+        height: 6px;
+        border-radius: 3px;
     }}
     QScrollBar::handle:horizontal {{
         background: {C('scrollbar')};
-        border-radius: 4px;
+        border-radius: 3px;
         min-width: 30px;
     }}
     QScrollBar::handle:horizontal:hover {{ background: {C('scrollbar_hover')}; }}
@@ -141,7 +140,7 @@ def get_main_stylesheet() -> str:
 
     /* ── QPushButton ─────────────────────────────────────── */
     QPushButton {{
-        background-color: {C('bg_input')};
+        background-color: {C('bg_panel')};
         color: {C('text_primary')};
         border: 1px solid {C('border')};
         border-radius: 6px;
@@ -149,30 +148,25 @@ def get_main_stylesheet() -> str:
         font-size: 13px;
     }}
     QPushButton:hover {{
-        background-color: {C('accent_subtle')};
-        border-color: {C('accent')};
-        color: {C('accent_light')};
+        background-color: {C('bg_hover')};
+        border-color: {C('border_hover')};
+        color: {C('text_primary')};
     }}
-    QPushButton:pressed {{ background-color: {C('accent_dim')}; }}
+    QPushButton:pressed {{ background-color: {C('bg_hover')}; }}
     QPushButton[accent="true"] {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-            stop:0 {C('accent')}, stop:1 #e85000);
+        background: {C('accent')};
         color: #ffffff;
         border: none;
         font-weight: bold;
+        border-radius: 6px;
     }}
-    QPushButton[accent="true"]:hover {{
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-            stop:0 {C('accent_hover')}, stop:1 #cc4400);
-    }}
+    QPushButton[accent="true"]:hover {{ background: {C('accent_hover')}; }}
     QPushButton[danger="true"] {{
         background-color: {C('danger_dim')};
         color: {C('danger')};
         border: 1px solid {C('danger')};
     }}
-    QPushButton[danger="true"]:hover {{
-        background-color: #7a2828;
-    }}
+    QPushButton[danger="true"]:hover {{ background-color: #5c2222; }}
     QPushButton[small="true"] {{
         padding: 4px 10px;
         font-size: 12px;
@@ -181,10 +175,10 @@ def get_main_stylesheet() -> str:
 
     /* ── QLineEdit ───────────────────────────────────────── */
     QLineEdit {{
-        background-color: {C('bg_input')};
+        background-color: {C('bg_panel')};
         color: {C('text_primary')};
         border: 1px solid {C('border')};
-        border-radius: 5px;
+        border-radius: 6px;
         padding: 7px 10px;
         font-size: 13px;
         selection-background-color: {C('accent_dim')};
@@ -195,10 +189,10 @@ def get_main_stylesheet() -> str:
 
     /* ── QComboBox ───────────────────────────────────────── */
     QComboBox {{
-        background-color: {C('bg_input')};
+        background-color: {C('bg_panel')};
         color: {C('text_primary')};
         border: 1px solid {C('border')};
-        border-radius: 5px;
+        border-radius: 6px;
         padding: 6px 10px;
         font-size: 13px;
     }}
@@ -243,9 +237,9 @@ def get_main_stylesheet() -> str:
         border-radius: 10px;
     }}
     QFrame[cam_panel="true"] {{
-        background-color: {C('bg_panel')};
+        background-color: #000000;
         border: 1px solid {C('border')};
-        border-radius: 10px;
+        border-radius: 8px;
     }}
     QFrame[cam_panel="true"]:hover {{
         border-color: {C('accent_dim')};
@@ -264,7 +258,7 @@ def get_main_stylesheet() -> str:
     QTableWidget::item {{ padding: 6px 10px; border: none; }}
     QTableWidget::item:selected {{ color: {C('accent')}; }}
     QHeaderView::section {{
-        background-color: {C('bg_input')};
+        background-color: {C('bg_panel')};
         color: {C('text_muted')};
         border: none;
         border-bottom: 1px solid {C('border')};
@@ -291,19 +285,14 @@ def get_main_stylesheet() -> str:
         background-color: {C('accent_dim')};
         color: {C('accent_light')};
     }}
-    QListWidget::item:hover:!selected {{
-        background-color: {C('accent_subtle')};
-    }}
+    QListWidget::item:hover:!selected {{ background-color: {C('bg_hover')}; }}
 
     /* ── QScrollArea ─────────────────────────────────────── */
     QScrollArea {{ border: none; background: transparent; }}
     QScrollArea > QWidget > QWidget {{ background: transparent; }}
 
     /* ── QSplitter ───────────────────────────────────────── */
-    QSplitter::handle {{
-        background: {C('border')};
-        width: 1px;
-    }}
+    QSplitter::handle {{ background: {C('border')}; width: 1px; }}
 
     /* ── QCheckBox ───────────────────────────────────────── */
     QCheckBox {{ color: {C('text_primary')}; spacing: 8px; }}
@@ -311,7 +300,7 @@ def get_main_stylesheet() -> str:
         width: 16px; height: 16px;
         border: 2px solid {C('border')};
         border-radius: 3px;
-        background: {C('bg_input')};
+        background: {C('bg_panel')};
     }}
     QCheckBox::indicator:checked {{
         background: {C('accent')};
@@ -321,7 +310,7 @@ def get_main_stylesheet() -> str:
 
     /* ── QSpinBox / QDoubleSpinBox ───────────────────────── */
     QSpinBox, QDoubleSpinBox {{
-        background-color: {C('bg_input')};
+        background-color: {C('bg_panel')};
         color: {C('text_primary')};
         border: 1px solid {C('border')};
         border-radius: 5px;
@@ -360,7 +349,7 @@ def get_main_stylesheet() -> str:
         background: {C('bg_card')};
     }}
     QTabBar::tab {{
-        background: {C('bg_input')};
+        background: {C('bg_panel')};
         color: {C('text_muted')};
         border: 1px solid {C('border')};
         border-bottom: none;
@@ -383,7 +372,7 @@ def get_main_stylesheet() -> str:
 
     /* ── QDateEdit ───────────────────────────────────────── */
     QDateEdit {{
-        background-color: {C('bg_input')};
+        background-color: {C('bg_panel')};
         color: {C('text_primary')};
         border: 1px solid {C('border')};
         border-radius: 5px;
@@ -410,5 +399,18 @@ def get_main_stylesheet() -> str:
         border-radius: 4px;
         padding: 4px 8px;
         font-size: 12px;
+    }}
+
+    /* ── QProgressBar ────────────────────────────────────── */
+    QProgressBar {{
+        background: {C('bg_panel')};
+        border: none;
+        border-radius: 3px;
+        text-align: center;
+        color: transparent;
+    }}
+    QProgressBar::chunk {{
+        border-radius: 3px;
+        background: {C('accent')};
     }}
     """

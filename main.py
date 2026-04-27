@@ -12,6 +12,7 @@ Ishga tushirish:
 
 import sys
 import os
+import json
 from pathlib import Path
 
 # ── Venv Python ni majburan ishlatish ────────────────────────────────────
@@ -29,14 +30,26 @@ if str(BASE_DIR) not in sys.path:
 # ── torch va ultralytics AVVAL import — PyQt6 dan oldin ──────────────────
 # Windows da Qt DLL'lari CUDA DLL yuklashiga to'sqinlik qiladi.
 # Shuning uchun torch PyQt6 dan OLDIN import qilinishi shart.
-try:
-    import torch
+def _ai_model_enabled() -> bool:
     try:
-        import ultralytics  # noqa: F401
+        settings_path = BASE_DIR / "settings.json"
+        if not settings_path.exists():
+            return False
+        with open(settings_path, "r", encoding="utf-8") as f:
+            return bool(json.load(f).get("ai_model_enabled", False))
     except Exception:
-        pass
-except Exception as _torch_err:
-    print(f"[main] torch yuklanmadi: {_torch_err}")
+        return False
+
+
+if _ai_model_enabled():
+    try:
+        import torch
+        try:
+            import ultralytics  # noqa: F401
+        except Exception:
+            pass
+    except Exception as _torch_err:
+        print(f"[main] torch yuklanmadi: {_torch_err}")
 
 # ── PyQt6 import ─────────────────────────────────────────────────────────
 try:

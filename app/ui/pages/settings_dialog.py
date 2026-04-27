@@ -461,6 +461,9 @@ class SettingsDialog(QDialog):
         g = QVBoxLayout(grp)
         g.setSpacing(10)
 
+        self._ai_enabled_check = QCheckBox("AI modelni yoqish")
+        g.addWidget(self._ai_enabled_check)
+
         g.addWidget(QLabel("Model fayli (.pt):"))
         h = QHBoxLayout()
         self._model_edit = QLineEdit()
@@ -648,6 +651,7 @@ class SettingsDialog(QDialog):
 
         # Model
         c = self.cfg
+        self._ai_enabled_check.setChecked(bool(c.get("ai_model_enabled", False)))
         self._model_edit.setText(c.get("model_path", ""))
         self._conf_spin.setValue(float(c.get("confidence", 0.6)))
         imgsz = str(c.get("yolo_imgsz", 1024))
@@ -678,6 +682,7 @@ class SettingsDialog(QDialog):
         chat_ids = [x.strip() for x in ids_raw.split(",") if x.strip()]
 
         self.cfg.update({
+            "ai_model_enabled":  self._ai_enabled_check.isChecked(),
             "model_path":       self._model_edit.text().strip(),
             "confidence":       self._conf_spin.value(),
             "yolo_imgsz":       int(self._imgsz_combo.currentText()),

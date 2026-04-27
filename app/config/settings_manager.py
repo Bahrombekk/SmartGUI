@@ -30,6 +30,7 @@ DEFAULT_SETTINGS = {
     "max_reconnects": 20,
 
     # Model
+    "ai_model_enabled": False,
     "model_path": r"app\models\best.pt",
     "confidence": 0.6,
     "yolo_imgsz": 1024,
@@ -69,6 +70,7 @@ DEFAULT_SETTINGS = {
     "theme": "dark",
     "language": "uz",
     "display_max_width": 1280,
+    "video_fps_limit": 25,
     "show_fps": True,
     "show_stats": True,
 
@@ -227,6 +229,10 @@ class ConfigManager:
         return self._settings.get("model_path", "")
 
     @property
+    def ai_model_enabled(self) -> bool:
+        return bool(self._settings.get("ai_model_enabled", False))
+
+    @property
     def confidence(self) -> float:
         return float(self._settings.get("confidence", 0.6))
 
@@ -333,6 +339,10 @@ class CameraConfigProxy:
     @property
     def model_path(self) -> str:
         return self._base.model_path
+
+    @property
+    def ai_model_enabled(self) -> bool:
+        return self._base.ai_model_enabled
 
     @property
     def confidence(self) -> float:

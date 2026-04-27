@@ -67,6 +67,10 @@ class DetectionWorker(QThread):
     # ── Model yuklash ─────────────────────────────────────────────────────
 
     def _load_model(self) -> bool:
+        if not bool(self.cfg.get("ai_model_enabled", False)):
+            self.status_changed.emit("AI model o'chirilgan - video rejim")
+            return False
+
         model_path = self.cfg.model_path
         if not model_path:
             self.status_changed.emit("Model yo'li ko'rsatilmagan — video rejim")
@@ -244,6 +248,16 @@ class DetectionWorker(QThread):
         self._today_count = self.db.get_today_count()
         self.violation_detected.emit(event.to_payload())
 
+    def _resize_for_display(self, frame: np.ndarray) -> np.ndarray:
+        max_w = int(self.cfg.get("display_max_width", 1280))
+        if max_w <= 0:
+            return frame
+        h, w = frame.shape[:2]
+        if w <= max_w:
+            return frame
+        new_h = max(1, int(h * (max_w / w)))
+        return cv2.resize(frame, (max_w, new_h), interpolation=cv2.INTER_AREA)
+
     # ── QThread.run() ─────────────────────────────────────────────────────
 
     def run(self):
@@ -266,17 +280,17 @@ class DetectionWorker(QThread):
                 max_reconnects=int(self.cfg.get("max_reconnects", 999)),
             )
             self._reader.start()
-            deadline = time.time() + 25
-            while time.time() < deadline and self._running:
-                ok, _ = self._reader.get_frame()
-                if ok:
-                    break
-                time.sleep(0.1)
+            # 25s kutish olib tashlandi — CV2RTSPReader o'zi reconnect qiladi.
+            # Asosiy loop darhol boshlanadi, UI "Ulanmoqda..." ko'rsatib turadi.
         else:
             self._reader = cv2.VideoCapture(rtsp_url)
 
-        step      = int(self.cfg.get("process_every_n", 1))
-        raw_count = 0
+        step          = int(self.cfg.get("process_every_n", 1))
+        raw_count     = 0
+        _no_frame_n   = 0   # ketma-ket frame kelmaydigan iteratsiyalar
+        last_emit_ts  = 0.0
+        last_frame_id = -1
+        video_interval = 1.0 / max(1, int(self.cfg.get("video_fps_limit", 25)))
 
         while self._running:
             if self._paused:
@@ -287,9 +301,17 @@ class DetectionWorker(QThread):
                 ok, frame = self._reader.get_frame()
                 connected = self._reader.is_connected
                 if not ok:
-                    self.status_changed.emit("Qayta ulanmoqda...")
+                    _no_frame_n += 1
+                    # Har ~2 soniyada stats yuborish — sidebar Online/Offline yangilansin
+                    if _no_frame_n % 40 == 0:
+                        self.stats_updated.emit({
+                            "fps": 0.0, "today_count": self._today_count,
+                            "active_persons": 0, "connected": False,
+                        })
+                        self.status_changed.emit("Qayta ulanmoqda...")
                     time.sleep(0.05)
                     continue
+                _no_frame_n = 0
             else:
                 ok, frame = self._reader.read()
                 connected = ok
@@ -314,12 +336,20 @@ class DetectionWorker(QThread):
             self._frame_count += 1
 
             if not has_detection:
-                display = self._draw_overlay(
-                    frame.copy(), [], self._fps, self._today_count,
-                    self.cfg.camera_name, connected,
-                )
-                self.frame_ready.emit(display)
-                if self._frame_count % 30 == 0:
+                current_id = getattr(self._reader, "frame_count", raw_count)
+                if current_id == last_frame_id:
+                    time.sleep(0.005)
+                    continue
+
+                if now - last_emit_ts < video_interval:
+                    time.sleep(0.003)
+                    continue
+
+                last_frame_id = current_id
+                last_emit_ts = now
+                self.frame_ready.emit(self._resize_for_display(frame))
+
+                if self._frame_count % max(1, int(1.0 / video_interval)) == 0:
                     self.stats_updated.emit({
                         "fps": self._fps, "today_count": self._today_count,
                         "active_persons": 0, "connected": connected,
@@ -386,7 +416,7 @@ class DetectionWorker(QThread):
 
     def stop(self):
         self._running = False
-        self.wait(8000)
+        self.wait(2500)
 
     def pause(self):
         self._paused = True
