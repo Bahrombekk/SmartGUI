@@ -15,7 +15,14 @@ _DEFAULT_CAMERA = {
     "name": "Elekravoz sex ichki",
     "rtsp_url": "rtsp://admin:qwerty12345@192.168.25.114:554/Streaming/Channels/101",
     "company_id": "61169935-7269-4782-a5d2-bdd42ef28bb0",
+    "department_id": 1,
     "enabled": True,
+}
+
+_DEFAULT_DEPARTMENT = {
+    "id": 1,
+    "name": "Main Building",
+    "expanded": True,
 }
 
 DEFAULT_SETTINGS = {
@@ -23,7 +30,9 @@ DEFAULT_SETTINGS = {
     "smarthelmet_path": SMARTHELMET_DEFAULT,
 
     # Ko'p kamera ro'yxati
+    "departments": [dict(_DEFAULT_DEPARTMENT)],
     "cameras": [dict(_DEFAULT_CAMERA)],
+    "users": [],
 
     # Qayta ulanish (barcha kameralar uchun umumiy)
     "reconnect_delay": 3,
@@ -103,18 +112,32 @@ class ConfigManager:
             self.save()
 
         self._migrate_cameras()
+        self._migrate_users()
 
     def _migrate_cameras(self):
         """
         Eski single-camera formatini (rtsp_url, camera_name, company_id)
         yangi cameras ro'yxatiga ko'chirish.
         """
+        departments = self._settings.get("departments", [])
+        if not departments:
+            departments = [dict(_DEFAULT_DEPARTMENT)]
+            self._settings["departments"] = departments
+        for i, dep in enumerate(departments):
+            if "id" not in dep:
+                dep["id"] = i + 1
+            if "expanded" not in dep:
+                dep["expanded"] = True
+
+        default_dep_id = departments[0].get("id", 1)
         cameras = self._settings.get("cameras", [])
         if cameras:
             # Har bir kamerada id bo'lishini ta'minlash
             for i, cam in enumerate(cameras):
                 if "id" not in cam:
                     cam["id"] = i + 1
+                if "department_id" not in cam:
+                    cam["department_id"] = default_dep_id
             return
 
         # Eski formatdan migration
@@ -127,8 +150,29 @@ class ConfigManager:
             "name": old_name or "Kamera 1",
             "rtsp_url": old_url,
             "company_id": old_company,
+            "department_id": default_dep_id,
             "enabled": True,
         }]
+
+    def _migrate_users(self):
+        users = self._settings.get("users", [])
+        if not isinstance(users, list):
+            users = []
+        default_dep = self.get_departments()[0].get("id", 1)
+        for i, user in enumerate(users):
+            if "id" not in user:
+                user["id"] = i + 1
+            if "employee_id" not in user:
+                user["employee_id"] = str(user.get("id", i + 1))
+            if "first_name" not in user:
+                user["first_name"] = ""
+            if "last_name" not in user:
+                user["last_name"] = ""
+            if "photo_path" not in user:
+                user["photo_path"] = ""
+            if "department_id" not in user:
+                user["department_id"] = default_dep
+        self._settings["users"] = users
 
     def save(self):
         try:
@@ -157,6 +201,111 @@ class ConfigManager:
         """Barcha kameralar ro'yxati."""
         return self._settings.get("cameras", [])
 
+    def get_departments(self) -> list:
+        """Barcha bo'limlar ro'yxati."""
+        return self._settings.get("departments", [])
+
+    def get_department_by_id(self, dep_id: int) -> dict | None:
+        for d in self.get_departments():
+            if d.get("id") == dep_id:
+                return d
+        return None
+
+    def add_department(self, name: str) -> dict:
+        departments = self.get_departments()
+        name = name.strip()
+        if not name:
+            raise ValueError("Bo'lim nomi kiritilishi shart")
+        if any(d.get("name", "").strip().lower() == name.lower() for d in departments):
+            raise ValueError("Bunday nomli bo'lim allaqachon bor")
+
+        existing_ids = {d.get("id", 0) for d in departments}
+        new_id = 1
+        while new_id in existing_ids:
+            new_id += 1
+
+        dep = {"id": new_id, "name": name, "expanded": True}
+        departments.append(dep)
+        self._settings["departments"] = departments
+        return dep
+
+    def update_department(self, dep_id: int, **kwargs):
+        departments = self.get_departments()
+        for dep in departments:
+            if dep.get("id") == dep_id:
+                dep.update(kwargs)
+                break
+        self._settings["departments"] = departments
+
+    def remove_department(self, dep_id: int) -> bool:
+        departments = self.get_departments()
+        if len(departments) <= 1:
+            return False
+        self._settings["departments"] = [
+            d for d in departments if d.get("id") != dep_id
+        ]
+        remaining = self._settings["departments"][0].get("id", 1)
+        for cam in self.get_cameras():
+            if cam.get("department_id") == dep_id:
+                cam["department_id"] = remaining
+        for user in self.get_users():
+            if user.get("department_id") == dep_id:
+                user["department_id"] = remaining
+        return True
+
+    # в"?в"? Hodimlar boshqaruvi в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?в"?
+
+    def get_users(self) -> list:
+        return self._settings.get("users", [])
+
+    def add_user(self, first_name: str, last_name: str, employee_id: str,
+                 photo_path: str = "", department_id: int | None = None) -> dict:
+        first_name = (first_name or "").strip()
+        last_name = (last_name or "").strip()
+        employee_id = (employee_id or "").strip()
+        if not first_name:
+            raise ValueError("Ism kiritilishi shart")
+        if not last_name:
+            raise ValueError("Familya kiritilishi shart")
+        if not employee_id:
+            raise ValueError("Hodim ID kiritilishi shart")
+
+        users = self.get_users()
+        if any(str(u.get("employee_id", "")).lower() == employee_id.lower() for u in users):
+            raise ValueError("Bunday ID bilan hodim allaqachon bor")
+
+        existing_ids = {u.get("id", 0) for u in users}
+        new_id = 1
+        while new_id in existing_ids:
+            new_id += 1
+
+        dep_id = department_id or self.get_departments()[0].get("id", 1)
+        user = {
+            "id": new_id,
+            "first_name": first_name,
+            "last_name": last_name,
+            "employee_id": employee_id,
+            "photo_path": photo_path or "",
+            "department_id": dep_id,
+        }
+        users.append(user)
+        self._settings["users"] = users
+        return user
+
+    def update_user(self, user_id: int, **kwargs):
+        users = self.get_users()
+        for user in users:
+            if user.get("id") == user_id:
+                user.update(kwargs)
+                break
+        self._settings["users"] = users
+
+    def remove_user(self, user_id: int) -> bool:
+        users = self.get_users()
+        before = len(users)
+        self._settings["users"] = [u for u in users if u.get("id") != user_id]
+        return len(self._settings["users"]) != before
+
     def get_enabled_cameras(self) -> list:
         """Faqat yoqilgan kameralar."""
         return [c for c in self.get_cameras() if c.get("enabled", True)]
@@ -168,7 +317,7 @@ class ConfigManager:
         return None
 
     def add_camera(self, name: str, rtsp_url: str, company_id: str,
-                   enabled: bool = True) -> dict:
+                   enabled: bool = True, department_id: int | None = None) -> dict:
         """Yangi kamera qo'shish. Maksimal 10 ta."""
         cameras = self.get_cameras()
         if len(cameras) >= 10:
@@ -184,6 +333,7 @@ class ConfigManager:
             "name": name,
             "rtsp_url": rtsp_url,
             "company_id": company_id,
+            "department_id": department_id or self.get_departments()[0].get("id", 1),
             "enabled": enabled,
         }
         cameras.append(cam)

@@ -1,11 +1,24 @@
 {
   "smarthelmet_path": "",
+  "departments": [
+    {
+      "id": 1,
+      "name": "Main Building",
+      "expanded": true
+    },
+    {
+      "id": 2,
+      "name": "Test",
+      "expanded": true
+    }
+  ],
   "cameras": [
     {
       "id": 3,
       "name": "q2",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/201",
       "company_id": "www",
+      "department_id": 1,
       "enabled": true
     },
     {
@@ -13,7 +26,42 @@
       "name": "qqqq",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/301",
       "company_id": "wq",
+      "department_id": 2,
       "enabled": true
+    },
+    {
+      "id": 2,
+      "name": "q1",
+      "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/501",
+      "company_id": "1",
+      "department_id": 2,
+      "enabled": true
+    },
+    {
+      "id": 4,
+      "name": "6",
+      "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/601",
+      "company_id": "2",
+      "department_id": 2,
+      "enabled": true
+    },
+    {
+      "id": 5,
+      "name": "01",
+      "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/201",
+      "company_id": "1",
+      "department_id": 1,
+      "enabled": true
+    }
+  ],
+  "users": [
+    {
+      "id": 1,
+      "first_name": "Bahrombek",
+      "last_name": "Muhammadiyev",
+      "employee_id": "001",
+      "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
+      "department_id": 1
     }
   ],
   "reconnect_delay": 3,

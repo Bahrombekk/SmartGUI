@@ -8,7 +8,7 @@ import numpy as np
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QFrame, QSizePolicy)
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QFont, QPen
 
 from app.ui.theme import C
@@ -16,6 +16,7 @@ from app.ui.widgets.video_label import VideoLabel
 
 
 class CameraPanel(QFrame):
+    clicked = pyqtSignal(int)
     """
     Bitta kamera uchun widget:
       ┌─ header: status dot | #NN CamName  |  ● REC / Live / Offline ──┐
@@ -33,15 +34,35 @@ class CameraPanel(QFrame):
 
         self._connected = False
         self._pulse_on  = True
+        self._selected  = False
 
         self.setProperty("cam_panel", True)
         self.setMinimumSize(260, 180)
+        self.setStyleSheet(
+            "QFrame[cam_panel='true'] {"
+            "background: #000000;"
+            "border: none;"
+            "border-radius: 10px;"
+            "}"
+        )
 
         self._pulse_timer = QTimer(self)
         self._pulse_timer.setInterval(900)
         self._pulse_timer.timeout.connect(self._pulse_dot)
 
         self._setup_ui()
+
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        border = C("accent") if selected else "#1e293b"
+        ring = "rgba(249,115,22,0.25)" if selected else "#000000"
+        self.setStyleSheet(
+            "QFrame[cam_panel='true'] {"
+            f"background: {ring};"
+            f"border: 2px solid {border};"
+            "border-radius: 10px;"
+            "}"
+        )
 
     # ── UI ────────────────────────────────────────────────────────────────
 
@@ -57,9 +78,8 @@ class CameraPanel(QFrame):
         hdr = QWidget()
         hdr.setFixedHeight(36)
         hdr.setStyleSheet(
-            "background: rgba(13,17,23,0.96);"
-            f"border-bottom: 1px solid {C('border')};"
-            "border-radius: 8px 8px 0 0;"
+            "background: rgba(7,16,22,0.92);"
+            "border-radius: 10px 10px 0 0;"
         )
         lay = QHBoxLayout(hdr)
         lay.setContentsMargins(10, 0, 10, 0)
@@ -67,6 +87,7 @@ class CameraPanel(QFrame):
 
         # Status dot
         self._dot = QLabel("●")
+        self._dot.setText("o")
         self._dot.setFixedWidth(14)
         self._dot.setStyleSheet(
             f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
@@ -112,9 +133,8 @@ class CameraPanel(QFrame):
         ftr = QWidget()
         ftr.setFixedHeight(26)
         ftr.setStyleSheet(
-            "background: rgba(13,17,23,0.96);"
-            f"border-top: 1px solid {C('border')};"
-            "border-radius: 0 0 8px 8px;"
+            "background: rgba(7,16,22,0.92);"
+            "border-radius: 0 0 10px 10px;"
         )
         lay = QHBoxLayout(ftr)
         lay.setContentsMargins(10, 0, 10, 0)
@@ -122,7 +142,8 @@ class CameraPanel(QFrame):
 
         self._time_lbl = QLabel("--:--:--")
         self._time_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            "color: #dce5ef; font-size: 10px; background: rgba(0,0,0,0.55);"
+            "border-radius: 4px; padding: 2px 6px;"
         )
         lay.addWidget(self._time_lbl)
         lay.addStretch()
@@ -176,11 +197,11 @@ class CameraPanel(QFrame):
             self._dot.setStyleSheet(
                 f"color: {C('success')}; font-size: 9px; background: transparent;"
             )
-            self._badge.setText("● REC")
             self._badge.setStyleSheet(
                 f"color: {C('danger')}; font-size: 10px; font-weight: bold;"
                 " background: transparent;"
             )
+            self._badge.setText("Live")
         else:
             self._pulse_timer.stop()
             self._dot.setStyleSheet(
@@ -214,3 +235,7 @@ class CameraPanel(QFrame):
         self._badge.setStyleSheet(
             f"color: {C('warning')}; font-size: 10px; background: transparent;"
         )
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self.cam_id)
+        super().mousePressEvent(event)

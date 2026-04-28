@@ -5,15 +5,16 @@ Layout: Chap sidebar (kamera ro'yxati + tizim holati) | O'ng: jonli monitoring.
 
 import datetime
 import random
+from pathlib import Path
 
 import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
     QScrollArea, QPushButton, QGridLayout, QSizePolicy,
-    QProgressBar, QComboBox, QSpacerItem
+    QProgressBar, QComboBox, QSpacerItem, QDialog
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QDateTime
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QLinearGradient
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QLinearGradient, QIcon, QPixmap
 
 from app.ui.theme import C
 from app.ui.widgets.camera_panel import CameraPanel
@@ -31,7 +32,7 @@ class MiniSparkline(QWidget):
         super().__init__(parent)
         self._color  = QColor(color)
         self._data: list[float] = [random.uniform(0.3, 1.0) for _ in range(20)]
-        self.setFixedHeight(30)
+        self.setFixedHeight(38)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setStyleSheet("background: transparent;")
 
@@ -63,91 +64,221 @@ class MiniSparkline(QWidget):
         p.end()
 
 
+class CameraTreeBranch(QWidget):
+    """Compact tree connector for grouped camera rows."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(38)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(QPen(QColor("#2b3d52"), 1))
+        x = 16
+        y_mid = self.height() // 2
+        p.drawLine(x, 0, x, self.height())
+        p.drawLine(x, y_mid, self.width() - 6, y_mid)
+        p.end()
+
+
+class CameraGroupChevron(QWidget):
+    """Small painted chevron, wider than a text glyph."""
+
+    def __init__(self, expanded: bool = True, parent=None):
+        super().__init__(parent)
+        self._expanded = expanded
+        self.setFixedSize(18, 18)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#e2e8f0"), 1.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        p.setPen(pen)
+        if self._expanded:
+            p.drawLine(5, 7, 9, 12)
+            p.drawLine(9, 12, 13, 7)
+        else:
+            p.drawLine(7, 5, 12, 9)
+            p.drawLine(12, 9, 7, 13)
+        p.end()
+
+
 class CameraListItem(QWidget):
     """Sidebar kamera ro'yxati elementi."""
 
     clicked = pyqtSignal(int)
 
     def __init__(self, cam_id: int, cam_name: str, is_active: bool = False,
-                 parent=None):
+                 grouped: bool = False, parent=None):
         super().__init__(parent)
         self.cam_id = cam_id
+        self._grouped = grouped
         self._status = "connecting"
         self._active = is_active
-        self.setFixedHeight(42)
+        self.setFixedHeight(56 if grouped else 48)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("background: transparent;")
         self._setup_ui(cam_name)
 
     def _setup_ui(self, cam_name: str):
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 0, 8, 0)
-        lay.setSpacing(8)
+        lay.setContentsMargins(0, 0, 4, 0)
+        lay.setSpacing(0)
 
-        self._dot = QLabel("●")
-        self._dot.setFixedWidth(12)
-        self._dot.setStyleSheet(
-            f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
-        )
-        lay.addWidget(self._dot)
+        if self._grouped:
+            lay.addWidget(CameraTreeBranch())
+
+        self._content = QWidget()
+        self._content.setStyleSheet("background: transparent; border: none;")
+        content_lay = QHBoxLayout(self._content)
+        content_lay.setContentsMargins(10, 4, 10, 4)
+        content_lay.setSpacing(10)
+        lay.addWidget(self._content, 1)
+
+        # Camera icon circle
+        self._dot = QLabel("◉")
+        self._dot.setFixedSize(20, 20)
+        self._dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_path = Path(__file__).resolve().parents[3] / "images" / "camera-small.svg"
+        self._dot.setPixmap(QPixmap(str(icon_path)).scaled(
+            15, 15, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        ))
+        self._dot.setText("")
+        self._dot.setStyleSheet("background: transparent; border: none;")
+        content_lay.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignTop)
 
         name_col = QVBoxLayout()
+        name_col.setContentsMargins(0, 0, 0, 0)
         name_col.setSpacing(1)
 
         self._name_lbl = QLabel(f"{self.cam_id:02d} {cam_name}")
         self._name_lbl.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 12px; background: transparent;"
+            "color: #f8fafc; font-size: 13px; font-weight: 500; background: transparent; border: none;"
         )
         name_col.addWidget(self._name_lbl)
 
         self._status_lbl = QLabel("Ulanmoqda")
         self._status_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            "color: #64748b; font-size: 12px; background: transparent; border: none;"
         )
         name_col.addWidget(self._status_lbl)
-        lay.addLayout(name_col, 1)
+        content_lay.addLayout(name_col, 1)
 
-        menu_btn = QLabel("⋮")
-        menu_btn.setFixedWidth(18)
-        menu_btn.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        menu_btn.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 14px; background: transparent;"
-        )
-        lay.addWidget(menu_btn)
+        self._menu_lbl = QLabel()
+        self._menu_lbl.setFixedSize(20, 20)
+        menu_path = Path(__file__).resolve().parents[3] / "images" / "more-vertical.svg"
+        self._menu_lbl.setPixmap(QPixmap(str(menu_path)).scaled(
+            15, 15, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        ))
+        self._menu_lbl.setStyleSheet("background: transparent; border: none;")
+        self._menu_lbl.setVisible(self._active)
+        content_lay.addWidget(self._menu_lbl, 0, Qt.AlignmentFlag.AlignCenter)
+        self._apply_active_style()
 
     def set_status(self, status: str):
         """status: 'live' | 'offline' | 'connecting' | 'error'"""
         self._status = status
         if status == "live":
             self._dot.setStyleSheet(
-                f"color: {C('success')}; font-size: 9px; background: transparent;"
+                "color: #34d399; font-size: 11px; background: transparent; border: none;"
             )
             self._status_lbl.setText("Live")
             self._status_lbl.setStyleSheet(
-                f"color: {C('success')}; font-size: 10px; background: transparent;"
+                "color: #34d399; font-size: 12px; background: transparent; border: none;"
             )
         elif status == "offline" or status == "error":
             self._dot.setStyleSheet(
-                f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
+                "color: #64748b; font-size: 11px; background: transparent; border: none;"
             )
             self._status_lbl.setText("Offline")
             self._status_lbl.setStyleSheet(
-                f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+                "color: #64748b; font-size: 12px; background: transparent; border: none;"
             )
         else:
             self._dot.setStyleSheet(
-                f"color: {C('warning')}; font-size: 9px; background: transparent;"
+                "color: #fbbf24; font-size: 11px; background: transparent; border: none;"
             )
             self._status_lbl.setText("Ulanmoqda")
             self._status_lbl.setStyleSheet(
-                f"color: {C('warning')}; font-size: 10px; background: transparent;"
+                "color: #fbbf24; font-size: 12px; background: transparent; border: none;"
             )
+
+    def set_selected(self, selected: bool):
+        self._active = selected
+        self._menu_lbl.setVisible(selected)
+        self._apply_active_style()
+
+    def _apply_active_style(self):
+        if self._active:
+            self._content.setStyleSheet(
+                "background: rgba(249,115,22,0.20); border: none; border-radius: 7px;"
+            )
+        else:
+            self._content.setStyleSheet("background: transparent; border: none;")
 
     def mousePressEvent(self, event):
         self.clicked.emit(self.cam_id)
 
     def enterEvent(self, event):
-        self.setStyleSheet(f"background: {C('bg_hover')}; border-radius: 6px;")
+        if not self._active:
+            self._content.setStyleSheet(
+                "background: rgba(30,41,59,0.45); border: none; border-radius: 7px;"
+            )
+
+    def leaveEvent(self, event):
+        self._apply_active_style()
+
+
+class CameraGroupHeader(QWidget):
+    """Sidebar bo'lim sarlavhasi."""
+
+    toggled = pyqtSignal(int)
+
+    def __init__(self, dep_id: int, title: str, count: int, expanded: bool = True,
+                 parent=None):
+        super().__init__(parent)
+        self.dep_id = dep_id
+        self.expanded = expanded
+        self.setFixedHeight(34)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("background: transparent;")
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(2, 0, 8, 0)
+        lay.setSpacing(8)
+
+        arrow = QLabel("⌄" if expanded else "›")
+        arrow.setText("v" if expanded else ">")
+        arrow.setFixedWidth(18)
+        arrow.setStyleSheet(
+            "color: #e2e8f0; font-size: 12px; background: transparent; border: none;"
+        )
+        arrow = CameraGroupChevron(expanded)
+        lay.addWidget(arrow)
+
+        name = QLabel(title)
+        name.setStyleSheet(
+            "color: #ffffff; font-size: 13px; font-weight: 600; background: transparent; border: none;"
+        )
+        lay.addWidget(name, 1)
+
+        badge = QLabel(str(count))
+        badge.setStyleSheet(
+            "color: #64748b; font-size: 10px; background: transparent; border: none;"
+        )
+        badge.setVisible(False)
+        lay.addWidget(badge)
+
+    def mousePressEvent(self, event):
+        self.toggled.emit(self.dep_id)
+
+    def enterEvent(self, event):
+        self.setStyleSheet(f"background: {C('bg_hover')}; border-radius: 5px;")
 
     def leaveEvent(self, event):
         self.setStyleSheet("background: transparent;")
@@ -260,10 +391,11 @@ class TimelineWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(100)
+        self.setFixedHeight(96)
         self.setStyleSheet(
-            f"background: {C('bg_card')};"
-            f"border-top: 1px solid {C('border')};"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b;"
+            "border-radius: 10px;"
         )
         self._setup_ui()
 
@@ -388,6 +520,8 @@ class DashboardPage(QWidget):
     """Asosiy dashboard sahifasi — SmartHelmet dizayni."""
 
     go_violations = pyqtSignal()
+    add_camera_requested = pyqtSignal()
+    ai_pause_requested = pyqtSignal(bool)
 
     def __init__(self, db, config_manager, parent=None):
         super().__init__(parent)
@@ -396,6 +530,15 @@ class DashboardPage(QWidget):
 
         self._panels: dict[int, CameraPanel]      = {}
         self._cam_items: dict[int, CameraListItem] = {}
+        self._cam_status: dict[int, str]           = {}
+        self._sidebar_cameras: list                = []
+        self._all_cameras: list                    = []
+        self._visible_cameras: list                = []
+        self._selected_cam_id: int | None          = None
+        self._search_text = ""
+        self._stream_filter = "all"
+        self._grid_columns = 4
+        self._grid_btns: dict[int, QPushButton] = {}
         self._today_per_cam: dict[int, int]        = {}
         self._recent_violations: list              = []
         self._recent_persons: list                 = []
@@ -412,16 +555,13 @@ class DashboardPage(QWidget):
         self._refresh_timer.timeout.connect(self._refresh_stats)
         self._refresh_timer.start(30_000)
 
-        self._sys_timer = QTimer(self)
-        self._sys_timer.timeout.connect(self._update_sys_status)
-        self._sys_timer.start(3_000)
-
     # ── Ana UI ───────────────────────────────────────────────────────────
 
     def _setup_ui(self):
         root = QHBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
+        self.setStyleSheet("background: #03070b;")
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(14)
 
         # Chap sidebar
         root.addWidget(self._build_left_sidebar())
@@ -429,7 +569,8 @@ class DashboardPage(QWidget):
         # O'ng tomon separator
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
-        sep.setStyleSheet(f"color: {C('border')};")
+        sep.setFixedWidth(0)
+        sep.setStyleSheet("background: transparent; border: none;")
         root.addWidget(sep)
 
         # Asosiy kontent
@@ -440,251 +581,272 @@ class DashboardPage(QWidget):
     # ════════════════════════════════════════════════════════════════════════
 
     def _build_left_sidebar(self) -> QWidget:
+        # Tashqi konteyner — shaffof, panellar ichida bo'ladi
         sidebar = QWidget()
-        sidebar.setFixedWidth(235)
-        sidebar.setStyleSheet(f"background: {C('bg_sidebar')};")
+        sidebar.setFixedWidth(290)
+        sidebar.setStyleSheet("background: transparent;")
 
         lay = QVBoxLayout(sidebar)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setSpacing(12)
 
-        # ── Sarlavha ─────────────────────────────────────────────────────
-        hdr = QWidget()
-        hdr.setFixedHeight(48)
-        hdr.setStyleSheet(
-            f"background: {C('bg_sidebar')};"
-            f"border-bottom: 1px solid {C('border')};"
+        # ── Kamera paneli (flex-[7]) ─────────────────────────────────────
+        cam_panel = QFrame()
+        cam_panel.setObjectName("cameraSidebarPanel")
+        cam_panel.setStyleSheet(
+            "QFrame#cameraSidebarPanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b;"
+            "border-radius: 12px;"
+            "}"
         )
-        hdr_lay = QHBoxLayout(hdr)
-        hdr_lay.setContentsMargins(14, 0, 8, 0)
-        hdr_lay.setSpacing(0)
+        cam_lay = QVBoxLayout(cam_panel)
+        cam_lay.setContentsMargins(16, 14, 16, 14)
+        cam_lay.setSpacing(0)
+
+        # Sarlavha
+        hdr_lay = QHBoxLayout()
+        hdr_lay.setContentsMargins(0, 0, 0, 12)
 
         cam_title = QLabel("CAMERAS")
         cam_title.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; font-weight: bold;"
-            " letter-spacing: 1px; background: transparent;"
+            "color: #ffffff; font-size: 11px; font-weight: bold;"
+            " letter-spacing: 1px; background: transparent; border: none;"
         )
         hdr_lay.addWidget(cam_title, 1)
 
-        add_btn = QPushButton("+ Add Camera")
-        add_btn.setFixedHeight(28)
+        add_btn = QPushButton("+ Add")
+        add_btn.setFixedHeight(32)
         add_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {C('accent_dim')};
-                color: {C('accent')};
-                border: 1px solid {C('accent_dim')};
-                border-radius: 5px;
-                padding: 0 10px;
-                font-size: 11px;
-                font-weight: bold;
+                background: #1e293b;
+                color: #ffffff;
+                border: none;
+                border-radius: 7px;
+                padding: 0 14px;
+                font-size: 12px;
+                font-weight: 600;
             }}
             QPushButton:hover {{
-                background: {C('accent')};
-                color: white;
+                background: #334155;
             }}
         """)
+        add_btn.clicked.connect(self.add_camera_requested)
         hdr_lay.addWidget(add_btn)
-        lay.addWidget(hdr)
+        cam_lay.addLayout(hdr_lay)
 
-        # ── "All Cameras" elementi ────────────────────────────────────────
-        all_cam = QWidget()
-        all_cam.setFixedHeight(38)
-        all_cam.setStyleSheet("background: transparent;")
-        all_lay = QHBoxLayout(all_cam)
-        all_lay.setContentsMargins(14, 0, 10, 0)
-        all_lay.setSpacing(8)
+        # "All Cameras" tugma
+        all_cam = QPushButton()
+        all_cam.setFixedHeight(44)
+        all_cam_lay = QHBoxLayout(all_cam)
+        all_cam_lay.setContentsMargins(12, 0, 12, 0)
+        all_cam_lay.setSpacing(8)
 
-        all_dot = QLabel("●")
-        all_dot.setFixedWidth(14)
-        all_dot.setStyleSheet(
-            f"color: {C('accent')}; font-size: 10px; background: transparent;"
-        )
-        all_lay.addWidget(all_dot)
+        cam_icon = QLabel("◉")
+        cam_icon.setText("")
+        cam_icon.setFixedSize(22, 22)
+        cam_icon.setPixmap(QPixmap(str(Path(__file__).resolve().parents[3] / "images" / "camera-small.svg")).scaled(
+            16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        ))
+        cam_icon.setStyleSheet("background: transparent; border: none;")
+        all_cam_lay.addWidget(cam_icon)
 
         all_lbl = QLabel("All Cameras")
         all_lbl.setStyleSheet(
-            f"color: {C('accent')}; font-size: 12px; font-weight: bold;"
-            " background: transparent;"
+            "color: #fb923c; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )
-        all_lay.addWidget(all_lbl, 1)
+        all_cam_lay.addWidget(all_lbl, 1)
 
         self._all_count_lbl = QLabel("0")
         self._all_count_lbl.setStyleSheet(
-            f"color: {C('accent')}; font-size: 12px; font-weight: bold;"
-            f" background: {C('accent_dim')}; border-radius: 10px;"
-            " padding: 0 7px; background: transparent;"
+            "color: #fb923c; font-size: 12px; font-weight: bold;"
+            " background: rgba(249,115,22,0.18); border: none; border-radius: 11px; padding: 2px 8px;"
         )
-        all_lay.addWidget(self._all_count_lbl)
-        lay.addWidget(all_cam)
+        all_cam_lay.addWidget(self._all_count_lbl)
 
-        # ── Kamera ro'yxati (scroll) ──────────────────────────────────────
+        all_cam.setStyleSheet("""
+            QPushButton {
+                background: rgba(30,41,59,0.55);
+                border: none;
+                border-radius: 8px;
+                text-align: left;
+            }
+            QPushButton:hover { background: rgba(30,41,59,0.8); }
+        """)
+        cam_lay.addWidget(all_cam)
+        cam_lay.addSpacing(14)
+
+        # Kamera ro'yxati (scroll)
         cam_scroll = QScrollArea()
         cam_scroll.setWidgetResizable(True)
         cam_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        cam_scroll.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        cam_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        cam_scroll.setStyleSheet("background: transparent;")
 
         self._cam_list_widget = QWidget()
         self._cam_list_widget.setStyleSheet("background: transparent;")
         self._cam_list_layout = QVBoxLayout(self._cam_list_widget)
-        self._cam_list_layout.setContentsMargins(4, 4, 4, 4)
+        self._cam_list_layout.setContentsMargins(0, 0, 0, 0)
         self._cam_list_layout.setSpacing(2)
         self._cam_list_layout.addStretch()
 
         cam_scroll.setWidget(self._cam_list_widget)
-        cam_scroll.setMaximumHeight(260)
-        lay.addWidget(cam_scroll)
+        cam_lay.addWidget(cam_scroll, 1)
 
-        # ── Tizim holati ──────────────────────────────────────────────────
-        lay.addWidget(self._build_system_overview())
-        lay.addStretch()
+        lay.addWidget(cam_panel, 7)
+
+        # ── Tizim holati paneli (flex-[3]) ────────────────────────────────
+        lay.addWidget(self._build_system_overview(), 3)
 
         return sidebar
 
     def _build_system_overview(self) -> QFrame:
         frame = QFrame()
+        frame.setObjectName("systemOverviewPanel")
         frame.setStyleSheet(
-            f"background: {C('bg_sidebar')};"
-            f"border-top: 1px solid {C('border')};"
+            "QFrame#systemOverviewPanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b;"
+            "border-radius: 12px;"
+            "}"
         )
         lay = QVBoxLayout(frame)
-        lay.setContentsMargins(14, 12, 14, 12)
-        lay.setSpacing(10)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(0)
 
         # Sarlavha
         ov_title = QLabel("SYSTEM OVERVIEW")
         ov_title.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; font-weight: bold;"
-            " letter-spacing: 1px; background: transparent;"
+            "color: #94a3b8; font-size: 10px; font-weight: bold;"
+            " letter-spacing: 1px; background: transparent; border: none;"
         )
         lay.addWidget(ov_title)
+        lay.addSpacing(12)
 
-        # Total / Online / Offline
+        # Total / Online / Offline — 3 ustun
         counts_row = QHBoxLayout()
         counts_row.setSpacing(0)
 
-        for key, label, color in [
-            ("total",   "Total Cameras", C('text_primary')),
-            ("online",  "Online",        C('accent')),
-            ("offline", "Offline",       C('text_muted')),
+        for key, label, lbl_color, val_color in [
+            ("total",   "Total",   "#94a3b8", "#ffffff"),
+            ("online",  "Online",  "#34d399", "#22d3ee"),
+            ("offline", "Offline", "#94a3b8", "#94a3b8"),
         ]:
             col = QVBoxLayout()
-            col.setSpacing(2)
+            col.setSpacing(3)
+
             val = QLabel("—")
+            val.setText("0")
             val.setStyleSheet(
-                f"color: {color}; font-size: 20px; font-weight: bold;"
-                " background: transparent;"
+                f"color: {val_color}; font-size: 22px; font-weight: 600;"
+                " background: transparent; border: none;"
             )
             val.setAlignment(Qt.AlignmentFlag.AlignCenter)
             col.addWidget(val)
+
             lbl = QLabel(label)
             lbl.setStyleSheet(
-                f"color: {C('text_muted')}; font-size: 9px; background: transparent;"
+                f"color: {lbl_color}; font-size: 10px; background: transparent;"
+                " border: none;"
             )
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             col.addWidget(lbl)
+
             counts_row.addLayout(col, 1)
-
-            if key != "offline":
-                sep_v = QFrame()
-                sep_v.setFrameShape(QFrame.Shape.VLine)
-                sep_v.setFixedHeight(30)
-                sep_v.setStyleSheet(f"color: {C('border')};")
-                counts_row.addWidget(sep_v)
-
-            # Store references
             setattr(self, f"_ov_{key}", val)
 
         lay.addLayout(counts_row)
+        lay.addSpacing(4)
 
-        # Bugungi aniqlanishlar
-        lay.addWidget(self._stat_row(
-            "Detections Today", "38", "+12%", C('success'),
-            C('success'), "_det_today_lbl"
-        ))
-        self._det_sparkline = MiniSparkline(C('success'))
-        lay.addWidget(self._det_sparkline)
+        # StatLine: Detections Today
+        lay.addWidget(self._stat_line("Detections Today", "0", "+0%", red=False))
 
-        # Kask yo'q
-        lay.addWidget(self._stat_row(
-            "No Helmet Detections", "12", "+8%", C('danger'),
-            C('danger'), "_no_helmet_lbl"
-        ))
-        self._no_helmet_sparkline = MiniSparkline(C('danger'))
-        lay.addWidget(self._no_helmet_sparkline)
+        # StatLine: No Helmet
+        lay.addWidget(self._stat_line("No Helmet Detections", "0", "+0%", red=True))
 
-        # Recognition rate
-        rate_row = QHBoxLayout()
-        rate_lbl = QLabel("Recognition Rate")
-        rate_lbl.setStyleSheet(
-            f"color: {C('text_secondary')}; font-size: 11px; background: transparent;"
-        )
-        rate_row.addWidget(rate_lbl, 1)
+        # Recognition Rate
+        rr = QWidget()
+        rr.setStyleSheet("background: transparent;")
+        rr_lay = QVBoxLayout(rr)
+        rr_lay.setContentsMargins(0, 8, 0, 4)
+        rr_lay.setSpacing(4)
 
-        rate_val = QLabel("98.6%")
-        rate_val.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 11px; font-weight: bold;"
-            " background: transparent;"
-        )
-        rate_row.addWidget(rate_val)
+        rl = QLabel("Recognition Rate")
+        rl.setStyleSheet("color: #94a3b8; font-size: 11px; background: transparent; border: none;")
+        rr_lay.addWidget(rl)
 
-        excellent = QLabel("+2.4% Excellent")
-        excellent.setStyleSheet(
-            f"color: {C('success')}; font-size: 10px; background: transparent;"
-        )
-        rate_row.addWidget(excellent)
-        lay.addLayout(rate_row)
+        rv_row = QHBoxLayout()
+        rv_row.setSpacing(6)
+        rv = QLabel("98.6%")
+        rv.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold; background: transparent; border: none;")
+        rv_row.addWidget(rv)
+        rd = QLabel("+2.4%")
+        rd.setStyleSheet("color: #34d399; font-size: 11px; background: transparent; border: none;")
+        rv_row.addWidget(rd, 0, Qt.AlignmentFlag.AlignBottom)
+        rv_row.addStretch()
+        rex = QLabel("Excellent")
+        rex.setStyleSheet("color: #22d3ee; font-size: 11px; background: transparent; border: none;")
+        rv_row.addWidget(rex, 0, Qt.AlignmentFlag.AlignBottom)
+        rr_lay.addLayout(rv_row)
 
         rate_bar = QProgressBar()
         rate_bar.setRange(0, 100)
-        rate_bar.setValue(99)
-        rate_bar.setFixedHeight(5)
+        rate_bar.setValue(88)
+        rate_bar.setFixedHeight(6)
         rate_bar.setTextVisible(False)
-        rate_bar.setStyleSheet(f"""
-            QProgressBar {{
-                background: {C('bg_panel')};
-                border: none;
-                border-radius: 3px;
-            }}
-            QProgressBar::chunk {{
-                background: {C('success')};
-                border-radius: 3px;
-            }}
-        """)
-        lay.addWidget(rate_bar)
+        rate_bar.setStyleSheet(
+            "QProgressBar { background: #1e293b; border: none; border-radius: 3px; }"
+            "QProgressBar::chunk { background: #34d399; border-radius: 3px; }"
+        )
+        rr_lay.addWidget(rate_bar)
+        lay.addWidget(rr)
 
         return frame
 
-    @staticmethod
-    def _stat_row(title: str, value: str, delta: str,
-                  val_color: str, delta_color: str,
-                  attr_name: str) -> QWidget:
+    def _stat_line(self, title: str, value: str, delta: str, red: bool = False) -> QWidget:
         w = QWidget()
         w.setStyleSheet("background: transparent;")
-        lay = QHBoxLayout(w)
+        lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
+        lay.setSpacing(3)
 
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(
-            f"color: {C('text_secondary')}; font-size: 11px; background: transparent;"
-        )
-        lay.addWidget(title_lbl, 1)
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background: #1e293b; border: none; max-height: 1px;")
+        lay.addWidget(sep)
 
-        val_lbl = QLabel(value)
-        val_lbl.setStyleSheet(
-            f"color: {val_color}; font-size: 14px; font-weight: bold;"
-            " background: transparent;"
-        )
-        lay.addWidget(val_lbl)
+        lay.addSpacing(6)
 
-        delta_lbl = QLabel(delta)
-        delta_lbl.setStyleSheet(
-            f"color: {delta_color}; font-size: 10px; background: transparent;"
-        )
-        lay.addWidget(delta_lbl)
+        t = QLabel(title)
+        t.setStyleSheet("color: #cbd5e1; font-size: 11px; background: transparent; border: none;")
+        lay.addWidget(t)
+
+        vrow = QHBoxLayout()
+        vrow.setSpacing(6)
+        v = QLabel(value)
+        v.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: bold; background: transparent; border: none;")
+        if title == "Detections Today":
+            self._detections_today_lbl = v
+        elif title == "No Helmet Detections":
+            self._no_helmet_today_lbl = v
+        vrow.addWidget(v)
+        dc = "#ef4444" if red else "#34d399"
+        d = QLabel(delta)
+        d.setStyleSheet(f"color: {dc}; font-size: 11px; background: transparent; border: none;")
+        vrow.addWidget(d, 0, Qt.AlignmentFlag.AlignBottom)
+        vrow.addStretch()
+        lay.addLayout(vrow)
+
+        line = QFrame()
+        line.setFixedHeight(2)
+        lc = "#7f1d1d" if red else "#065f46"
+        line.setStyleSheet(f"background: {lc}; border: none; border-radius: 1px;")
+        lay.addWidget(line)
+
+        lay.addSpacing(4)
         return w
+
 
     # ════════════════════════════════════════════════════════════════════════
     #  O'NG ASOSIY KONTENT
@@ -692,27 +854,38 @@ class DashboardPage(QWidget):
 
     def _build_main_content(self) -> QWidget:
         main = QWidget()
-        main.setStyleSheet(f"background: {C('bg_main')};")
+        main.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(main)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setSpacing(10)
 
-        lay.addWidget(self._build_monitor_header())
-        lay.addWidget(self._build_camera_grid_area(), 1)
-        lay.addWidget(TimelineWidget())
+        # Live Monitoring paneli (header + kamera grid bir panel ichida)
+        monitor_panel = QFrame()
+        monitor_panel.setObjectName("monitorPanel")
+        monitor_panel.setStyleSheet(
+            "QFrame#monitorPanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b;"
+            "border-radius: 12px;"
+            "}"
+        )
+        mp_lay = QVBoxLayout(monitor_panel)
+        mp_lay.setContentsMargins(14, 12, 14, 12)
+        mp_lay.setSpacing(10)
+        mp_lay.addWidget(self._build_monitor_header())
+        mp_lay.addWidget(self._build_camera_grid_area(), 1)
+
+        lay.addWidget(monitor_panel, 1)
         lay.addWidget(self._build_bottom_panels())
 
         return main
 
     def _build_monitor_header(self) -> QWidget:
         hdr = QWidget()
-        hdr.setFixedHeight(48)
-        hdr.setStyleSheet(
-            f"background: {C('bg_sidebar')};"
-            f"border-bottom: 1px solid {C('border')};"
-        )
+        hdr.setFixedHeight(46)
+        hdr.setStyleSheet("background: transparent;")
         lay = QHBoxLayout(hdr)
-        lay.setContentsMargins(16, 0, 16, 0)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
 
         # Jonli monitoring sarlavhasi
@@ -721,26 +894,40 @@ class DashboardPage(QWidget):
             f"color: {C('success')}; font-size: 10px; background: transparent;"
         )
         lay.addWidget(dot)
+        dot.setText("●")
+        dot.setStyleSheet(f"color: {C('success')}; font-size: 12px; background: transparent; border: none;")
 
         title = QLabel("Live Monitoring")
         title.setStyleSheet(
             f"color: {C('text_primary')}; font-size: 15px; font-weight: bold;"
-            " background: transparent;"
+            " background: transparent; border: none;"
         )
         lay.addWidget(title)
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 16px; font-weight: 800; background: transparent; border: none;")
 
         self._cam_count_badge = QLabel("● 0 Cameras")
+        self._cam_count_badge.setText("0 Cameras")
         self._cam_count_badge.setStyleSheet(
-            f"color: {C('success')}; font-size: 12px; background: transparent;"
+            f"color: {C('text_secondary')}; font-size: 12px; background: transparent; border: none;"
         )
         lay.addWidget(self._cam_count_badge)
+        self._cam_count_badge.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px; background: transparent; border: none;")
+        lay.removeWidget(dot)
+        lay.insertWidget(1, dot)
         lay.addStretch()
 
         # Grid tartibi tugmalari
+        icon_dir = Path(__file__).resolve().parents[3] / "images"
         for icon, tip in [("⊞", "1x1"), ("⊞⊞", "2x2"), ("⊞⊞⊞", "3x3")]:
             btn = QPushButton(icon)
             btn.setFixedSize(32, 32)
-            btn.setToolTip(tip)
+            btn.setText({"1x1": "2", "2x2": "3", "3x3": "4"}.get(tip, "4"))
+            btn.setText("")
+            icon_name = {"1x1": "grid-2.svg", "2x2": "grid-3.svg", "3x3": "grid-4.svg"}.get(tip, "grid-4.svg")
+            btn.setIcon(QIcon(str(icon_dir / icon_name)))
+            btn.setIconSize(QSize(17, 17))
+            btn.setToolTip({"1x1": "2 columns", "2x2": "3 columns", "3x3": "4 columns"}.get(tip, tip))
+            btn.clicked.connect(lambda _, t=tip: self.set_grid_columns({"1x1": 2, "2x2": 3, "3x3": 4}.get(t, 4)))
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: {C('bg_panel')};
@@ -754,20 +941,34 @@ class DashboardPage(QWidget):
                     color: {C('text_primary')};
                 }}
             """)
+            active = tip == "3x3"
+            btn.setFixedSize(34, 34)
+            btn.setStyleSheet(self._grid_btn_style(active))
             lay.addWidget(btn)
+            self._grid_btns[{ "1x1": 2, "2x2": 3, "3x3": 4 }.get(tip, 4)] = btn
 
         lay.addSpacing(8)
 
         # Stream tanlash
         stream_combo = QComboBox()
         stream_combo.addItems(["All Streams", "Main Building", "Secondary Area"])
+        stream_combo.clear()
+        stream_combo.addItems(["All Streams", "Online", "Offline", "Main Building", "Secondary Area"])
         stream_combo.setFixedWidth(130)
         stream_combo.setFixedHeight(32)
+        self._stream_combo = stream_combo
+        stream_combo.currentIndexChanged.connect(self._on_filter_changed)
         lay.addWidget(stream_combo)
 
         # Kengaytirish
         expand_btn = QPushButton("⤢")
         expand_btn.setFixedSize(32, 32)
+        expand_btn.setText("[]")
+        expand_btn.setText("")
+        expand_btn.setFixedSize(34, 34)
+        expand_btn.setIcon(QIcon(str(icon_dir / "expand.svg")))
+        expand_btn.setIconSize(QSize(17, 17))
+        expand_btn.setToolTip("Expand selected camera")
         expand_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {C('bg_panel')};
@@ -781,6 +982,7 @@ class DashboardPage(QWidget):
                 color: {C('text_primary')};
             }}
         """)
+        expand_btn.clicked.connect(self._expand_selected_camera)
         lay.addWidget(expand_btn)
 
         return hdr
@@ -792,70 +994,62 @@ class DashboardPage(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._cam_container = QWidget()
-        self._cam_container.setStyleSheet(f"background: {C('bg_main')};")
+        self._cam_container.setStyleSheet("background: transparent;")
         self._cam_grid = QGridLayout(self._cam_container)
-        self._cam_grid.setSpacing(6)
-        self._cam_grid.setContentsMargins(8, 8, 8, 8)
+        self._cam_grid.setSpacing(10)
+        self._cam_grid.setContentsMargins(0, 0, 0, 0)
 
         scroll.setWidget(self._cam_container)
         return scroll
 
     def _build_bottom_panels(self) -> QWidget:
         bottom = QWidget()
-        bottom.setFixedHeight(240)
-        bottom.setStyleSheet(
-            f"background: {C('bg_sidebar')};"
-            f"border-top: 1px solid {C('border')};"
-        )
+        bottom.setFixedHeight(260)
+        bottom.setStyleSheet("background: transparent;")
         lay = QHBoxLayout(bottom)
         lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
+        lay.setSpacing(10)
 
         panels = [
             self._build_recent_events(),
             self._build_detected_people(),
             self._build_ai_detection(),
-            self._build_system_status(),
+            self._build_no_helmet_panel(),
         ]
-        for i, panel in enumerate(panels):
-            lay.addWidget(panel, [30, 25, 25, 20][i])
-            if i < len(panels) - 1:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.Shape.VLine)
-                sep.setStyleSheet(f"color: {C('border')};")
-                lay.addWidget(sep)
+        for panel in panels:
+            lay.addWidget(panel, 1)
 
         return bottom
 
     # ── Recent Events ────────────────────────────────────────────────────
 
     def _build_recent_events(self) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
+        w = QFrame()
+        w.setObjectName("recentEventsPanel")
+        w.setStyleSheet(
+            "QFrame#recentEventsPanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b; border-radius: 12px;"
+            "}"
+        )
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(12, 10, 12, 8)
-        lay.setSpacing(6)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
 
         hdr = QHBoxLayout()
         t = QLabel("Recent Events")
         t.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 12px; font-weight: bold;"
-            " background: transparent;"
+            "color: #ffffff; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )
         hdr.addWidget(t)
         hdr.addStretch()
 
         view_all = QPushButton("View All")
-        view_all.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {C('accent')};
-                border: none;
-                font-size: 11px;
-                padding: 0;
-            }}
-            QPushButton:hover {{ color: {C('accent_hover')}; }}
-        """)
+        view_all.setStyleSheet(
+            "QPushButton { background: transparent; color: #fb923c; border: none;"
+            " font-size: 11px; font-weight: bold; padding: 0; }"
+            "QPushButton:hover { color: #fdba74; }"
+        )
         view_all.clicked.connect(self.go_violations)
         hdr.addWidget(view_all)
         lay.addLayout(hdr)
@@ -867,10 +1061,10 @@ class DashboardPage(QWidget):
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._events_widget = QWidget()
-        self._events_widget.setStyleSheet("background: transparent;")
+        self._events_widget.setStyleSheet("background: transparent; border: none;")
         self._events_layout = QVBoxLayout(self._events_widget)
         self._events_layout.setContentsMargins(0, 0, 0, 0)
-        self._events_layout.setSpacing(3)
+        self._events_layout.setSpacing(4)
         self._events_layout.addStretch()
 
         scroll.setWidget(self._events_widget)
@@ -880,31 +1074,31 @@ class DashboardPage(QWidget):
     # ── Detected People ──────────────────────────────────────────────────
 
     def _build_detected_people(self) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
+        w = QFrame()
+        w.setObjectName("detectedPeoplePanel")
+        w.setStyleSheet(
+            "QFrame#detectedPeoplePanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b; border-radius: 12px;"
+            "}"
+        )
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(12, 10, 12, 8)
-        lay.setSpacing(6)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
 
         hdr = QHBoxLayout()
         t = QLabel("Detected People")
         t.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 12px; font-weight: bold;"
-            " background: transparent;"
+            "color: #ffffff; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )
         hdr.addWidget(t)
         hdr.addStretch()
         view_all = QPushButton("View All")
-        view_all.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {C('accent')};
-                border: none;
-                font-size: 11px;
-                padding: 0;
-            }}
-            QPushButton:hover {{ color: {C('accent_hover')}; }}
-        """)
+        view_all.setStyleSheet(
+            "QPushButton { background: transparent; color: #fb923c; border: none;"
+            " font-size: 11px; font-weight: bold; padding: 0; }"
+            "QPushButton:hover { color: #fdba74; }"
+        )
         view_all.clicked.connect(self.go_violations)
         hdr.addWidget(view_all)
         lay.addLayout(hdr)
@@ -916,10 +1110,10 @@ class DashboardPage(QWidget):
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._people_widget = QWidget()
-        self._people_widget.setStyleSheet("background: transparent;")
+        self._people_widget.setStyleSheet("background: transparent; border: none;")
         self._people_layout = QVBoxLayout(self._people_widget)
         self._people_layout.setContentsMargins(0, 0, 0, 0)
-        self._people_layout.setSpacing(3)
+        self._people_layout.setSpacing(6)
         self._people_layout.addStretch()
 
         scroll.setWidget(self._people_widget)
@@ -929,130 +1123,370 @@ class DashboardPage(QWidget):
     # ── AI Detection ─────────────────────────────────────────────────────
 
     def _build_ai_detection(self) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
+        w = QFrame()
+        w.setObjectName("aiDetectionPanel")
+        w.setStyleSheet(
+            "QFrame#aiDetectionPanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b; border-radius: 12px;"
+            "}"
+        )
+        w.setMinimumHeight(260)
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(12, 10, 12, 8)
-        lay.setSpacing(6)
+        lay.setContentsMargins(18, 14, 18, 14)
+        lay.setSpacing(0)
 
         t = QLabel("AI Detection")
         t.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 12px; font-weight: bold;"
-            " background: transparent;"
+            "color: #ffffff; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )
         lay.addWidget(t)
+        lay.addSpacing(14)
 
-        center = QWidget()
-        center.setStyleSheet("background: transparent;")
-        c_lay = QVBoxLayout(center)
-        c_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        c_lay.setSpacing(6)
+        # Content: person placeholder (left) + text stack (right)
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        c_lay = QHBoxLayout(content)
+        c_lay.setContentsMargins(0, 0, 0, 0)
+        c_lay.setSpacing(14)
 
-        brain = AIBrainWidget()
-        c_lay.addWidget(brain, 0, Qt.AlignmentFlag.AlignCenter)
-
-        active_lbl = QLabel("Active")
-        active_lbl.setStyleSheet(
-            f"color: {C('success')}; font-size: 14px; font-weight: bold;"
-            " background: transparent;"
+        # Left: person silhouette placeholder
+        person_box = QFrame()
+        person_box.setObjectName("aiPersonBox")
+        person_box.setFixedSize(88, 120)
+        person_box.setStyleSheet(
+            "QFrame#aiPersonBox {"
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #0f2030,stop:1 #071016);"
+            "border-radius: 8px; border: none;"
+            "}"
         )
-        active_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        c_lay.addWidget(active_lbl)
+        pb_lay = QVBoxLayout(person_box)
+        pb_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        person_icon = QLabel("👤")
+        person_icon.setStyleSheet("font-size: 36px; background: transparent; color: #334155; border: none;")
+        person_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pb_lay.addWidget(person_icon)
+        c_lay.addWidget(person_box)
 
-        desc = QLabel("Smart detection is\nrunning smoothly.")
-        desc.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 11px; background: transparent;"
+        # Right: status + description + button
+        right = QWidget()
+        right.setStyleSheet("background: transparent;")
+        r_lay = QVBoxLayout(right)
+        r_lay.setContentsMargins(0, 0, 0, 0)
+        r_lay.setSpacing(8)
+
+        self._ai_active = True
+        self._ai_status_lbl = QLabel("Active")
+        self._ai_status_lbl.setStyleSheet(
+            "color: #22d3ee; font-size: 22px; font-weight: bold; background: transparent; border: none;"
         )
-        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        c_lay.addWidget(desc)
+        r_lay.addWidget(self._ai_status_lbl)
 
-        analytics_btn = QPushButton("View Analytics")
-        analytics_btn.setFixedHeight(28)
-        analytics_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {C('bg_panel')};
-                color: {C('text_primary')};
-                border: 1px solid {C('border')};
-                border-radius: 5px;
-                font-size: 11px;
-                padding: 0 12px;
-            }}
-            QPushButton:hover {{
-                background: {C('bg_hover')};
-                border-color: {C('accent')};
-                color: {C('accent')};
-            }}
+        self._ai_desc_lbl = QLabel("Smart detection is\nrunning smoothly.")
+        self._ai_desc_lbl.setStyleSheet(
+            "color: #cbd5e1; font-size: 11px; background: transparent; border: none;"
+        )
+        r_lay.addWidget(self._ai_desc_lbl)
+
+        self._ai_toggle_btn = QPushButton("Pause AI")
+        self._ai_toggle_btn.setFixedHeight(38)
+        self._ai_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(249,115,22,0.10);
+                color: #ffffff;
+                border: 1px solid rgba(249,115,22,0.55);
+                border-radius: 8px;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 0 20px;
+            }
+            QPushButton:hover { background: rgba(249,115,22,0.20); }
         """)
-        c_lay.addWidget(analytics_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        self._ai_toggle_btn.clicked.connect(self._toggle_ai)
+        r_lay.addWidget(self._ai_toggle_btn)
+        r_lay.addStretch()
 
-        lay.addWidget(center, 1)
+        c_lay.addWidget(right, 1)
+        lay.addWidget(content, 1)
         return w
 
-    # ── System Status ────────────────────────────────────────────────────
+    def _toggle_ai(self):
+        self._ai_active = not self._ai_active
+        self.ai_pause_requested.emit(not self._ai_active)
+        if self._ai_active:
+            self._ai_status_lbl.setText("Active")
+            self._ai_status_lbl.setStyleSheet(
+                "color: #22d3ee; font-size: 22px; font-weight: bold; background: transparent;"
+            )
+            self._ai_desc_lbl.setText("Smart detection is\nrunning smoothly.")
+            self._ai_toggle_btn.setText("Pause AI")
+        else:
+            self._ai_status_lbl.setText("Paused")
+            self._ai_status_lbl.setStyleSheet(
+                "color: #64748b; font-size: 22px; font-weight: bold; background: transparent;"
+            )
+            self._ai_desc_lbl.setText("Detection is paused\nfor review.")
+            self._ai_toggle_btn.setText("Start AI")
 
-    def _build_system_status(self) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet("background: transparent;")
+    # ── No Helmet ────────────────────────────────────────────────────────
+
+    def _build_no_helmet_panel(self) -> QWidget:
+        w = QFrame()
+        w.setObjectName("noHelmetPanel")
+        w.setStyleSheet(
+            "QFrame#noHelmetPanel {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid #1e293b; border-radius: 12px;"
+            "}"
+        )
         lay = QVBoxLayout(w)
-        lay.setContentsMargins(12, 10, 12, 8)
-        lay.setSpacing(6)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(8)
 
-        t = QLabel("System Status")
+        hdr = QHBoxLayout()
+        t = QLabel("No Helmet")
         t.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 12px; font-weight: bold;"
-            " background: transparent;"
+            "color: #ffffff; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )
-        lay.addWidget(t)
-
-        self._cpu_bar  = SystemStatusBar("⬤", "CPU Usage",    42, C('accent'))
-        self._mem_bar  = SystemStatusBar("⬤", "Memory Usage", 58, "#bc8cff")
-        self._disk_bar = SystemStatusBar("⬤", "Disk Usage",   72, C('info'))
-        lay.addWidget(self._cpu_bar)
-        lay.addWidget(self._mem_bar)
-        lay.addWidget(self._disk_bar)
-
-        # Network
-        net_row = QHBoxLayout()
-        net_icon = QLabel("⬤")
-        net_icon.setStyleSheet(
-            f"color: {C('success')}; font-size: 12px; background: transparent;"
+        hdr.addWidget(t)
+        hdr.addStretch()
+        va = QPushButton("View All")
+        va.setStyleSheet(
+            "QPushButton { background: transparent; color: #fb923c; border: none;"
+            " font-size: 11px; font-weight: bold; padding: 0; }"
+            "QPushButton:hover { color: #fdba74; }"
         )
-        net_icon.setFixedWidth(18)
-        net_row.addWidget(net_icon)
+        va.clicked.connect(self.go_violations)
+        hdr.addWidget(va)
+        lay.addLayout(hdr)
 
-        net_lbl = QLabel("Network")
-        net_lbl.setStyleSheet(
-            f"color: {C('text_secondary')}; font-size: 11px; background: transparent;"
-        )
-        net_row.addWidget(net_lbl, 1)
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent;")
 
-        self._net_val = QLabel("— Mbps")
-        self._net_val.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 11px; font-weight: bold;"
-            " background: transparent;"
-        )
-        net_row.addWidget(self._net_val)
-        lay.addLayout(net_row)
+        self._no_helmet_container = QWidget()
+        self._no_helmet_container.setStyleSheet("background: transparent;")
+        self._no_helmet_grid = QGridLayout(self._no_helmet_container)
+        self._no_helmet_grid.setSpacing(8)
+        self._no_helmet_grid.setContentsMargins(0, 0, 0, 0)
 
-        # Uptime
-        self._uptime_lbl = QLabel("Uptime: —")
-        self._uptime_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
-        )
-        lay.addWidget(self._uptime_lbl)
-        lay.addStretch()
+        scroll.setWidget(self._no_helmet_container)
+        lay.addWidget(scroll, 1)
         return w
 
     # ════════════════════════════════════════════════════════════════════════
     #  KAMERA PANELLARI BOSHQARUVI
     # ════════════════════════════════════════════════════════════════════════
 
+    def _clear_camera_sidebar(self):
+        while self._cam_list_layout.count():
+            item = self._cam_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _rebuild_camera_sidebar(self):
+        self._clear_camera_sidebar()
+        self._cam_items.clear()
+
+        cameras = self._sidebar_cameras
+        departments = self.cfg.get_departments() if self.cfg else []
+        if departments:
+            for dep in departments:
+                dep_id = dep.get("id")
+                dep_cameras = [c for c in cameras if c.get("department_id") == dep_id]
+                if not dep_cameras:
+                    continue
+                expanded = bool(dep.get("expanded", True))
+                header = CameraGroupHeader(
+                    dep_id, dep.get("name", "Bo'lim"), len(dep_cameras), expanded
+                )
+                header.toggled.connect(self._toggle_department)
+                self._cam_list_layout.addWidget(header)
+                if expanded:
+                    for cam in dep_cameras:
+                        self._add_sidebar_camera_item(cam, grouped=True)
+
+            known_deps = {d.get("id") for d in departments}
+            ungrouped = [c for c in cameras if c.get("department_id") not in known_deps]
+            if ungrouped:
+                header = CameraGroupHeader(0, "Bo'limsiz", len(ungrouped), True)
+                self._cam_list_layout.addWidget(header)
+                for cam in ungrouped:
+                    self._add_sidebar_camera_item(cam, grouped=True)
+        else:
+            for cam in cameras:
+                self._add_sidebar_camera_item(cam, grouped=False)
+
+        self._cam_list_layout.addStretch()
+        self._recalc_online()
+
+    def _add_sidebar_camera_item(self, cam: dict, grouped: bool):
+        cam_id = cam.get("id")
+        item = CameraListItem(
+            cam_id,
+            cam.get("name", f"Kamera {cam_id}"),
+            grouped=grouped,
+        )
+        item.set_status(self._cam_status.get(cam_id, "connecting"))
+        item.clicked.connect(self._select_camera)
+        self._cam_items[cam_id] = item
+        self._cam_list_layout.addWidget(item)
+
+    def _toggle_department(self, dep_id: int):
+        dep = self.cfg.get_department_by_id(dep_id) if self.cfg else None
+        if not dep:
+            return
+        self.cfg.update_department(dep_id, expanded=not bool(dep.get("expanded", True)))
+        self.cfg.save()
+        self._rebuild_camera_sidebar()
+
+    def set_search_text(self, text: str):
+        self._search_text = (text or "").strip().lower()
+        self._apply_camera_view()
+
+    def set_grid_columns(self, columns: int):
+        self._grid_columns = max(1, min(4, int(columns or 4)))
+        for cols, btn in self._grid_btns.items():
+            btn.setStyleSheet(self._grid_btn_style(cols == self._grid_columns))
+        self._apply_camera_view()
+
+    @staticmethod
+    def _grid_btn_style(active: bool = False) -> str:
+        bg = "rgba(249,115,22,0.18)" if active else "#0f172a"
+        border = "rgba(249,115,22,0.55)" if active else "#1e293b"
+        return f"""
+            QPushButton {{
+                background: {bg};
+                border: 1px solid {border};
+                border-radius: 7px;
+            }}
+            QPushButton:hover {{
+                background: rgba(30,41,59,0.9);
+                border-color: rgba(249,115,22,0.45);
+            }}
+        """
+
+    def _on_filter_changed(self):
+        combo = getattr(self, "_stream_combo", None)
+        self._stream_filter = combo.currentText().lower() if combo else "all streams"
+        self._apply_camera_view()
+
+    def _camera_matches_view(self, cam: dict) -> bool:
+        cam_id = cam.get("id")
+        haystack = " ".join([
+            str(cam_id or ""),
+            cam.get("name", ""),
+            cam.get("rtsp_url", ""),
+            cam.get("company_id", ""),
+            self._department_name(cam.get("department_id")),
+        ]).lower()
+        if self._search_text and self._search_text not in haystack:
+            return False
+
+        status = self._cam_status.get(cam_id, "connecting")
+        filt = self._stream_filter
+        if "online" in filt:
+            return status == "live"
+        if "offline" in filt:
+            return status in {"offline", "error"}
+        if "main building" in filt or "secondary area" in filt:
+            return self._department_name(cam.get("department_id")).lower() == filt
+        return True
+
+    def _department_name(self, dep_id) -> str:
+        dep = self.cfg.get_department_by_id(dep_id) if self.cfg else None
+        return dep.get("name", "") if dep else ""
+
+    def _apply_camera_view(self):
+        if not hasattr(self, "_cam_grid"):
+            return
+        visible = [cam for cam in self._all_cameras if self._camera_matches_view(cam)]
+        self._visible_cameras = visible
+        self._render_camera_grid(visible)
+
+    def _render_camera_grid(self, cameras: list):
+        while self._cam_grid.count():
+            item = self._cam_grid.takeAt(0)
+            widget = item.widget()
+            if widget:
+                if widget in self._panels.values():
+                    widget.setParent(None)
+                else:
+                    widget.deleteLater()
+
+        if not cameras:
+            no_lbl = QLabel("Bu ko'rinishga mos kamera topilmadi.")
+            no_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            no_lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 14px;")
+            self._cam_grid.addWidget(no_lbl, 0, 0)
+            return
+
+        cols = 1 if len(cameras) == 1 else min(self._grid_columns, len(cameras))
+        for idx, cam in enumerate(cameras):
+            cam_id = cam.get("id")
+            panel = self._panels.get(cam_id)
+            if not panel:
+                continue
+            row = idx // cols
+            col = idx % cols
+            min_h = 420 if len(cameras) == 1 else 230 if len(cameras) <= 4 else 205
+            panel.setMinimumHeight(min_h)
+            self._cam_grid.addWidget(panel, row, col)
+
+        for c in range(4):
+            self._cam_grid.setColumnStretch(c, 1 if c < cols else 0)
+
+    def _select_camera(self, cam_id: int):
+        self._selected_cam_id = cam_id
+        for pid, panel in self._panels.items():
+            if hasattr(panel, "set_selected"):
+                panel.set_selected(pid == cam_id)
+        for pid, item in self._cam_items.items():
+            item.set_selected(pid == cam_id)
+
+    def _expand_selected_camera(self):
+        cam_id = self._selected_cam_id
+        if cam_id is None and self._visible_cameras:
+            cam_id = self._visible_cameras[0].get("id")
+        panel = self._panels.get(cam_id)
+        if not panel:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(panel.cam_name)
+        dlg.resize(1000, 650)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 12, 12, 12)
+        title = QLabel(f"{panel.cam_id:02d} {panel.cam_name}")
+        title.setStyleSheet("color: #ffffff; font-size: 18px; font-weight: bold;")
+        lay.addWidget(title)
+        image = QLabel()
+        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image.setStyleSheet("background: #000000; border: 1px solid #1e293b; border-radius: 8px;")
+        pixmap = panel._video.pixmap()
+        if pixmap and not pixmap.isNull():
+            image.setPixmap(pixmap.scaled(960, 560, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        else:
+            image.setText("Video frame hali mavjud emas")
+            image.setStyleSheet(image.styleSheet() + f"color: {C('text_muted')};")
+        lay.addWidget(image, 1)
+        dlg.exec()
+
     def setup_cameras(self, cameras: list):
         # Eski panellarni tozalash
         for p in self._panels.values():
             p.deleteLater()
         self._panels.clear()
-        self._cam_items.clear()
+        self._sidebar_cameras = list(cameras)
+        self._all_cameras = list(cameras)
+        self._visible_cameras = list(cameras)
+        self._selected_cam_id = cameras[0].get("id") if cameras else None
+        self._cam_status = {
+            cam.get("id", idx + 1): "connecting"
+            for idx, cam in enumerate(cameras)
+        }
         self._today_per_cam.clear()
 
         while self._cam_grid.count():
@@ -1060,10 +1494,7 @@ class DashboardPage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        while self._cam_list_layout.count():
-            item = self._cam_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._clear_camera_sidebar()
 
         n = len(cameras)
         self._total_count  = n
@@ -1072,6 +1503,7 @@ class DashboardPage(QWidget):
         self._all_count_lbl.setText(str(n))
         self._cam_count_badge.setText(f"● {n} Cameras")
         self._ov_online.setText("0")
+        self._cam_count_badge.setText(f"{n} Cameras")
         self._ov_offline.setText(str(n))
 
         if not cameras:
@@ -1082,7 +1514,7 @@ class DashboardPage(QWidget):
             self._cam_list_layout.addStretch()
             return
 
-        cols = 1 if n == 1 else 2 if n <= 4 else 4
+        cols = 1 if n == 1 else min(4, n)
 
         for idx, cam in enumerate(cameras):
             cam_id = cam.get("id", idx + 1)
@@ -1095,24 +1527,25 @@ class DashboardPage(QWidget):
                 rtsp_url   = cam.get("rtsp_url", ""),
                 company_id = cam.get("company_id", ""),
             )
+            panel.clicked.connect(self._select_camera)
             self._panels[cam_id] = panel
             self._today_per_cam[cam_id] = 0
 
             row = idx // cols
             col = idx % cols
-            min_h = 400 if n == 1 else 220 if n <= 4 else 180
+            min_h = 420 if n == 1 else 230 if n <= 4 else 205
             panel.setMinimumHeight(min_h)
             self._cam_grid.addWidget(panel, row, col)
 
-            # Sidebar elementi
-            item = CameraListItem(cam_id, cam_name)
-            self._cam_items[cam_id] = item
-            self._cam_list_layout.addWidget(item)
+            # Sidebar elementlari pastda bo'limlar bo'yicha chiziladi.
 
-        self._cam_list_layout.addStretch()
+        self._rebuild_camera_sidebar()
 
         for c in range(cols):
             self._cam_grid.setColumnStretch(c, 1)
+        self._apply_camera_view()
+        if self._selected_cam_id is not None:
+            self._select_camera(self._selected_cam_id)
 
     # ── Tashqi yangilanishlar (workerdan) ─────────────────────────────────
 
@@ -1127,6 +1560,7 @@ class DashboardPage(QWidget):
             self._recent_violations.pop()
         self._rebuild_recent_events()
         self._rebuild_detected_people()
+        self._rebuild_no_helmet()
         self._refresh_stats()
 
     def on_stats(self, cam_id: int, stats: dict):
@@ -1141,12 +1575,15 @@ class DashboardPage(QWidget):
         p.set_stats(fps, persons, today, conn)
 
         # Sidebar item statusini yangilash
+        self._cam_status[cam_id] = "live" if conn else "offline"
         item = self._cam_items.get(cam_id)
         if item:
-            item.set_status("live" if conn else "offline")
+            item.set_status(self._cam_status[cam_id])
 
         # Online/offline hisoblagich
         self._recalc_online()
+        if "online" in self._stream_filter or "offline" in self._stream_filter:
+            self._apply_camera_view()
 
     def on_status(self, cam_id: int, text: str):
         pass
@@ -1156,9 +1593,12 @@ class DashboardPage(QWidget):
         if p:
             p.set_error(msg)
         item = self._cam_items.get(cam_id)
+        self._cam_status[cam_id] = "error"
         if item:
             item.set_status("error")
         self._recalc_online()
+        if "online" in self._stream_filter or "offline" in self._stream_filter:
+            self._apply_camera_view()
 
     def on_model_loaded(self, cam_id: int):
         p = self._panels.get(cam_id)
@@ -1166,15 +1606,12 @@ class DashboardPage(QWidget):
             p.set_model_loading()
 
     def set_total_persons(self, count: int):
-        pass
+        self._total_persons = max(0, int(count or 0))
 
     # ── Ichki metodlar ────────────────────────────────────────────────────
 
     def _recalc_online(self):
-        online = 0
-        for cam_id, item in self._cam_items.items():
-            if item._status == "live":
-                online += 1
+        online = sum(1 for status in self._cam_status.values() if status == "live")
         self._online_count = online
         self._ov_online.setText(str(online))
         self._ov_offline.setText(str(self._total_count - online))
@@ -1183,6 +1620,10 @@ class DashboardPage(QWidget):
         try:
             today = self.db.get_today_count()
             self._ov_total.setText(str(self._total_count))
+            if hasattr(self, "_detections_today_lbl"):
+                self._detections_today_lbl.setText(str(today))
+            if hasattr(self, "_no_helmet_today_lbl"):
+                self._no_helmet_today_lbl.setText(str(today))
         except Exception:
             pass
 
@@ -1201,23 +1642,28 @@ class DashboardPage(QWidget):
     def _event_row(self, v: dict) -> QWidget:
         w = QWidget()
         w.setStyleSheet(
-            "background: transparent;"
-            f"border-bottom: 1px solid {C('border_light')};"
+            "background: transparent; border-radius: 6px;"
         )
+        w.setCursor(Qt.CursorShape.PointingHandCursor)
+        w.setFixedHeight(46)
         lay = QHBoxLayout(w)
-        lay.setContentsMargins(0, 4, 0, 4)
-        lay.setSpacing(8)
+        lay.setContentsMargins(4, 0, 4, 0)
+        lay.setSpacing(10)
 
         has_helmet = v.get("has_helmet", False)
         icon = QLabel("✓" if has_helmet else "⚠")
-        icon.setFixedSize(20, 20)
+        icon.setFixedSize(22, 22)
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        color = C('success') if has_helmet else C('danger')
-        icon.setStyleSheet(
-            f"color: {color}; font-size: 12px; font-weight: bold;"
-            f" background: {'#0f2a15' if has_helmet else '#3d1515'};"
-            " border-radius: 10px;"
-        )
+        if has_helmet:
+            icon.setStyleSheet(
+                "color: #34d399; font-size: 13px; font-weight: bold;"
+                " background: #064e3b; border-radius: 11px;"
+            )
+        else:
+            icon.setStyleSheet(
+                "color: #ef4444; font-size: 13px; font-weight: bold;"
+                " background: #450a0a; border-radius: 11px;"
+            )
         lay.addWidget(icon)
 
         info_col = QVBoxLayout()
@@ -1226,27 +1672,23 @@ class DashboardPage(QWidget):
         title = "Helmet Detected" if has_helmet else "No Helmet Detected"
         t_lbl = QLabel(title)
         t_lbl.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 11px;"
-            " background: transparent;"
+            "color: #ffffff; font-size: 12px; font-weight: 600; background: transparent;"
         )
         info_col.addWidget(t_lbl)
 
         cam_name = v.get("camera_name", v.get("camera_id", ""))
         c_lbl = QLabel(f"Camera {cam_name}")
         c_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            "color: #64748b; font-size: 10px; background: transparent;"
         )
         info_col.addWidget(c_lbl)
         lay.addLayout(info_col, 1)
 
         ts = v.get("timestamp", "")
-        if ts and len(ts) > 10:
-            time_str = ts[11:19]
-        else:
-            time_str = datetime.datetime.now().strftime("%H:%M:%S")
+        time_str = ts[11:19] if ts and len(ts) > 10 else datetime.datetime.now().strftime("%H:%M:%S")
         time_lbl = QLabel(time_str)
         time_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            "color: #94a3b8; font-size: 10px; background: transparent;"
         )
         lay.addWidget(time_lbl)
         return w
@@ -1263,22 +1705,87 @@ class DashboardPage(QWidget):
 
         self._people_layout.addStretch()
 
-    def _person_row(self, v: dict) -> QWidget:
-        w = QWidget()
-        w.setStyleSheet(
-            "background: transparent;"
-            f"border-bottom: 1px solid {C('border_light')};"
+    def _rebuild_no_helmet(self):
+        if not hasattr(self, '_no_helmet_grid'):
+            return
+        while self._no_helmet_grid.count():
+            item = self._no_helmet_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        violations = [v for v in self._recent_violations if not v.get("has_helmet", False)]
+        for idx, v in enumerate(violations[:4]):
+            card = self._no_helmet_card(v)
+            self._no_helmet_grid.addWidget(card, idx // 2, idx % 2)
+
+    def _no_helmet_card(self, v: dict) -> QWidget:
+        card = QFrame()
+        card.setFixedHeight(90)
+        card.setStyleSheet(
+            "QFrame { background: #0a0a0a; border: 1px solid rgba(239,68,68,0.4);"
+            " border-radius: 8px; }"
         )
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(3)
+
+        # Top row: NO HELMET badge + time
+        top = QHBoxLayout()
+        badge = QLabel("NO HELMET")
+        badge.setStyleSheet(
+            "background: #ef4444; color: white; font-size: 9px; font-weight: bold;"
+            " border-radius: 3px; padding: 1px 5px;"
+        )
+        top.addWidget(badge)
+        top.addStretch()
+
+        ts = v.get("timestamp", "")
+        time_str = ts[11:19] if ts and len(ts) > 10 else datetime.datetime.now().strftime("%H:%M:%S")
+        time_lbl = QLabel(time_str)
+        time_lbl.setStyleSheet(
+            "background: rgba(0,0,0,0.7); color: white; font-size: 9px;"
+            " border-radius: 3px; padding: 1px 4px;"
+        )
+        top.addWidget(time_lbl)
+        lay.addLayout(top)
+
+        lay.addStretch()
+
+        # Bottom: ID + camera
+        person_id = v.get("track_id", v.get("person_id", "—"))
+        id_str = f"ID: {person_id:04d}" if isinstance(person_id, int) else f"ID: {person_id}"
+        id_lbl = QLabel(id_str)
+        id_lbl.setStyleSheet("color: white; font-size: 11px; font-weight: bold; background: transparent;")
+        lay.addWidget(id_lbl)
+
+        cam = v.get("camera_name", v.get("camera_id", ""))
+        cam_lbl = QLabel(str(cam) if cam else "Unknown camera")
+        cam_lbl.setStyleSheet("color: #94a3b8; font-size: 10px; background: transparent;")
+        lay.addWidget(cam_lbl)
+
+        return card
+
+    def _person_row(self, v: dict) -> QWidget:
+        has_helmet = v.get("has_helmet", False)
+        w = QWidget()
+        w.setFixedHeight(62)
+        w.setStyleSheet(
+            "background: rgba(30,41,59,0.45); border-radius: 8px;"
+        )
+        w.setCursor(Qt.CursorShape.PointingHandCursor)
         lay = QHBoxLayout(w)
-        lay.setContentsMargins(0, 4, 0, 4)
-        lay.setSpacing(8)
+        lay.setContentsMargins(10, 0, 10, 0)
+        lay.setSpacing(10)
 
         # Avatar placeholder
-        avatar = QLabel()
-        avatar.setFixedSize(36, 36)
+        avatar = QLabel("👤")
+        avatar.setFixedSize(44, 44)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         avatar.setStyleSheet(
-            f"background: {C('bg_panel')}; border-radius: 4px;"
-            f" border: 1px solid {C('border')};"
+            "background: #0f1e2d; border-radius: 6px; font-size: 22px;"
+            " border: 1px solid #1e293b;"
         )
         lay.addWidget(avatar)
 
@@ -1286,70 +1793,25 @@ class DashboardPage(QWidget):
         info.setSpacing(2)
 
         person_id = v.get("track_id", v.get("person_id", "—"))
-        id_lbl = QLabel(f"ID: {person_id:04d}" if isinstance(person_id, int) else f"ID: {person_id}")
+        id_str = f"ID: {person_id:04d}" if isinstance(person_id, int) else f"ID: {person_id}"
+        id_lbl = QLabel(id_str)
         id_lbl.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 11px; font-weight: bold;"
-            " background: transparent;"
+            "color: #fb923c; font-size: 12px; font-weight: bold; background: transparent;"
         )
         info.addWidget(id_lbl)
 
-        has_helmet = v.get("has_helmet", False)
-        badge = QLabel("● Helmet" if has_helmet else "● No Helmet")
-        badge.setStyleSheet(
-            f"color: {'#3fb950' if has_helmet else '#f85149'};"
-            " font-size: 10px; background: transparent;"
+        cam_name = v.get("camera_name", v.get("camera_id", ""))
+        name_lbl = QLabel(str(cam_name) if cam_name else "Unknown")
+        name_lbl.setStyleSheet(
+            "color: #e2e8f0; font-size: 11px; background: transparent;"
         )
-        info.addWidget(badge)
+        info.addWidget(name_lbl)
         lay.addLayout(info, 1)
 
-        ts = v.get("timestamp", "")
-        if ts and len(ts) > 10:
-            time_str = ts[11:19]
-        else:
-            time_str = datetime.datetime.now().strftime("%H:%M:%S")
-        t_lbl = QLabel(time_str)
-        t_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+        status_lbl = QLabel("OK Helmet" if has_helmet else "! No Helmet")
+        status_lbl.setStyleSheet(
+            f"color: {'#34d399' if has_helmet else '#ef4444'};"
+            " font-size: 11px; font-weight: 600; background: transparent;"
         )
-        lay.addWidget(t_lbl)
+        lay.addWidget(status_lbl)
         return w
-
-    def _update_sys_status(self):
-        try:
-            import psutil, time as _time
-            cpu  = int(psutil.cpu_percent(interval=None))
-            mem  = int(psutil.virtual_memory().percent)
-            try:
-                disk = int(psutil.disk_usage('/').percent)
-            except Exception:
-                disk = int(psutil.disk_usage('C:\\').percent)
-            net  = psutil.net_io_counters()
-            now  = _time.monotonic()
-
-            if self._prev_net is not None:
-                dt = now - self._prev_net_t
-                if dt > 0:
-                    delta = (
-                        (net.bytes_sent + net.bytes_recv)
-                        - (self._prev_net.bytes_sent + self._prev_net.bytes_recv)
-                    )
-                    mbps = max(round(delta / 1_000_000 / dt, 1), 0.0)
-                else:
-                    mbps = 0.0
-            else:
-                mbps = 0.0
-            self._prev_net   = net
-            self._prev_net_t = now
-
-            self._cpu_bar.set_value(cpu)
-            self._mem_bar.set_value(mem)
-            self._disk_bar.set_value(disk)
-            self._net_val.setText(f"{mbps:.1f} Mbps")
-
-            uptime_secs = int(_time.time() - psutil.boot_time())
-            days  = uptime_secs // 86400
-            hours = (uptime_secs % 86400) // 3600
-            mins  = (uptime_secs % 3600) // 60
-            self._uptime_lbl.setText(f"Uptime: {days}d {hours}h {mins}m")
-        except Exception:
-            pass

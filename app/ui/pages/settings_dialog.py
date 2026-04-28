@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                               QDoubleSpinBox, QSpinBox, QComboBox,
                               QFileDialog, QTabWidget, QWidget,
                               QMessageBox, QScrollArea, QFrame, QSlider,
-                              QListWidget, QListWidgetItem, QAbstractItemView)
+                              QListWidget, QListWidgetItem, QAbstractItemView,
+                              QInputDialog)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 
@@ -61,9 +62,11 @@ class _TestThread(QThread):
 class CameraEditDialog(QDialog):
     """Bitta kamerani qo'shish / tahrirlash dialogi."""
 
-    def __init__(self, camera: dict | None = None, parent=None):
+    def __init__(self, camera: dict | None = None, departments: list | None = None,
+                 parent=None):
         super().__init__(parent)
         self._camera = dict(camera) if camera else {}
+        self._departments = departments or []
         is_edit = bool(camera)
         self.setWindowTitle("Kamera tahrirlash" if is_edit else "Yangi kamera qo'shish")
         self.setMinimumWidth(480)
@@ -93,6 +96,12 @@ class CameraEditDialog(QDialog):
         root.addWidget(sep)
 
         # ── Nomi ──
+        root.addWidget(self._field_label("Bo'lim:"))
+        self._department_combo = QComboBox()
+        for dep in self._departments:
+            self._department_combo.addItem(dep.get("name", "Bo'lim"), dep.get("id"))
+        root.addWidget(self._department_combo)
+
         root.addWidget(self._field_label("Kamera nomi:"))
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("Masalan: Sex № 1, Kirish kamerasi…")
@@ -158,6 +167,9 @@ class CameraEditDialog(QDialog):
         self._rtsp_edit.setText(self._camera.get("rtsp_url", ""))
         self._company_edit.setText(self._camera.get("company_id", ""))
         self._enabled_check.setChecked(self._camera.get("enabled", True))
+        idx = self._department_combo.findData(self._camera.get("department_id"))
+        if idx >= 0:
+            self._department_combo.setCurrentIndex(idx)
 
     def _on_save(self):
         name = self._name_edit.text().strip()
@@ -173,6 +185,7 @@ class CameraEditDialog(QDialog):
             "name":       name,
             "rtsp_url":   rtsp,
             "company_id": self._company_edit.text().strip(),
+            "department_id": self._department_combo.currentData(),
             "enabled":    self._enabled_check.isChecked(),
         })
         self.accept()
@@ -284,7 +297,12 @@ class SettingsDialog(QDialog):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(6)
 
-        add_btn = QPushButton("+ Qo'shish")
+        add_dep_btn = QPushButton("+ Bo'lim")
+        add_dep_btn.setFixedHeight(30)
+        add_dep_btn.setProperty("small", True)
+        add_dep_btn.clicked.connect(self._add_department)
+
+        add_btn = QPushButton("+ Kamera")
         add_btn.setFixedHeight(30)
         add_btn.setStyleSheet(f"""
             QPushButton {{
@@ -312,6 +330,7 @@ class SettingsDialog(QDialog):
         del_btn.setProperty("small", True)
         del_btn.clicked.connect(self._delete_camera)
 
+        toolbar.addWidget(add_dep_btn)
         toolbar.addWidget(add_btn)
         toolbar.addWidget(edit_btn)
         toolbar.addWidget(del_btn)
@@ -388,12 +407,27 @@ class SettingsDialog(QDialog):
             return item.data(Qt.ItemDataRole.UserRole)
         return None
 
+    def _add_department(self):
+        name, ok = QInputDialog.getText(self, "Yangi bo'lim", "Bo'lim nomi:")
+        if not ok:
+            return
+        try:
+            self.cfg.add_department(name)
+            self._refresh_cam_list()
+        except ValueError as e:
+            QMessageBox.warning(self, "Xatolik", str(e))
+
     def _add_camera(self):
         cameras = self.cfg.get_cameras()
         if len(cameras) >= 10:
             QMessageBox.warning(self, "Limit", "Maksimal 10 ta kamera qo'shish mumkin.")
             return
-        dlg = CameraEditDialog(parent=self)
+        departments = self.cfg.get_departments()
+        if not departments:
+            QMessageBox.information(self, "Bo'lim kerak",
+                                    "Avval bo'lim yarating, keyin kamera qo'shing.")
+            return
+        dlg = CameraEditDialog(departments=departments, parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             cam = dlg.get_camera()
             try:
@@ -402,6 +436,7 @@ class SettingsDialog(QDialog):
                     rtsp_url=cam["rtsp_url"],
                     company_id=cam.get("company_id", ""),
                     enabled=cam.get("enabled", True),
+                    department_id=cam.get("department_id"),
                 )
             except ValueError as e:
                 QMessageBox.warning(self, "Xatolik", str(e))
@@ -416,7 +451,11 @@ class SettingsDialog(QDialog):
         cam = self.cfg.get_camera_by_id(cam_id)
         if not cam:
             return
-        dlg = CameraEditDialog(camera=cam, parent=self)
+        dlg = CameraEditDialog(
+            camera=cam,
+            departments=self.cfg.get_departments(),
+            parent=self,
+        )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             updated = dlg.get_camera()
             self.cfg.update_camera(
@@ -424,6 +463,7 @@ class SettingsDialog(QDialog):
                 name=updated["name"],
                 rtsp_url=updated["rtsp_url"],
                 company_id=updated.get("company_id", ""),
+                department_id=updated.get("department_id"),
                 enabled=updated.get("enabled", True),
             )
             self._refresh_cam_list()

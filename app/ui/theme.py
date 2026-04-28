@@ -4,54 +4,54 @@ C(key) funksiya orqali rangga murojaat qilinadi.
 """
 
 _DARK = {
-    # Asosiy fonlar (qoyu ko'k-qora)
-    "bg_main":        "#0d1117",
-    "bg_card":        "#1c2128",
-    "bg_input":       "#0d1117",
-    "bg_hover":       "#30363d",
-    "bg_sidebar":     "#161b22",
-    "bg_panel":       "#21262d",
+    # Asosiy fonlar — React SmartHelmet dizayni
+    "bg_main":        "#03070b",
+    "bg_card":        "#0c151c",
+    "bg_input":       "#070d12",
+    "bg_hover":       "#1e293b",
+    "bg_sidebar":     "#05090d",
+    "bg_panel":       "#071016",
 
-    # Aksent — yorqin sabzi-oranj
-    "accent":         "#ff6b1a",
-    "accent_hover":   "#ff4d00",
-    "accent_dim":     "#2d1800",
-    "accent_light":   "#ff9966",
-    "accent_subtle":  "#1a0d00",
+    # Aksent — orange-400/500
+    "accent":         "#fb923c",
+    "accent_hover":   "#f97316",
+    "accent_dim":     "#1c0e04",
+    "accent_light":   "#fdba74",
+    "accent_subtle":  "#0f0702",
 
     # Matn
-    "text_primary":   "#e6edf3",
-    "text_secondary": "#8b949e",
-    "text_muted":     "#6e7681",
-    "text_link":      "#58a6ff",
+    "text_primary":   "#e2e8f0",
+    "text_secondary": "#94a3b8",
+    "text_muted":     "#64748b",
+    "text_link":      "#22d3ee",
 
     # Holat ranglari
-    "danger":         "#f85149",
+    "danger":         "#ef4444",
     "danger_dim":     "#3d1515",
-    "success":        "#3fb950",
-    "success_dim":    "#0f2a15",
-    "warning":        "#e3b341",
+    "success":        "#34d399",
+    "success_dim":    "#064e3b",
+    "warning":        "#fbbf24",
     "warning_dim":    "#2d2200",
-    "info":           "#58a6ff",
-    "info_dim":       "#0d2a4a",
+    "info":           "#22d3ee",
+    "info_dim":       "#0c2a3a",
 
-    # Chegaralar
-    "border":         "#30363d",
-    "border_light":   "#21262d",
-    "border_accent":  "#ff6b1a",
-    "border_hover":   "#8b949e",
+    # Chegaralar — slate-800
+    "border":         "#1e293b",
+    "border_light":   "#0f172a",
+    "border_accent":  "#f97316",
+    "border_hover":   "#334155",
 
     # Boshqalar
     "shadow":         "#00000060",
     "overlay":        "#0000008a",
-    "scrollbar":      "#30363d",
-    "scrollbar_hover": "#484f58",
+    "scrollbar":      "#1e293b",
+    "scrollbar_hover": "#334155",
 
     # Kamera holat ranglari
-    "cam_active":     "#3fb950",
-    "cam_idle":       "#6e7681",
-    "cam_error":      "#f85149",
-    "cam_rec":        "#f85149",
+    "cam_active":     "#34d399",
+    "cam_idle":       "#64748b",
+    "cam_error":      "#ef4444",
+    "cam_rec":        "#ef4444",
 }
 
 
