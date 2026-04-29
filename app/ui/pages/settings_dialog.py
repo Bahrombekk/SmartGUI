@@ -797,3 +797,20 @@ class SettingsDialog(QDialog):
         color = C("success") if ok else C("danger")
         self._tg_result.setText(("✓ " if ok else "✗ ") + msg)
         self._tg_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+
+
+class SettingsPage(SettingsDialog):
+    """SettingsDialog UI'sini asosiy oyna ichidagi sahifa sifatida ishlatadi."""
+
+    def __init__(self, config_manager, parent=None):
+        super().__init__(config_manager, parent)
+        self.setWindowFlags(Qt.WindowType.Widget)
+        self.setModal(False)
+
+    def accept(self):
+        # Sahifa stack ichida qoladi; saqlagandan keyin dialog kabi yopilmaydi.
+        pass
+
+    def reject(self):
+        # Bekor qilish sahifadagi qiymatlarni configdan qayta yuklaydi.
+        self._load_values()

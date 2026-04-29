@@ -30,6 +30,9 @@ violations/*.jpeg
 screenshots/*.jpg
 screenshots/*.png
 screenshots/*.jpeg
+camera_snapshots/*.jpg
+camera_snapshots/*.png
+camera_snapshots/*.jpeg
 
 # IDE
 .idea/

@@ -268,9 +268,14 @@ class DetectionWorker(QThread):
         has_detection = self._load_model()
         self._setup_notifiers()
 
+        rtsp_url = self.cfg.rtsp_url
+        if not rtsp_url:
+            self.error_occurred.emit("RTSP URL ko'rsatilmagan")
+            self._running = False
+            return
+
         self.status_changed.emit("Kameraga ulanmoqda...")
 
-        rtsp_url  = self.cfg.rtsp_url
         is_stream = rtsp_url.startswith(("rtsp://", "rtmp://"))
 
         if is_stream:

@@ -56,10 +56,26 @@
   ],
   "users": [
     {
-      "id": 1,
-      "first_name": "Bahrombek",
-      "last_name": "Muhammadiyev",
-      "employee_id": "001",
+      "id": 2,
+      "first_name": "Ali",
+      "last_name": "Vali",
+      "employee_id": "002",
+      "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
+      "department_id": 2
+    },
+    {
+      "id": 3,
+      "first_name": "Vali",
+      "last_name": "Ali",
+      "employee_id": "003",
+      "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
+      "department_id": 1
+    },
+    {
+      "id": 4,
+      "first_name": "A1",
+      "last_name": "A2",
+      "employee_id": "004",
       "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
       "department_id": 1
     }

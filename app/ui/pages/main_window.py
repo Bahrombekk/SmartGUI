@@ -22,10 +22,11 @@ from app.config.settings_manager import ConfigManager, CameraConfigProxy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.workers.detection_worker import DetectionWorker
 from app.ui.pages.dashboard_page import DashboardPage
+from app.ui.pages.cameras_page import CamerasPage
 from app.ui.pages.violations_page import ViolationsPage
 from app.ui.pages.analytics_page import AnalyticsPage
 from app.ui.pages.users_page import UsersPage
-from app.ui.pages.settings_dialog import SettingsDialog
+from app.ui.pages.settings_dialog import SettingsPage
 from app.ui.pages.about_page import AboutPage
 from app.ui.theme import C
 
@@ -337,14 +338,13 @@ class TopNavBar(QWidget):
     # ── Ichki metodlar ────────────────────────────────────────────────────
 
     def _nav_click(self, page_id: int):
-        # Cameras va Alerts → dashboard-ga o'xshash sahifaga
         real_page = {
-            0: 0,   # Dashboard
-            1: 0,   # Cameras → Dashboard (camera view)
-            2: 2,   # Analytics
-            3: 1,   # Reports → Violations
-            4: 1,   # Alerts → Violations
-            self.PAGE_USERS: 4,
+            0: 0,  # Dashboard
+            1: 1,  # Cameras
+            2: 3,  # Analytics
+            3: 2,  # Reports → Violations
+            4: 2,  # Alerts → Violations
+            5: 5,  # Users
         }.get(page_id, 0)
         self._set_active(page_id)
         self._on_page_change(real_page)
@@ -384,10 +384,12 @@ class MainWindow(QMainWindow):
     """Asosiy ilova oynasi — SmartHelmet dizayni."""
 
     PAGE_DASHBOARD  = 0
-    PAGE_VIOLATIONS = 1
-    PAGE_ANALYTICS  = 2
-    PAGE_USERS      = 4
-    PAGE_ABOUT      = 3
+    PAGE_CAMERAS    = 1
+    PAGE_VIOLATIONS = 2
+    PAGE_ANALYTICS  = 3
+    PAGE_ABOUT      = 4
+    PAGE_USERS      = 5
+    PAGE_SETTINGS   = 6
 
     def __init__(self):
         super().__init__()
@@ -441,25 +443,32 @@ class MainWindow(QMainWindow):
         v_lay.addWidget(self._stack, 1)
 
         self._dashboard  = DashboardPage(self.db, self.cfg)
+        self._cameras    = CamerasPage(self.db, self.cfg)
         self._violations = ViolationsPage(self.db)
         self._analytics  = AnalyticsPage(self.db)
         self._about      = AboutPage(self.cfg)
         self._users      = UsersPage(self.cfg)
+        self._settings   = SettingsPage(self.cfg)
 
         self._stack.addWidget(self._dashboard)   # 0
-        self._stack.addWidget(self._violations)  # 1
-        self._stack.addWidget(self._analytics)   # 2
-        self._stack.addWidget(self._about)       # 3
-        self._stack.addWidget(self._users)       # 4
+        self._stack.addWidget(self._cameras)     # 1
+        self._stack.addWidget(self._violations)  # 2
+        self._stack.addWidget(self._analytics)   # 3
+        self._stack.addWidget(self._about)       # 4
+        self._stack.addWidget(self._users)       # 5
+        self._stack.addWidget(self._settings)    # 6
 
         self._dashboard.go_violations.connect(
             lambda: self._switch_page(self.PAGE_VIOLATIONS)
         )
         self._dashboard.add_camera_requested.connect(self._open_settings)
+        self._cameras.add_camera_requested.connect(self._open_settings)
         self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
+        self._settings.settings_saved.connect(self._on_settings_saved)
 
         cameras = self.cfg.get_enabled_cameras()
         self._dashboard.setup_cameras(cameras)
+        self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
 
     def _setup_statusbar(self):
@@ -494,9 +503,12 @@ class MainWindow(QMainWindow):
             lambda: self._switch_page(self.PAGE_DASHBOARD)
         )
         QShortcut(QKeySequence("Ctrl+2"), self).activated.connect(
-            lambda: self._switch_page(self.PAGE_VIOLATIONS)
+            lambda: self._switch_page(self.PAGE_CAMERAS)
         )
         QShortcut(QKeySequence("Ctrl+3"), self).activated.connect(
+            lambda: self._switch_page(self.PAGE_VIOLATIONS)
+        )
+        QShortcut(QKeySequence("Ctrl+4"), self).activated.connect(
             lambda: self._switch_page(self.PAGE_ANALYTICS)
         )
         QShortcut(QKeySequence("Ctrl+,"), self).activated.connect(
@@ -525,6 +537,8 @@ class MainWindow(QMainWindow):
     def _on_global_search(self, text: str):
         if self._stack.currentIndex() == self.PAGE_USERS:
             self._users.set_search_text(text)
+        elif self._stack.currentIndex() == self.PAGE_CAMERAS:
+            self._cameras.set_search_text(text)
         else:
             self._dashboard.set_search_text(text)
 
@@ -552,6 +566,9 @@ class MainWindow(QMainWindow):
             worker.frame_ready.connect(
                 lambda frame, cid=cam_id: self._dashboard.update_frame(cid, frame)
             )
+            worker.frame_ready.connect(
+                lambda frame, cid=cam_id: self._cameras.update_frame(cid, frame)
+            )
             worker.violation_detected.connect(self._on_violation)
             worker.stats_updated.connect(
                 lambda stats, cid=cam_id: self._on_stats(cid, stats)
@@ -565,6 +582,9 @@ class MainWindow(QMainWindow):
             worker.model_loaded.connect(
                 lambda cid=cam_id: self._dashboard.on_model_loaded(cid)
             )
+            worker.model_loaded.connect(
+                lambda cid=cam_id: self._cameras.on_model_loaded(cid)
+            )
 
             worker.start()
             self._workers[cam_id] = worker
@@ -573,9 +593,12 @@ class MainWindow(QMainWindow):
         self._update_cam_badge()
 
     def _stop_all_cameras(self):
-        for worker in list(self._workers.values()):
-            if worker and worker.isRunning():
-                worker.stop()
+        running = [w for w in self._workers.values() if w and w.isRunning()]
+        for w in running:
+            w._running = False
+            w.quit()
+        for w in running:
+            w.wait(1500)
         self._workers.clear()
         self._persons_per_cam.clear()
         self._navbar.set_pause_enabled(False)
@@ -584,6 +607,7 @@ class MainWindow(QMainWindow):
         self._stop_all_cameras()
         cameras = self.cfg.get_enabled_cameras()
         self._dashboard.setup_cameras(cameras)
+        self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
         QTimer.singleShot(500, self._start_all_cameras)
 
@@ -620,6 +644,7 @@ class MainWindow(QMainWindow):
 
     def _on_violation(self, data: dict):
         self._dashboard.on_violation(data)
+        self._cameras.on_violation(data)
         self._violations.add_new_violation(data)
 
         self._violation_count += 1
@@ -630,6 +655,7 @@ class MainWindow(QMainWindow):
 
     def _on_stats(self, cam_id: int, stats: dict):
         self._dashboard.on_stats(cam_id, stats)
+        self._cameras.on_stats(cam_id, stats)
         persons = stats.get("active_persons", 0)
         self._persons_per_cam[cam_id] = persons
         total_persons = sum(self._persons_per_cam.values())
@@ -640,12 +666,14 @@ class MainWindow(QMainWindow):
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] {text}")
         self._dashboard.on_status(cam_id, text)
+        self._cameras.on_status(cam_id, text)
 
     def _on_error(self, cam_id: int, msg: str):
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] XATOLIK: {msg[:50]}")
         self._dashboard.on_error(cam_id, msg)
+        self._cameras.on_error(cam_id, msg)
 
     # ── Yordamchi ─────────────────────────────────────────────────────────
 
@@ -663,9 +691,8 @@ class MainWindow(QMainWindow):
         self._sb_cams.setText(f"Kameralar: {names}" if names else "Kamera yo'q")
 
     def _open_settings(self):
-        dlg = SettingsDialog(self.cfg, self)
-        dlg.settings_saved.connect(self._on_settings_saved)
-        dlg.exec()
+        self._settings._load_values()
+        self._switch_page(self.PAGE_SETTINGS)
 
     def _on_settings_saved(self):
         self._refresh_sb_cams()
