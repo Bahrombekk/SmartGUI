@@ -252,14 +252,21 @@ class UsersPage(QWidget):
         inp.setFixedHeight(36)
         inp.setStyleSheet("""
             QLineEdit {
-                background: #070d12;
+                background: rgba(2,6,23,0.72);
                 color: #e2e8f0;
-                border: 1px solid #1e293b;
-                border-radius: 8px;
-                padding: 0 12px;
+                border: 1px solid rgba(148,163,184,0.22);
+                border-radius: 7px;
+                padding: 0 10px;
                 font-size: 13px;
             }
-            QLineEdit:focus { border-color: #f97316; }
+            QLineEdit:hover {
+                background: rgba(15,23,42,0.70);
+                border-color: rgba(148,163,184,0.38);
+            }
+            QLineEdit:focus {
+                background: rgba(15,23,42,0.86);
+                border: 1px solid rgba(251,146,60,0.74);
+            }
         """)
         return inp
 

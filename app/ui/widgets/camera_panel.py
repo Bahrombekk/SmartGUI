@@ -182,7 +182,7 @@ class CameraPanel(QFrame):
 
     # ── Tashqi yangilanishlar ─────────────────────────────────────────────
 
-    def set_frame(self, frame: np.ndarray):
+    def set_frame(self, frame):
         self._video.set_frame(frame)
         self._time_lbl.setText(datetime.datetime.now().strftime("%H:%M:%S"))
 

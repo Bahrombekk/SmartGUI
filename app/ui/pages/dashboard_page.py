@@ -555,6 +555,11 @@ class DashboardPage(QWidget):
         self._refresh_timer.timeout.connect(self._refresh_stats)
         self._refresh_timer.start(30_000)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_visible_cameras"):
+            QTimer.singleShot(0, self._relayout_grid)
+
     # ── Ana UI ───────────────────────────────────────────────────────────
 
     def _setup_ui(self):
@@ -854,6 +859,7 @@ class DashboardPage(QWidget):
 
     def _build_main_content(self) -> QWidget:
         main = QWidget()
+        self._main_content = main
         main.setStyleSheet("background: transparent;")
         lay = QVBoxLayout(main)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -861,6 +867,7 @@ class DashboardPage(QWidget):
 
         # Live Monitoring paneli (header + kamera grid bir panel ichida)
         monitor_panel = QFrame()
+        self._monitor_panel = monitor_panel
         monitor_panel.setObjectName("monitorPanel")
         monitor_panel.setStyleSheet(
             "QFrame#monitorPanel {"
@@ -876,7 +883,9 @@ class DashboardPage(QWidget):
         mp_lay.addWidget(self._build_camera_grid_area(), 1)
 
         lay.addWidget(monitor_panel, 1)
-        lay.addWidget(self._build_bottom_panels())
+        bottom_panels = self._build_bottom_panels()
+        self._bottom_panels = bottom_panels
+        lay.addWidget(bottom_panels)
 
         return main
 
@@ -918,16 +927,20 @@ class DashboardPage(QWidget):
 
         # Grid tartibi tugmalari
         icon_dir = Path(__file__).resolve().parents[3] / "images"
-        for icon, tip in [("⊞", "1x1"), ("⊞⊞", "2x2"), ("⊞⊞⊞", "3x3")]:
-            btn = QPushButton(icon)
+        grid_options = [
+            (1, "1 ustun", "layout-1.svg"),
+            (2, "2 ustun", "layout-2.svg"),
+            (3, "3 ustun", "layout-3.svg"),
+            (4, "4 ustun / 2 qator", "layout-4x2.svg"),
+        ]
+        for columns, tip, icon_name in grid_options:
+            btn = QPushButton(str(columns))
             btn.setFixedSize(32, 32)
-            btn.setText({"1x1": "2", "2x2": "3", "3x3": "4"}.get(tip, "4"))
             btn.setText("")
-            icon_name = {"1x1": "grid-2.svg", "2x2": "grid-3.svg", "3x3": "grid-4.svg"}.get(tip, "grid-4.svg")
             btn.setIcon(QIcon(str(icon_dir / icon_name)))
             btn.setIconSize(QSize(17, 17))
-            btn.setToolTip({"1x1": "2 columns", "2x2": "3 columns", "3x3": "4 columns"}.get(tip, tip))
-            btn.clicked.connect(lambda _, t=tip: self.set_grid_columns({"1x1": 2, "2x2": 3, "3x3": 4}.get(t, 4)))
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _, cols=columns: self.set_grid_columns(cols))
             btn.setStyleSheet(f"""
                 QPushButton {{
                     background: {C('bg_panel')};
@@ -941,11 +954,11 @@ class DashboardPage(QWidget):
                     color: {C('text_primary')};
                 }}
             """)
-            active = tip == "3x3"
+            active = columns == self._grid_columns
             btn.setFixedSize(34, 34)
             btn.setStyleSheet(self._grid_btn_style(active))
             lay.addWidget(btn)
-            self._grid_btns[{ "1x1": 2, "2x2": 3, "3x3": 4 }.get(tip, 4)] = btn
+            self._grid_btns[columns] = btn
 
         lay.addSpacing(8)
 
@@ -989,18 +1002,56 @@ class DashboardPage(QWidget):
 
     def _build_camera_grid_area(self) -> QScrollArea:
         scroll = QScrollArea()
+        self._camera_scroll = scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        scroll.setStyleSheet(self._camera_scroll_style())
 
         self._cam_container = QWidget()
         self._cam_container.setStyleSheet("background: transparent;")
+        self._cam_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._cam_grid = QGridLayout(self._cam_container)
         self._cam_grid.setSpacing(10)
         self._cam_grid.setContentsMargins(0, 0, 0, 0)
 
         scroll.setWidget(self._cam_container)
         return scroll
+
+    @staticmethod
+    def _camera_scroll_style() -> str:
+        return """
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #050a0f;
+                width: 8px;
+                margin: 2px 0 2px 6px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #334155;
+                border-radius: 4px;
+                min-height: 36px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #fb923c;
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+                border: none;
+                background: transparent;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
+            }
+        """
 
     def _build_bottom_panels(self) -> QWidget:
         bottom = QWidget()
@@ -1407,6 +1458,11 @@ class DashboardPage(QWidget):
         self._render_camera_grid(visible)
 
     def _render_camera_grid(self, cameras: list):
+        """Kamera panellarini grid ichiga joylashtiradi.
+
+        1/2/3 ustun: har qator = viewport to'liq balandligi — 1 qator ko'rinadi, qolganlari scroll.
+        4 ustun (4x2): har qator = viewport/2 — 2 qator ko'rinadi, qolganlari scroll.
+        """
         while self._cam_grid.count():
             item = self._cam_grid.takeAt(0)
             widget = item.widget()
@@ -1416,27 +1472,68 @@ class DashboardPage(QWidget):
                 else:
                     widget.deleteLater()
 
+        for r in range(10):
+            self._cam_grid.setRowStretch(r, 0)
+            self._cam_grid.setRowMinimumHeight(r, 0)
+        for c in range(4):
+            self._cam_grid.setColumnStretch(c, 0)
+
         if not cameras:
             no_lbl = QLabel("Bu ko'rinishga mos kamera topilmadi.")
             no_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             no_lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 14px;")
             self._cam_grid.addWidget(no_lbl, 0, 0)
+            self._cam_grid.setColumnStretch(0, 1)
+            self._cam_grid.setRowStretch(0, 1)
             return
 
         cols = 1 if len(cameras) == 1 else min(self._grid_columns, len(cameras))
+        panel_h = self._calc_panel_height(cols)
+
         for idx, cam in enumerate(cameras):
             cam_id = cam.get("id")
             panel = self._panels.get(cam_id)
             if not panel:
                 continue
-            row = idx // cols
-            col = idx % cols
-            min_h = 420 if len(cameras) == 1 else 230 if len(cameras) <= 4 else 205
-            panel.setMinimumHeight(min_h)
-            self._cam_grid.addWidget(panel, row, col)
+            r = idx // cols
+            c = idx % cols
+            panel.setFixedHeight(panel_h)
+            panel.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self._cam_grid.addWidget(panel, r, c)
 
-        for c in range(4):
-            self._cam_grid.setColumnStretch(c, 1 if c < cols else 0)
+        for c in range(cols):
+            self._cam_grid.setColumnStretch(c, 1)
+
+    def _calc_panel_height(self, cols: int) -> int:
+        """Har bir kamera paneli balandligini viewport asosida hisoblaydi.
+
+        1/2/3 ustun: to'liq viewport balandligi (1 qator ko'rinadi).
+        4 ustun:     viewport / 2 (2 qator ko'rinadi, 4x2 rejimi).
+        """
+        viewport_h = self._camera_scroll.viewport().height()
+        if viewport_h < 100:
+            viewport_h = self._camera_scroll.height()
+        if viewport_h < 100:
+            return 360 if cols <= 2 else 240
+
+        spacing = self._cam_grid.spacing()
+        if cols == 4:
+            return max(180, (viewport_h - spacing) // 2)
+        return max(200, viewport_h)
+
+    def _relayout_grid(self):
+        """Oyna o'lchami o'zgarganda panel balandliklarini yangilaydi."""
+        if not hasattr(self, "_visible_cameras") or not self._visible_cameras:
+            return
+        cameras = self._visible_cameras
+        cols = 1 if len(cameras) == 1 else min(self._grid_columns, len(cameras))
+        panel_h = self._calc_panel_height(cols)
+
+        for cam in cameras:
+            cam_id = cam.get("id")
+            panel = self._panels.get(cam_id)
+            if panel:
+                panel.setFixedHeight(panel_h)
 
     def _select_camera(self, cam_id: int):
         self._selected_cam_id = cam_id
@@ -1514,13 +1611,10 @@ class DashboardPage(QWidget):
             self._cam_list_layout.addStretch()
             return
 
-        cols = 1 if n == 1 else min(4, n)
-
         for idx, cam in enumerate(cameras):
             cam_id = cam.get("id", idx + 1)
             cam_name = cam.get("name", f"Kamera {cam_id}")
 
-            # Grid panel
             panel = CameraPanel(
                 cam_id     = cam_id,
                 cam_name   = cam_name,
@@ -1531,25 +1625,14 @@ class DashboardPage(QWidget):
             self._panels[cam_id] = panel
             self._today_per_cam[cam_id] = 0
 
-            row = idx // cols
-            col = idx % cols
-            min_h = 420 if n == 1 else 230 if n <= 4 else 205
-            panel.setMinimumHeight(min_h)
-            self._cam_grid.addWidget(panel, row, col)
-
-            # Sidebar elementlari pastda bo'limlar bo'yicha chiziladi.
-
         self._rebuild_camera_sidebar()
-
-        for c in range(cols):
-            self._cam_grid.setColumnStretch(c, 1)
         self._apply_camera_view()
         if self._selected_cam_id is not None:
             self._select_camera(self._selected_cam_id)
 
     # ── Tashqi yangilanishlar (workerdan) ─────────────────────────────────
 
-    def update_frame(self, cam_id: int, frame: np.ndarray):
+    def update_frame(self, cam_id: int, frame):
         p = self._panels.get(cam_id)
         if p:
             p.set_frame(frame)
@@ -1685,7 +1768,12 @@ class DashboardPage(QWidget):
         lay.addLayout(info_col, 1)
 
         ts = v.get("timestamp", "")
-        time_str = ts[11:19] if ts and len(ts) > 10 else datetime.datetime.now().strftime("%H:%M:%S")
+        if isinstance(ts, (int, float)) and ts:
+            time_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+        elif isinstance(ts, str) and len(ts) > 10:
+            time_str = ts[11:19]
+        else:
+            time_str = datetime.datetime.now().strftime("%H:%M:%S")
         time_lbl = QLabel(time_str)
         time_lbl.setStyleSheet(
             "color: #94a3b8; font-size: 10px; background: transparent;"
@@ -1742,7 +1830,12 @@ class DashboardPage(QWidget):
         top.addStretch()
 
         ts = v.get("timestamp", "")
-        time_str = ts[11:19] if ts and len(ts) > 10 else datetime.datetime.now().strftime("%H:%M:%S")
+        if isinstance(ts, (int, float)) and ts:
+            time_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+        elif isinstance(ts, str) and len(ts) > 10:
+            time_str = ts[11:19]
+        else:
+            time_str = datetime.datetime.now().strftime("%H:%M:%S")
         time_lbl = QLabel(time_str)
         time_lbl.setStyleSheet(
             "background: rgba(0,0,0,0.7); color: white; font-size: 9px;"

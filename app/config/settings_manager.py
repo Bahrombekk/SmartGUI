@@ -41,10 +41,10 @@ DEFAULT_SETTINGS = {
     # Model
     "ai_model_enabled": False,
     "model_path": r"app\models\best.pt",
-    "confidence": 0.6,
-    "yolo_imgsz": 1024,
+    "confidence": 0.25,
+    "yolo_imgsz": 640,
     "use_gpu": True,
-    "half_precision": True,
+    "half_precision": False,
     "process_every_n": 1,
 
     # Detection
@@ -80,6 +80,7 @@ DEFAULT_SETTINGS = {
     "language": "uz",
     "display_max_width": 1280,
     "video_fps_limit": 25,
+    "ai_fps_limit": 10,
     "show_fps": True,
     "show_stats": True,
 

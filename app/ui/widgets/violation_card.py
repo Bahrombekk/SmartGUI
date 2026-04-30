@@ -98,7 +98,9 @@ class ViolationCard(QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            event.accept()
             self.clicked.emit(self.violation)
+            return
         super().mousePressEvent(event)
 
 

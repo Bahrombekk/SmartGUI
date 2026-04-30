@@ -174,37 +174,45 @@ def get_main_stylesheet() -> str:
     }}
 
     /* ── QLineEdit ───────────────────────────────────────── */
-    QLineEdit {{
-        background-color: {C('bg_panel')};
+    QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit {{
+        background: rgba(2,6,23,0.72);
         color: {C('text_primary')};
-        border: 1px solid {C('border')};
-        border-radius: 6px;
-        padding: 7px 10px;
+        border: 1px solid rgba(148,163,184,0.22);
+        border-radius: 7px;
+        padding: 0 10px;
+        min-height: 34px;
         font-size: 13px;
-        selection-background-color: {C('accent_dim')};
+        selection-background-color: rgba(249,115,22,0.24);
     }}
-    QLineEdit:focus {{ border-color: {C('accent')}; }}
-    QLineEdit:disabled {{ color: {C('text_muted')}; }}
-    QLineEdit:hover {{ border-color: {C('border_hover')}; }}
+    QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover {{
+        background: rgba(15,23,42,0.70);
+        border-color: rgba(148,163,184,0.38);
+    }}
+    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus {{
+        background: rgba(15,23,42,0.86);
+        border: 1px solid rgba(251,146,60,0.74);
+    }}
+    QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QDateEdit:disabled {{
+        color: {C('text_muted')};
+        border-color: rgba(148,163,184,0.12);
+    }}
+    QLineEdit::placeholder {{ color: {C('text_muted')}; }}
 
     /* ── QComboBox ───────────────────────────────────────── */
-    QComboBox {{
-        background-color: {C('bg_panel')};
-        color: {C('text_primary')};
-        border: 1px solid {C('border')};
-        border-radius: 6px;
-        padding: 6px 10px;
-        font-size: 13px;
-    }}
-    QComboBox:focus {{ border-color: {C('accent')}; }}
     QComboBox QAbstractItemView {{
-        background-color: {C('bg_card')};
+        background-color: #071016;
         color: {C('text_primary')};
-        border: 1px solid {C('border')};
-        selection-background-color: {C('accent_dim')};
+        border: 1px solid rgba(148,163,184,0.18);
+        selection-background-color: rgba(249,115,22,0.14);
         outline: none;
     }}
-    QComboBox::drop-down {{ border: none; width: 24px; }}
+    QComboBox::drop-down, QDateEdit::drop-down {{ border: none; width: 26px; }}
+    QSpinBox::up-button, QSpinBox::down-button,
+    QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
+        border: none;
+        width: 18px;
+        background: transparent;
+    }}
 
     /* ── QSlider ─────────────────────────────────────────── */
     QSlider::groove:horizontal {{

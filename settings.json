@@ -10,12 +10,17 @@
       "id": 2,
       "name": "Test",
       "expanded": true
+    },
+    {
+      "id": 3,
+      "name": "Dasuty",
+      "expanded": true
     }
   ],
   "cameras": [
     {
       "id": 3,
-      "name": "q2",
+      "name": "Stansiya",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/201",
       "company_id": "www",
       "department_id": 1,
@@ -23,7 +28,7 @@
     },
     {
       "id": 1,
-      "name": "qqqq",
+      "name": "Stansiya 2",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/301",
       "company_id": "wq",
       "department_id": 2,
@@ -31,7 +36,7 @@
     },
     {
       "id": 2,
-      "name": "q1",
+      "name": "Stansiya 3",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/501",
       "company_id": "1",
       "department_id": 2,
@@ -39,7 +44,7 @@
     },
     {
       "id": 4,
-      "name": "6",
+      "name": "Satansiya 4",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/601",
       "company_id": "2",
       "department_id": 2,
@@ -47,10 +52,42 @@
     },
     {
       "id": 5,
-      "name": "01",
+      "name": "Stansiya 5",
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/201",
       "company_id": "1",
       "department_id": 1,
+      "enabled": true
+    },
+    {
+      "id": 6,
+      "name": "DASUTY",
+      "rtsp_url": "0",
+      "company_id": "1",
+      "department_id": 1,
+      "enabled": true
+    },
+    {
+      "id": 7,
+      "name": "DAS",
+      "rtsp_url": "01",
+      "company_id": "1",
+      "department_id": 1,
+      "enabled": true
+    },
+    {
+      "id": 8,
+      "name": "Das1",
+      "rtsp_url": "0000",
+      "company_id": "1",
+      "department_id": 3,
+      "enabled": true
+    },
+    {
+      "id": 9,
+      "name": "Das2",
+      "rtsp_url": "0258",
+      "company_id": "2",
+      "department_id": 3,
       "enabled": true
     }
   ],
@@ -82,12 +119,12 @@
   ],
   "reconnect_delay": 3,
   "max_reconnects": 20,
-  "ai_model_enabled": false,
+  "ai_model_enabled": true,
   "model_path": "app\\models\\best.pt",
-  "confidence": 0.6,
+  "confidence": 0.25,
   "yolo_imgsz": 1024,
   "use_gpu": true,
-  "half_precision": true,
+  "half_precision": false,
   "process_every_n": 1,
   "helmet_zone_bottom": 0.35,
   "helmet_iou_threshold": 0.15,
@@ -109,8 +146,9 @@
   "polygon_points": [],
   "theme": "dark",
   "language": "uz",
-  "display_max_width": 1280,
+  "display_max_width": 960,
   "video_fps_limit": 25,
+  "ai_fps_limit": 12,
   "show_fps": true,
   "show_stats": true,
   "tracker_config": "",

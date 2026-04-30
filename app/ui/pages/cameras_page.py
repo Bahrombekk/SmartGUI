@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QInputDialog,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -41,6 +43,7 @@ class CameraListRow(QFrame):
         self._selected = False
         self._status = "connecting"
         self._fps = 0
+        self._ping_ms: float | None = None
         self._detections = 0
         self._last_seen = "--"
 
@@ -60,17 +63,18 @@ class CameraListRow(QFrame):
         lay.setColumnStretch(3, 1)
         lay.setColumnStretch(4, 1)
         lay.setColumnStretch(5, 1)
+        lay.setColumnStretch(6, 1)
 
         self._thumb = QLabel()
         self._thumb.setFixedSize(58, 40)
         self._thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._thumb.setStyleSheet("background: #05090d; border-radius: 5px;")
+        self._thumb.setStyleSheet("background: transparent; border: none;")
         _cam_pix = QPixmap(str(self._icon_dir / "camera-small.svg"))
         if not _cam_pix.isNull():
             self._thumb.setPixmap(_cam_pix.scaled(28, 28, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
         else:
             self._thumb.setText("CAM")
-            self._thumb.setStyleSheet("background: #05090d; border-radius: 5px; color: #64748b; font-size: 10px;")
+            self._thumb.setStyleSheet("background: transparent; color: #64748b; font-size: 10px;")
         lay.addWidget(self._thumb, 0, 0, 2, 1)
 
         title_col = QVBoxLayout()
@@ -92,13 +96,17 @@ class CameraListRow(QFrame):
         self._fps_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px;")
         lay.addWidget(self._fps_lbl, 0, 3, 2, 1)
 
+        self._ping_lbl = QLabel("--")
+        self._ping_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px;")
+        lay.addWidget(self._ping_lbl, 0, 4, 2, 1)
+
         self._seen_lbl = QLabel("--")
         self._seen_lbl.setStyleSheet("color: #e2e8f0; font-size: 11px;")
-        lay.addWidget(self._seen_lbl, 0, 4, 2, 1)
+        lay.addWidget(self._seen_lbl, 0, 5, 2, 1)
 
         self._det_lbl = QLabel("0")
         self._det_lbl.setStyleSheet("color: #c084fc; font-size: 11px; font-weight: 800;")
-        lay.addWidget(self._det_lbl, 0, 5, 2, 1)
+        lay.addWidget(self._det_lbl, 0, 6, 2, 1)
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
@@ -109,7 +117,7 @@ class CameraListRow(QFrame):
         self._settings_btn = self._make_icon_button("settings.svg", "Settings")
         self._settings_btn.clicked.connect(lambda: self.settings_requested.emit(self.cam_id))
         actions.addWidget(self._settings_btn)
-        lay.addLayout(actions, 0, 6, 2, 1)
+        lay.addLayout(actions, 0, 7, 2, 1)
 
     def _make_icon_button(self, icon_name: str, tip: str) -> QPushButton:
         btn = QPushButton()
@@ -140,16 +148,17 @@ class CameraListRow(QFrame):
     def set_selected(self, selected: bool):
         self._selected = selected
         bg = "rgba(249,115,22,0.10)" if selected else "transparent"
-        border = "rgba(249,115,22,0.45)" if selected else "rgba(30,41,59,0.75)"
+        border = "rgba(249,115,22,0.55)" if selected else "#16212c"
         self.setStyleSheet(
             "QFrame#cameraListRow {"
             f"background: {bg}; border-bottom: 1px solid {border}; border-radius: 0;"
             "}"
         )
 
-    def set_status(self, status: str, fps: float = 0.0, detections: int = 0):
+    def set_status(self, status: str, fps: float = 0.0, detections: int = 0, ping_ms: float | None = None):
         self._status = status
         self._fps = fps
+        self._ping_ms = ping_ms
         self._detections = detections
         live = status == "live"
         self._status_lbl.setText("Live" if live else "Offline" if status in {"offline", "error"} else "Connecting")
@@ -158,8 +167,15 @@ class CameraListRow(QFrame):
             "font-size: 11px; font-weight: 800;"
         )
         self._fps_lbl.setText(f"{fps:.0f} fps" if live else "0 fps")
+        self._ping_lbl.setText(self._format_ping(ping_ms) if live else "--")
         self._seen_lbl.setText("Now" if live else self._last_seen)
         self._det_lbl.setText(str(detections))
+
+    @staticmethod
+    def _format_ping(ping_ms: float | None) -> str:
+        if ping_ms is None:
+            return "--"
+        return f"{max(0, int(round(ping_ms)))} ms"
 
     def set_frame(self, frame: np.ndarray):
         pass
@@ -234,6 +250,7 @@ def frame_to_pixmap(frame: np.ndarray, width: int, height: int) -> QPixmap | Non
 
 class CamerasPage(QWidget):
     add_camera_requested = pyqtSignal()
+    departments_changed = pyqtSignal()
 
     def __init__(self, db, config_manager, parent=None):
         super().__init__(parent)
@@ -252,10 +269,11 @@ class CamerasPage(QWidget):
         self._build_ui()
 
     def _build_ui(self):
+        self.setObjectName("camerasPage")
         root = QHBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
-        root.setSpacing(10)
-        self.setStyleSheet("background: #03070b;")
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(12)
+        self.setStyleSheet("QWidget#camerasPage { background: #03070b; }")
 
         root.addWidget(self._build_sidebar())
         root.addWidget(self._build_camera_list(), 1)
@@ -288,9 +306,16 @@ class CamerasPage(QWidget):
         cam_lay.addWidget(self._all_filter_btn)
 
         cam_lay.addSpacing(6)
+        loc_hdr = QHBoxLayout()
         loc = self._section_title("LOCATIONS")
         loc.setStyleSheet(loc.styleSheet() + "color: #94a3b8;")
-        cam_lay.addWidget(loc)
+        loc_hdr.addWidget(loc, 1)
+        add_dep = QPushButton("+ Bo'lim")
+        add_dep.setFixedHeight(28)
+        add_dep.setStyleSheet(self._secondary_btn_style())
+        add_dep.clicked.connect(self._add_department)
+        loc_hdr.addWidget(add_dep)
+        cam_lay.addLayout(loc_hdr)
         self._location_box = QVBoxLayout()
         self._location_box.setSpacing(2)
         cam_lay.addLayout(self._location_box)
@@ -340,6 +365,7 @@ class CamerasPage(QWidget):
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search camera...")
         self._search.setFixedHeight(32)
+        self._search.setStyleSheet(self._input_style())
         self._search.textChanged.connect(self.set_search_text)
         toolbar.addWidget(self._search, 2)
         for key, label in [("all", "All"), ("live", "Live"), ("offline", "Offline"), ("detection", "With Detection")]:
@@ -351,6 +377,7 @@ class CamerasPage(QWidget):
         sort = QComboBox()
         sort.addItems(["Sort by: Name", "Sort by: Status", "Sort by: Detections"])
         sort.setFixedHeight(32)
+        sort.setStyleSheet(self._combo_style())
         toolbar.addWidget(sort)
         grid = QPushButton()
         grid.setIcon(QIcon(str(self._icon_dir / "grid-3.svg")))
@@ -367,7 +394,8 @@ class CamerasPage(QWidget):
         headers.setColumnStretch(2, 1)
         headers.setColumnStretch(3, 1)
         headers.setColumnStretch(4, 1)
-        for col, text in enumerate(["Camera Name", "Status", "FPS", "Last Seen", "Detections"]):
+        headers.setColumnStretch(5, 1)
+        for col, text in enumerate(["Camera Name", "Status", "FPS", "Ping", "Last Seen", "Detections"]):
             lbl = QLabel(text)
             lbl.setStyleSheet("color: #94a3b8; font-size: 11px;")
             headers.addWidget(lbl, 0, col)
@@ -376,8 +404,10 @@ class CamerasPage(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list_body = QWidget()
+        self._list_body.setStyleSheet("background: transparent;")
         self._list_layout = QVBoxLayout(self._list_body)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(0)
@@ -409,7 +439,7 @@ class CamerasPage(QWidget):
         lay.addLayout(hdr)
 
         preview_box = QFrame()
-        preview_box.setStyleSheet("background: #000000; border: 1px solid #0f172a; border-radius: 8px;")
+        preview_box.setStyleSheet("background: #020509; border: 1px solid #16212c; border-radius: 8px;")
         preview_lay = QVBoxLayout(preview_box)
         preview_lay.setContentsMargins(0, 0, 0, 0)
         self._video = VideoLabel()
@@ -437,7 +467,7 @@ class CamerasPage(QWidget):
             thumb.setFixedSize(55, 42)
             thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
             border = "#fb923c" if i == 3 else "#1e293b"
-            thumb.setStyleSheet(f"background: #071016; color: #94a3b8; border: 1px solid {border}; border-radius: 5px; font-size: 9px;")
+            thumb.setStyleSheet(f"background: transparent; color: #94a3b8; border: 1px solid {border}; border-radius: 5px; font-size: 9px;")
             row.addWidget(thumb)
         tl.addLayout(row)
         lay.addWidget(timeline)
@@ -506,10 +536,10 @@ class CamerasPage(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         key = QLabel(label)
         key.setFixedWidth(82)
-        key.setStyleSheet("color: #cbd5e1; font-size: 10px;")
+        key.setStyleSheet("background: transparent; color: #cbd5e1; font-size: 10px;")
         val = QLabel(value)
         val.setObjectName("valueLabel")
-        val.setStyleSheet("background: #071016; border: 1px solid #1e293b; border-radius: 5px; color: #e2e8f0; padding: 5px 7px; font-size: 10px;")
+        val.setStyleSheet("background: transparent; border: none; color: #e2e8f0; padding: 5px 7px; font-size: 10px;")
         val.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         lay.addWidget(key)
         lay.addWidget(val, 1)
@@ -519,12 +549,12 @@ class CamerasPage(QWidget):
         frame = QFrame()
         frame.setProperty("panel", True)
         frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        bg0 = "#09131a" if inner else "#0c151c"
-        bg1 = "#071016"
+        bg = "#071016" if inner else "#0a1118"
+        border = "#16212c" if inner else "#1e293b"
         frame.setStyleSheet(
             "QFrame[panel='true'] {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {bg0},stop:1 {bg1});"
-            "border: 1px solid #1e293b; border-radius: 8px;"
+            f"background: {bg};"
+            f"border: 1px solid {border}; border-radius: 8px;"
             "}"
         )
         return frame
@@ -532,21 +562,72 @@ class CamerasPage(QWidget):
     @staticmethod
     def _section_title(text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setStyleSheet("color: #f8fafc; font-size: 11px; font-weight: 900; letter-spacing: 0px;")
+        lbl.setStyleSheet(
+        "background: transparent; color: #f8fafc; font-size: 11px; font-weight: 900; letter-spacing: 0px;"
+        )
         return lbl
 
     @staticmethod
     def _secondary_btn_style() -> str:
         return """
-            QPushButton { background: #0f172a; color: #f8fafc; border: 1px solid #1e293b; border-radius: 6px; font-size: 11px; }
-            QPushButton:hover { border-color: #fb923c; color: #fb923c; }
+            QPushButton { background: transparent; color: #e2e8f0; border: 1px solid #243244; border-radius: 6px; font-size: 11px; }
+            QPushButton:hover { background: #0f172a; border-color: #fb923c; color: #fb923c; }
         """
 
     @staticmethod
     def _icon_button_style() -> str:
         return """
-            QPushButton { background: #0f172a; color: #cbd5e1; border: 1px solid #1e293b; border-radius: 6px; font-size: 9px; padding: 0; }
-            QPushButton:hover { border-color: #fb923c; color: #fb923c; }
+            QPushButton { background: transparent; color: #cbd5e1; border: 1px solid #243244; border-radius: 6px; font-size: 9px; padding: 0; }
+            QPushButton:hover { background: #0f172a; border-color: #fb923c; color: #fb923c; }
+        """
+
+    @staticmethod
+    def _input_style() -> str:
+        return """
+            QLineEdit {
+                background: rgba(2,6,23,0.72);
+                color: #e2e8f0;
+                border: 1px solid rgba(148,163,184,0.22);
+                border-radius: 7px;
+                padding: 0 10px;
+                font-size: 12px;
+            }
+            QLineEdit:hover {
+                background: rgba(15,23,42,0.70);
+                border-color: rgba(148,163,184,0.38);
+            }
+            QLineEdit:focus {
+                background: rgba(15,23,42,0.86);
+                border: 1px solid rgba(251,146,60,0.74);
+            }
+        """
+
+    @staticmethod
+    def _combo_style() -> str:
+        return """
+            QComboBox {
+                background: rgba(2,6,23,0.72);
+                color: #e2e8f0;
+                border: 1px solid rgba(148,163,184,0.22);
+                border-radius: 7px;
+                padding: 0 10px;
+                font-size: 12px;
+            }
+            QComboBox:hover {
+                background: rgba(15,23,42,0.70);
+                border-color: rgba(148,163,184,0.38);
+            }
+            QComboBox:focus {
+                background: rgba(15,23,42,0.86);
+                border: 1px solid rgba(251,146,60,0.74);
+            }
+            QComboBox::drop-down { border: none; width: 26px; }
+            QComboBox QAbstractItemView {
+                background: #071016;
+                color: #e2e8f0;
+                border: 1px solid rgba(148,163,184,0.18);
+                selection-background-color: rgba(249,115,22,0.14);
+            }
         """
 
     @staticmethod
@@ -566,6 +647,19 @@ class CamerasPage(QWidget):
         self._set_filter("all")
         self._select_camera(self._selected_cam_id)
 
+    def _add_department(self):
+        name, ok = QInputDialog.getText(self, "Yangi bo'lim", "Bo'lim nomi:")
+        if not ok:
+            return
+        try:
+            self.cfg.add_department(name)
+            self.cfg.save()
+        except ValueError as e:
+            QMessageBox.warning(self, "Xatolik", str(e))
+            return
+        self._rebuild_locations()
+        self.departments_changed.emit()
+
     def _rebuild_locations(self):
         while self._location_box.count():
             item = self._location_box.takeAt(0)
@@ -575,11 +669,13 @@ class CamerasPage(QWidget):
         for dep in departments:
             dep_id = dep.get("id")
             count = sum(1 for cam in self._cameras if cam.get("department_id") == dep_id)
-            if not count:
-                continue
             btn = QPushButton(f"  {dep.get('name', 'Location')}    {count}")
             btn.setFixedHeight(30)
-            btn.setStyleSheet("QPushButton { text-align: left; background: transparent; border: none; color: #cbd5e1; font-size: 12px; padding-right: 10px; } QPushButton:hover { color: #fb923c; }")
+            btn.setStyleSheet(
+                "QPushButton { text-align: left; background: transparent; border: 1px solid transparent;"
+                " color: #cbd5e1; font-size: 12px; padding-right: 10px; border-radius: 6px; }"
+                "QPushButton:hover { color: #fb923c; background: rgba(15,23,42,0.70); border-color: #1e293b; }"
+            )
             btn.clicked.connect(lambda _, did=dep_id: self._set_filter(f"dep:{did}"))
             self._location_box.addWidget(btn)
 
@@ -598,7 +694,12 @@ class CamerasPage(QWidget):
             row.preview_requested.connect(self._preview_camera)
             row.settings_requested.connect(self._select_camera)
             stats = self._stats.get(cam_id, {})
-            row.set_status(self._status.get(cam_id, "connecting"), stats.get("fps", 0.0), stats.get("today_count", 0))
+            row.set_status(
+                self._status.get(cam_id, "connecting"),
+                stats.get("fps", 0.0),
+                stats.get("today_count", 0),
+                stats.get("ping_ms"),
+            )
             row.set_selected(cam_id == self._selected_cam_id)
             self._rows[cam_id] = row
             self._list_layout.addWidget(row)
@@ -634,11 +735,13 @@ class CamerasPage(QWidget):
                 active = key == name
                 btn.setStyleSheet(
                     "QPushButton {"
-                    f"background: {'rgba(249,115,22,0.20)' if active else '#071016'};"
+                    f"background: {'rgba(249,115,22,0.18)' if active else 'transparent'};"
                     f"border: 1px solid {'#f97316' if active else '#1e293b'};"
                     f"color: {'#fb923c' if active else '#cbd5e1'};"
                     "border-radius: 6px; font-size: 11px; font-weight: 800;"
+                    "padding: 0 12px;"
                     "}"
+                    "QPushButton:hover { background: #0f172a; border-color: #334155; }"
                 )
         self._all_filter_btn.setStyleSheet(
             "QPushButton { text-align: left; border-radius: 6px; font-size: 11px; font-weight: 800;"
@@ -646,7 +749,23 @@ class CamerasPage(QWidget):
             f"border: 1px solid {'#f97316' if key == 'all' else 'transparent'};"
             f"color: {'#fb923c' if key == 'all' else '#cbd5e1'};"
             "}"
+            "QPushButton:hover { background: #0f172a; color: #fb923c; }"
         )
+        visible_count = sum(1 for cam in self._cameras if self._matches(cam))
+        if key.startswith("dep:"):
+            dep_id = key.split(":", 1)[1]
+            dep_name = self._department_name(int(dep_id)) if dep_id.isdigit() else "Location"
+            self._title_lbl.setText(dep_name or "Location")
+            self._count_lbl.setText(f"{visible_count} Cameras")
+        else:
+            titles = {
+                "all": "All Cameras",
+                "live": "Live Cameras",
+                "offline": "Offline Cameras",
+                "detection": "Cameras With Detection",
+            }
+            self._title_lbl.setText(titles.get(key, "All Cameras"))
+            self._count_lbl.setText(f"{visible_count} Cameras")
         self._render_rows()
 
     def set_search_text(self, text: str):
@@ -724,20 +843,30 @@ class CamerasPage(QWidget):
         dep = self.cfg.get_department_by_id(dep_id) if self.cfg else None
         return dep.get("name", "") if dep else ""
 
-    def update_frame(self, cam_id: int, frame: np.ndarray):
+    def update_frame(self, cam_id: int, frame):
         row = self._rows.get(cam_id)
         if row:
             row.mark_seen()
 
-        if cam_id == self._selected_cam_id and self._video._mode == "live":
+        # VideoLabel QImage va numpy ikkalasini ham qabul qiladi
+        if cam_id == self._selected_cam_id:
             self._video.set_frame(frame)
 
+        # Thumbnail: har 1 soniyada bir marta, past sifatda
         now = time.monotonic()
         if now - self._frame_ts.get(cam_id, 0) < 1.0:
             return
         self._frame_ts[cam_id] = now
-        pixmap = frame_to_pixmap(frame, 640, 360)
-        if pixmap:
+
+        if isinstance(frame, QImage):
+            pixmap = QPixmap.fromImage(frame).scaled(
+                640, 360,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+        else:
+            pixmap = frame_to_pixmap(frame, 640, 360)
+        if pixmap and not pixmap.isNull():
             self._frames[cam_id] = pixmap
 
     def on_stats(self, cam_id: int, stats: dict):
@@ -746,7 +875,7 @@ class CamerasPage(QWidget):
         self._status[cam_id] = status
         row = self._rows.get(cam_id)
         if row:
-            row.set_status(status, stats.get("fps", 0.0), stats.get("today_count", 0))
+            row.set_status(status, stats.get("fps", 0.0), stats.get("today_count", 0), stats.get("ping_ms"))
         if cam_id == self._selected_cam_id:
             self._set_detail_badge(status)
         self._update_counts()
@@ -761,7 +890,7 @@ class CamerasPage(QWidget):
         self._status[cam_id] = "error"
         row = self._rows.get(cam_id)
         if row:
-            row.set_status("error", 0.0, self._stats.get(cam_id, {}).get("today_count", 0))
+            row.set_status("error", 0.0, self._stats.get(cam_id, {}).get("today_count", 0), None)
         if cam_id == self._selected_cam_id:
             self._set_detail_badge("error")
             self._video.show_error(msg)

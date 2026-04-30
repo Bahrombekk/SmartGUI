@@ -97,26 +97,30 @@ class VideoLabel(QLabel):
 
     # ── Frame ko'rsatish ─────────────────────────────────────────────────
 
-    def set_frame(self, frame: np.ndarray):
-        """BGR numpy frame → QLabel pixmap.
-
-        MUHIM: rgb.tobytes() ishlatiladi — rgb.data PyQt6 da qora ekran berishi
-        mumkin chunki numpy array GC dan tushib ketishi bilan data pointer bekor bo'ladi.
+    def set_frame(self, frame):
         """
-        if frame is None or frame.size == 0:
+        Frame'ni ko'rsatadi.
+
+        frame: QImage  — worker thread'da tayyorlangan (cv2.cvtColor u yerda bajarilgan)
+               np.ndarray — backward compatibility (BGR, cv2.cvtColor bu yerda bo'ladi)
+
+        Asosiy thread ishi: QPixmap.fromImage() + scaled() + setPixmap() — juda tez (~0.5ms).
+        Eski yo'l (numpy): cv2.cvtColor bu thread'da — legacy qo'llab-quvvatlash uchun.
+        """
+        if frame is None:
             return
         try:
-            import cv2 as _cv2
-            rgb = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
-            h, w, ch = rgb.shape
-            bytes_per_line = ch * w
+            if isinstance(frame, QImage):
+                qimg = frame
+            else:
+                # numpy (BGR) — eski yo'l
+                if frame.size == 0:
+                    return
+                import cv2 as _cv2
+                rgb = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
+                h, w, ch = rgb.shape
+                qimg = QImage(rgb.tobytes(), w, h, ch * w, QImage.Format.Format_RGB888)
 
-            # tobytes() — ko'chirilgan doimiy bufer, PyQt6 da xavfsiz
-            qimg = QImage(
-                rgb.tobytes(), w, h,
-                bytes_per_line,
-                QImage.Format.Format_RGB888
-            )
             pixmap = QPixmap.fromImage(qimg)
             scaled = pixmap.scaled(
                 self.width(), self.height(),

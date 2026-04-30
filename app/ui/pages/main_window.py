@@ -21,6 +21,7 @@ from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QP
 from app.config.settings_manager import ConfigManager, CameraConfigProxy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.workers.detection_worker import DetectionWorker
+from app.workers.inference_engine import InferenceEngine
 from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.cameras_page import CamerasPage
 from app.ui.pages.violations_page import ViolationsPage
@@ -43,6 +44,7 @@ class TopNavBar(QWidget):
     PAGE_ANALYTICS  = 2
     PAGE_USERS      = 5
     PAGE_ABOUT      = 3
+    PAGE_SETTINGS   = 6
 
     def __init__(self, on_page_change, on_settings, on_quit, on_search=None, parent=None):
         super().__init__(parent)
@@ -122,13 +124,15 @@ class TopNavBar(QWidget):
 
         # Sozlamalar (dialog ochadi)
         settings_btn = QPushButton("Settings")
+        settings_btn.setCheckable(True)
         settings_btn.setFixedHeight(58)
         settings_btn.setMinimumWidth(86)
         settings_btn.setIcon(self._icon("settings.svg"))
         settings_btn.setIconSize(QSize(16, 16))
         settings_btn.setStyleSheet(self._nav_style())
-        settings_btn.clicked.connect(self._on_settings)
+        settings_btn.clicked.connect(lambda: self._nav_click(self.PAGE_SETTINGS))
         lay.addWidget(settings_btn)
+        self._nav_btns[self.PAGE_SETTINGS] = settings_btn
 
         lay.addStretch()
 
@@ -139,14 +143,21 @@ class TopNavBar(QWidget):
         self._search.setFixedHeight(32)
         self._search.setStyleSheet(f"""
             QLineEdit {{
-                background: #070d12;
+                background: rgba(2,6,23,0.72);
                 color: #e2e8f0;
-                border: 1px solid #1e293b;
-                border-radius: 8px;
-                padding: 0 14px;
+                border: 1px solid rgba(148,163,184,0.22);
+                border-radius: 7px;
+                padding: 0 10px;
                 font-size: 13px;
             }}
-            QLineEdit:focus {{ border-color: {C('accent')}; }}
+            QLineEdit:hover {{
+                background: rgba(15,23,42,0.70);
+                border-color: rgba(148,163,184,0.38);
+            }}
+            QLineEdit:focus {{
+                background: rgba(15,23,42,0.86);
+                border: 1px solid rgba(251,146,60,0.74);
+            }}
         """)
         self._search.textChanged.connect(self._on_search_changed)
         lay.addWidget(self._search)
@@ -345,9 +356,13 @@ class TopNavBar(QWidget):
             3: 2,  # Reports → Violations
             4: 2,  # Alerts → Violations
             5: 5,  # Users
+            6: 6,  # Settings
         }.get(page_id, 0)
         self._set_active(page_id)
-        self._on_page_change(real_page)
+        if page_id == self.PAGE_SETTINGS:
+            self._on_settings()
+        else:
+            self._on_page_change(real_page, page_id)
 
     def _on_search_changed(self, text: str):
         if self._on_search:
@@ -463,6 +478,7 @@ class MainWindow(QMainWindow):
         )
         self._dashboard.add_camera_requested.connect(self._open_settings)
         self._cameras.add_camera_requested.connect(self._open_settings)
+        self._cameras.departments_changed.connect(self._on_departments_changed)
         self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
         self._settings.settings_saved.connect(self._on_settings_saved)
 
@@ -527,8 +543,19 @@ class MainWindow(QMainWindow):
 
     # ── Sahifa almashtirish ───────────────────────────────────────────────
 
-    def _switch_page(self, page: int):
+    def _switch_page(self, page: int, nav_page: int | None = None):
         self._stack.setCurrentIndex(page)
+        if nav_page is None:
+            nav_page = {
+                self.PAGE_DASHBOARD: 0,
+                self.PAGE_CAMERAS: 1,
+                self.PAGE_VIOLATIONS: 3,
+                self.PAGE_ANALYTICS: 2,
+                self.PAGE_USERS: 5,
+                self.PAGE_SETTINGS: 6,
+            }.get(page)
+        if nav_page is not None:
+            self._navbar.set_active_page(nav_page)
         if page == self.PAGE_ANALYTICS:
             self._analytics.refresh()
         elif page == self.PAGE_USERS:
@@ -602,6 +629,7 @@ class MainWindow(QMainWindow):
         self._workers.clear()
         self._persons_per_cam.clear()
         self._navbar.set_pause_enabled(False)
+        InferenceEngine.destroy()  # Singleton model'ni VRAM'dan bo'shatadi
 
     def _restart_all_cameras(self):
         self._stop_all_cameras()
@@ -697,6 +725,10 @@ class MainWindow(QMainWindow):
     def _on_settings_saved(self):
         self._refresh_sb_cams()
         self._restart_all_cameras()
+
+    def _on_departments_changed(self):
+        self._settings._load_values()
+        self._sb_status.setText("Bo'limlar yangilandi")
 
     def _save_screenshot(self):
         ss_dir = Path("screenshots")
