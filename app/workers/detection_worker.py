@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from queue import Empty, Full, Queue
 
 import cv2
@@ -76,7 +77,7 @@ class DetectionWorker(QThread):
         # FPS
         self._frame_count   = 0
         self._fps           = 0.0
-        self._fps_samples: list[float] = []
+        self._fps_samples: deque[float] = deque(maxlen=30)
         self._last_fps_ts: float | None = None
 
         # Violations
@@ -308,10 +309,7 @@ class DetectionWorker(QThread):
 
     def _update_fps(self, now: float):
         if self._last_fps_ts is not None:
-            dt = now - self._last_fps_ts
-            self._fps_samples.append(dt)
-            if len(self._fps_samples) > 30:
-                self._fps_samples.pop(0)
+            self._fps_samples.append(now - self._last_fps_ts)
             avg = sum(self._fps_samples) / len(self._fps_samples)
             self._fps = 1.0 / avg if avg > 0 else 0.0
         self._last_fps_ts = now

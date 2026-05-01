@@ -164,15 +164,11 @@ class TopNavBar(QWidget):
         lay.addSpacing(8)
 
         # Bell
-        self._bell_btn = QPushButton("Bell")
-        self._bell_btn.setFixedSize(32, 32)
-        self._bell_btn.setText("🔔")
-        self._bell_btn.setStyleSheet(self._icon_btn_style())
-        self._bell_btn.setText("!")
-        self._bell_btn.setText("")
+        self._bell_btn = QPushButton()
         self._bell_btn.setFixedSize(30, 30)
         self._bell_btn.setIcon(self._icon("bell.svg"))
         self._bell_btn.setIconSize(QSize(18, 18))
+        self._bell_btn.setStyleSheet(self._icon_btn_style())
         self._bell_btn.setToolTip("Alerts")
         self._bell_btn.clicked.connect(lambda: self._nav_click(4))
         lay.addWidget(self._bell_btn)
@@ -189,10 +185,7 @@ class TopNavBar(QWidget):
         self._notif_badge.hide()
 
         # Moon / tema
-        moon_btn = QPushButton("◑")
-        moon_btn.setFixedSize(32, 32)
-        moon_btn.setText("D")
-        moon_btn.setText("")
+        moon_btn = QPushButton()
         moon_btn.setFixedSize(30, 30)
         moon_btn.setIcon(self._icon("moon.svg"))
         moon_btn.setIconSize(QSize(18, 18))
@@ -201,10 +194,7 @@ class TopNavBar(QWidget):
         lay.addWidget(moon_btn)
 
         # Expand (fullscreen)
-        expand_btn = QPushButton("⤢")
-        expand_btn.setFixedSize(32, 32)
-        expand_btn.setText("[]")
-        expand_btn.setText("")
+        expand_btn = QPushButton()
         expand_btn.setFixedSize(30, 30)
         expand_btn.setIcon(self._icon("expand.svg"))
         expand_btn.setIconSize(QSize(18, 18))
@@ -258,9 +248,7 @@ class TopNavBar(QWidget):
         lay.addSpacing(8)
 
         # Chiqish
-        quit_btn = QPushButton("×")
-        quit_btn.setText("X")
-        quit_btn.setText("")
+        quit_btn = QPushButton()
         quit_btn.setFixedSize(30, 30)
         quit_btn.setIcon(self._icon("close.svg"))
         quit_btn.setIconSize(QSize(18, 18))

@@ -50,6 +50,11 @@ class CameraPanel(QFrame):
         self._pulse_timer.setInterval(900)
         self._pulse_timer.timeout.connect(self._pulse_dot)
 
+        self._clock_timer = QTimer(self)
+        self._clock_timer.setInterval(1000)
+        self._clock_timer.timeout.connect(self._update_clock)
+        self._clock_timer.start()
+
         self._setup_ui()
 
     def set_selected(self, selected: bool):
@@ -182,9 +187,11 @@ class CameraPanel(QFrame):
 
     # ── Tashqi yangilanishlar ─────────────────────────────────────────────
 
+    def _update_clock(self):
+        self._time_lbl.setText(datetime.datetime.now().strftime("%H:%M:%S"))
+
     def set_frame(self, frame):
         self._video.set_frame(frame)
-        self._time_lbl.setText(datetime.datetime.now().strftime("%H:%M:%S"))
 
     def set_stats(self, fps: float, persons: int, today: int, connected: bool):
         self._fps_lbl.setText(f"{fps:.0f} fps")
