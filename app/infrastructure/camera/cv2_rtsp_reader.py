@@ -57,26 +57,42 @@ _USE_GPU_DECODE = _cuda_ffmpeg_available()
 class _FrameSlot:
     """Lock-free double buffer — get() hech qachon bloklanmaydi."""
 
-    __slots__ = ("_bufs", "_idx", "_lock", "total", "_ts")
+    __slots__ = ("_bufs", "_idx", "_lock", "total", "_ts",
+                 "_fps", "_fps_count", "_fps_ts")
 
     def __init__(self):
-        self._bufs = [None, None]
-        self._idx  = 0
-        self._lock = threading.Lock()
-        self.total = 0
-        self._ts   = 0.0
+        self._bufs     = [None, None]
+        self._idx      = 0
+        self._lock     = threading.Lock()
+        self.total     = 0
+        self._ts       = 0.0
+        self._fps      = 0.0
+        self._fps_count = 0
+        self._fps_ts   = time.perf_counter()
 
     def put(self, frame: np.ndarray):
+        now = time.perf_counter()
         with self._lock:
             self._idx ^= 1
             self._bufs[self._idx] = frame
             self.total += 1
-            self._ts = time.perf_counter()
+            self._ts = now
+            self._fps_count += 1
+            elapsed = now - self._fps_ts
+            if elapsed >= 1.0:
+                self._fps = self._fps_count / elapsed
+                self._fps_count = 0
+                self._fps_ts = now
 
     def get(self) -> np.ndarray | None:
         with self._lock:
             f = self._bufs[self._idx]
             return f.copy() if f is not None else None
+
+    @property
+    def fps(self) -> float:
+        with self._lock:
+            return self._fps
 
     @property
     def age_ms(self) -> float:
@@ -113,6 +129,9 @@ class CV2RTSPReader(threading.Thread):
         self._running    = True
         self._connected  = False
         self._fail_count = 0
+
+        # CameraService (DetectorGroup) tomonidan set qilinadi
+        self.cam_id: int = 0
 
     # ── VideoCapture ochish ───────────────────────────────────────────────
 
@@ -316,6 +335,27 @@ class CV2RTSPReader(threading.Thread):
         if self._slot.age_ms > 15_000:
             return False, None
         return True, frame
+
+    def snapshot(self):
+        """
+        CameraService / DetectorGroup bilan mos interfeys.
+        .frame, .timestamp, .fps, .status atributlari bor obyekt qaytaradi.
+        """
+        ok, frame = self.get_frame()
+
+        class _Snap:
+            __slots__ = ("frame", "timestamp", "fps", "status")
+
+        snap = _Snap()
+        snap.frame     = frame if ok else None
+        snap.timestamp = self._slot._ts
+        snap.fps       = self._slot.fps
+        snap.status    = "online" if self._connected else "connecting"
+        return snap
+
+    @property
+    def fps(self) -> float:
+        return self._slot.fps
 
     @property
     def frame_count(self) -> int:

@@ -266,6 +266,7 @@ class CamerasPage(QWidget):
         self._filter = "all"
         self._frame_ts: dict[int, float] = {}
         self._icon_dir = Path(__file__).resolve().parents[3] / "images"
+        self._events_last_ts: float = 0.0  # _rebuild_events debounce
         self._build_ui()
 
     def _build_ui(self):
@@ -683,6 +684,7 @@ class CamerasPage(QWidget):
         while self._list_layout.count():
             item = self._list_layout.takeAt(0)
             if item.widget():
+                item.widget().hide()
                 item.widget().deleteLater()
         self._rows.clear()
 
@@ -871,16 +873,24 @@ class CamerasPage(QWidget):
 
     def on_stats(self, cam_id: int, stats: dict):
         self._stats[cam_id] = dict(stats)
-        status = "live" if stats.get("connected", False) else "offline"
-        self._status[cam_id] = status
+        new_status = "live" if stats.get("connected", False) else "offline"
+        old_status = self._status.get(cam_id)
+        status_changed = old_status != new_status
+        if status_changed:
+            self._status[cam_id] = new_status
+
+        # Row label lari (FPS, ping) har doim yangilanadi — ular arzon
         row = self._rows.get(cam_id)
         if row:
-            row.set_status(status, stats.get("fps", 0.0), stats.get("today_count", 0), stats.get("ping_ms"))
+            row.set_status(new_status, stats.get("fps", 0.0), stats.get("today_count", 0), stats.get("ping_ms"))
         if cam_id == self._selected_cam_id:
-            self._set_detail_badge(status)
-        self._update_counts()
-        if self._filter in {"live", "offline", "detection"}:
-            self._render_rows()
+            self._set_detail_badge(new_status)
+
+        # Qimmat operatsiyalar faqat holat o'zgarganda
+        if status_changed:
+            self._update_counts()
+            if self._filter in {"live", "offline", "detection"}:
+                self._render_rows()
 
     def on_status(self, cam_id: int, text: str):
         if "ulan" in (text or "").lower():
@@ -925,6 +935,12 @@ class CamerasPage(QWidget):
         self._rebuild_events()
 
     def _rebuild_events(self):
+        # Debounce: DB query ni sekundiga ko'p marta chaqirishdan saqlaydi
+        now = time.monotonic()
+        if now - self._events_last_ts < 2.0:
+            return
+        self._events_last_ts = now
+
         while self._events_layout.count():
             item = self._events_layout.takeAt(0)
             if item.widget():

@@ -1,27 +1,40 @@
 """
 ViolationsPage — barcha buzilishlar galereyasi.
 Sana filtri, galereya ko'rinishi.
+
+Non-blocking: DB so'rovlari background thread da ishlaydi.
 """
 
+import threading
 from datetime import date, timedelta
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QFrame, QScrollArea, QGridLayout, QPushButton,
                               QDateEdit, QSizePolicy, QMessageBox)
-from PyQt6.QtCore import Qt, QDate, QTimer
+from PyQt6.QtCore import Qt, QDate, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont
 
 from app.ui.theme import C
 from app.ui.widgets.violation_card import ViolationCard, ViolationDetailDialog
 
+# Sahifada ko'rsatiladigan maksimal karta soni
+_PAGE_LIMIT = 50
+
 
 class ViolationsPage(QWidget):
     """Buzilishlar galereyasi sahifasi."""
+
+    # Background thread → main thread
+    _data_ready = pyqtSignal(list, str)
 
     def __init__(self, db, parent=None):
         super().__init__(parent)
         self.db = db
         self._violations = []
+        self._loading = False
+        self._pending_reload = False
+
+        self._data_ready.connect(self._on_data_ready)
         self._setup_ui()
         self._load_violations()
 
@@ -40,7 +53,6 @@ class ViolationsPage(QWidget):
         f_layout.setContentsMargins(12, 8, 12, 8)
         f_layout.setSpacing(10)
 
-        # Sarlavha
         title = QLabel("Buzilishlar jurnali")
         font  = QFont()
         font.setPointSize(13)
@@ -51,11 +63,9 @@ class ViolationsPage(QWidget):
 
         f_layout.addStretch()
 
-        # Tez filtrlar
         for label, days in [("Bugun", 0), ("Hafta", 7), ("Oy", 30), ("Barchasi", -1)]:
             btn = QPushButton(label)
             btn.setFixedHeight(30)
-            btn.setProperty("_days", days)
             btn.clicked.connect(lambda _, d=days: self._quick_filter(d))
             btn.setStyleSheet(f"""
                 QPushButton {{
@@ -73,13 +83,11 @@ class ViolationsPage(QWidget):
             """)
             f_layout.addWidget(btn)
 
-        # Separator
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.VLine)
         sep.setStyleSheet(f"color: {C('border')};")
         f_layout.addWidget(sep)
 
-        # Sana range
         date_lbl = QLabel("Dan:")
         date_lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
         f_layout.addWidget(date_lbl)
@@ -159,24 +167,51 @@ class ViolationsPage(QWidget):
         scroll.setWidget(self._grid_widget)
         root.addWidget(scroll, 1)
 
-    # ── Ma'lumot yuklash ──────────────────────────────────────────────────
+    # ── Ma'lumot yuklash (non-blocking) ──────────────────────────────────
 
     def _load_violations(self):
-        """DB dan filtr bo'yicha yuklash."""
+        """Background thread da yuklanadi — main thread bloklamaydi."""
+        if self._loading:
+            # Hozir yuklanmoqda — tugagach qayta yukla
+            self._pending_reload = True
+            return
+
+        self._loading = True
+        self._pending_reload = False
+        self._count_lbl.setText("Yuklanmoqda...")
+
         d_from = self._date_from.date().toPyDate()
         d_to   = self._date_to.date().toPyDate()
 
-        self._violations = self.db.get_violations(
-            date_from=d_from, date_to=d_to, limit=300
-        )
-        self._count_lbl.setText(
-            f"{len(self._violations)} ta buzilish topildi  "
-            f"({d_from.strftime('%d.%m.%Y')} – {d_to.strftime('%d.%m.%Y')})"
-        )
+        def _bg():
+            try:
+                violations = self.db.get_violations(
+                    date_from=d_from,
+                    date_to=d_to,
+                    limit=_PAGE_LIMIT,
+                )
+                status = (
+                    f"{len(violations)} ta buzilish  "
+                    f"({d_from.strftime('%d.%m.%Y')} – {d_to.strftime('%d.%m.%Y')})"
+                )
+                self._data_ready.emit(violations, status)
+            except Exception as e:
+                self._data_ready.emit([], f"Xatolik: {e}")
+
+        threading.Thread(target=_bg, daemon=True, name="ViolLoad").start()
+
+    def _on_data_ready(self, violations: list, status_text: str):
+        """Background thread dan kelgan natijani UI ga qo'yish (main thread)."""
+        self._loading = False
+        self._violations = violations
+        self._count_lbl.setText(status_text)
         self._rebuild_grid()
 
+        # Agar yangi reload so'rovi kelgan bo'lsa
+        if self._pending_reload:
+            QTimer.singleShot(300, self._load_violations)
+
     def _quick_filter(self, days: int):
-        """Tez filtr tugmasi."""
         today = date.today()
         if days == 0:
             d_from = today
@@ -191,7 +226,6 @@ class ViolationsPage(QWidget):
 
     def _rebuild_grid(self):
         """Galereya gridini qayta qurish."""
-        # Eski widgetlarni tozalash
         while self._grid.count():
             item = self._grid.takeAt(0)
             if item.widget():
@@ -221,10 +255,13 @@ class ViolationsPage(QWidget):
     # ── Tashqi yangilanish ────────────────────────────────────────────────
 
     def add_new_violation(self, data: dict):
-        """Yangi buzilish kelganda (worker signali)."""
-        self._load_violations()
+        """Yangi buzilish kelganda — qotmaydigan rejimda deferred reload."""
+        if self._loading:
+            self._pending_reload = True
+        else:
+            # 500ms kutib reload — violation writer DB ni yozib tugagunicha
+            QTimer.singleShot(500, self._load_violations)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Grid ustunlarini o'lchamga moslash
         QTimer.singleShot(50, self._rebuild_grid)

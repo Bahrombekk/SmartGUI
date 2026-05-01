@@ -1335,6 +1335,7 @@ class DashboardPage(QWidget):
         while self._cam_list_layout.count():
             item = self._cam_list_layout.takeAt(0)
             if item.widget():
+                item.widget().hide()
                 item.widget().deleteLater()
 
     def _rebuild_camera_sidebar(self):
@@ -1574,6 +1575,7 @@ class DashboardPage(QWidget):
     def setup_cameras(self, cameras: list):
         # Eski panellarni tozalash
         for p in self._panels.values():
+            p.hide()
             p.deleteLater()
         self._panels.clear()
         self._sidebar_cameras = list(cameras)
@@ -1589,6 +1591,7 @@ class DashboardPage(QWidget):
         while self._cam_grid.count():
             item = self._cam_grid.takeAt(0)
             if item.widget():
+                item.widget().hide()
                 item.widget().deleteLater()
 
         self._clear_camera_sidebar()

@@ -4,7 +4,7 @@
     {
       "id": 1,
       "name": "Main Building",
-      "expanded": true
+      "expanded": false
     },
     {
       "id": 2,
@@ -121,7 +121,7 @@
   "max_reconnects": 20,
   "ai_model_enabled": true,
   "model_path": "app\\models\\best.pt",
-  "confidence": 0.25,
+  "confidence": 0.5,
   "yolo_imgsz": 1024,
   "use_gpu": true,
   "half_precision": false,
@@ -148,7 +148,7 @@
   "language": "uz",
   "display_max_width": 960,
   "video_fps_limit": 25,
-  "ai_fps_limit": 12,
+  "ai_fps_limit": 25,
   "show_fps": true,
   "show_stats": true,
   "tracker_config": "",

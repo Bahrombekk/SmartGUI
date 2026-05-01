@@ -5,12 +5,13 @@ Bosish signali: kattalashtirish uchun.
 """
 
 import os
+import threading
 from datetime import datetime
 
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QLabel, QSizePolicy,
                               QDialog, QHBoxLayout, QPushButton, QScrollArea)
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QPixmap, QCursor
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
+from PyQt6.QtGui import QPixmap, QImage, QCursor
 
 from app.ui.theme import C
 
@@ -84,17 +85,29 @@ class ViolationCard(QFrame):
         layout.addWidget(id_lbl)
 
     def _load_image(self):
-        """Crop rasmni yuklash."""
+        """Crop rasmni background thread da yuklaydi — main thread bloklamaydi."""
         crop_path = self.violation.get("crop_path", "")
-        if crop_path and os.path.exists(crop_path):
-            px = QPixmap(crop_path).scaled(
-                144, 130,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._img_label.setPixmap(px)
-        else:
+        if not crop_path or not os.path.exists(crop_path):
             self._img_label.setText("Rasm\nyuq")
+            return
+
+        def _bg(path=crop_path):
+            img = QImage(path)   # QImage thread-safe
+            if not img.isNull():
+                # Main thread ga qaytarish
+                QTimer.singleShot(0, lambda i=img: self._apply_image(i))
+
+        threading.Thread(target=_bg, daemon=True, name="ImgLoad").start()
+
+    def _apply_image(self, img: QImage):
+        if self._img_label is None:
+            return
+        px = QPixmap.fromImage(img).scaled(
+            144, 130,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.FastTransformation,
+        )
+        self._img_label.setPixmap(px)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

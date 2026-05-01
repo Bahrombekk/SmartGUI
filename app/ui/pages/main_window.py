@@ -21,7 +21,7 @@ from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QP
 from app.config.settings_manager import ConfigManager, CameraConfigProxy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.workers.detection_worker import DetectionWorker
-from app.workers.inference_engine import InferenceEngine
+from app.workers.camera_service import svc_destroy
 from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.cameras_page import CamerasPage
 from app.ui.pages.violations_page import ViolationsPage
@@ -624,12 +624,13 @@ class MainWindow(QMainWindow):
         for w in running:
             w._running = False
             w.quit()
+        # Qisqa kutish: UI ni bloklamaslik uchun (avval 1500ms edi)
         for w in running:
-            w.wait(1500)
+            w.wait(300)
         self._workers.clear()
         self._persons_per_cam.clear()
         self._navbar.set_pause_enabled(False)
-        InferenceEngine.destroy()  # Singleton model'ni VRAM'dan bo'shatadi
+        svc_destroy()  # CameraService va barcha DetectorGroup'larni to'xtatadi
 
     def _restart_all_cameras(self):
         self._stop_all_cameras()
@@ -678,8 +679,10 @@ class MainWindow(QMainWindow):
         self._violation_count += 1
         self._navbar.set_notif_count(self._violation_count)
 
-        today = self.db.get_today_count()
-        self._sb_today.setText(f"Bugun: {today} buzilish")
+        # today_count worker payload dan keladi — main thread da DB so'rov yo'q
+        today = data.get("today_count")
+        if today is not None:
+            self._sb_today.setText(f"Bugun: {today} buzilish")
 
     def _on_stats(self, cam_id: int, stats: dict):
         self._dashboard.on_stats(cam_id, stats)

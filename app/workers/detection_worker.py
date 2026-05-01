@@ -1,13 +1,16 @@
 """
-DetectionWorker — yaxshilangan versiya.
+DetectionWorker — CameraService (ai_camera_service arxitekturasi) asosida.
 
-  - Pool: har 3 ta kameraga 1 ta model (InferenceEnginePool)
+  - CV2RTSPReader: video oqim (GPU NVDEC, 4-usul fallback, lock-free buffer)
+  - CameraService / DetectorGroup: batch GPU inference (ai_camera_service dan)
   - IoUTracker: velocity prediction + centre-distance fallback
-  - FPS: video 25fps, AI 12fps, batch interval 10ms
+  - ViolationService: buzilishni saqlash, Telegram/Backend xabarlash
 """
 from __future__ import annotations
 
+import threading
 import time
+from queue import Empty, Full, Queue
 
 import cv2
 import numpy as np
@@ -17,7 +20,8 @@ from PyQt6.QtGui import QImage
 from app.application.services.violation_service import ViolationService
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.infrastructure.camera.cv2_rtsp_reader import CV2RTSPReader
-from app.workers.inference_engine import IoUTracker, pool_acquire, pool_release
+from app.workers.camera_service import svc_acquire, svc_register, svc_unregister
+from app.workers.inference_engine import IoUTracker
 
 
 _NO_HELMET_KEYS = ("no_helmet", "no-helmet", "without", "head", "bare", "violation", "nohel")
@@ -28,8 +32,14 @@ class DetectionWorker(QThread):
     """
     Bitta kamera uchun background detection thread'i.
 
+    Arxitektura:
+        CV2RTSPReader  →  video display (video_fps_limit)
+        CameraService  →  batch YOLO inference (DetectorGroup thread)
+        IoUTracker     →  stable track ID lar
+        ViolationService → buzilishni qayd etish
+
     Signals:
-        frame_ready(QImage)      — ko'rsatishga tayyor frame (BGR→RGB konversiya bu thread'da)
+        frame_ready(QImage)      — ko'rsatishga tayyor frame
         violation_detected(dict) — yangi buzilish
         stats_updated(dict)      — fps, today_count, active_persons, connected
         status_changed(str)      — holat matni
@@ -37,7 +47,7 @@ class DetectionWorker(QThread):
         model_loaded()           — model yuklandi
     """
 
-    frame_ready        = pyqtSignal(object)  # QImage yoki numpy (backward compat)
+    frame_ready        = pyqtSignal(object)
     violation_detected = pyqtSignal(dict)
     stats_updated      = pyqtSignal(dict)
     status_changed     = pyqtSignal(str)
@@ -52,13 +62,16 @@ class DetectionWorker(QThread):
 
         self._running = False
         self._paused  = False
-        self._reader  = None
+        self._reader: CV2RTSPReader | None = None
 
-        # AI
-        self._engine = None  # InferenceEngine | None
+        # CameraService (ai_camera_service arxitekturasi)
+        self._svc = None          # CameraService singleton
+        self._cam_id: int = id(self)   # unique per worker
+
+        # Tracker
         self._tracker = IoUTracker(iou_thresh=0.25, max_age=80)
         self._last_persons: list[dict] = []
-        self._last_ai_ts: float = 0.0
+        self._last_result_ts: float | None = None  # oxirgi qayta ishlangan result
 
         # FPS
         self._frame_count   = 0
@@ -70,27 +83,44 @@ class DetectionWorker(QThread):
         self._today_count         = 0
         self._saved_violations:   set[int]       = set()
         self._no_helmet_frames:   dict[int, int] = {}
+        self._save_queue: Queue[dict | None] = Queue(
+            maxsize=max(1, int(self.cfg.get("violation_save_queue_size", 64)))
+        )
+        self._save_thread: threading.Thread | None = None
 
         # Notifiers
         self._notifier = None
         self._backend  = None
 
-    # ── Model / Engine ────────────────────────────────────────────────────
+    # ── Service / Model ───────────────────────────────────────────────────
 
-    def _init_engine(self) -> bool:
-        """Pool'dan engine oladi (har 3 ta kameraga 1 model). False → AI o'chirilgan."""
+    def _init_service(self) -> bool:
+        """
+        Global CameraService singleton oladi (model yuklamaydi, faqat singleton).
+        False → AI o'chirilgan yoki model topilmadi.
+        """
         if not bool(self.cfg.get("ai_model_enabled", False)):
             self.status_changed.emit("Video rejim (AI o'chirilgan)")
             return False
 
-        self._engine = pool_acquire(id(self), self.cfg)
-        if self._engine is None:
-            self.error_occurred.emit("InferenceEngine yaratilmadi — video rejimda ishlaydi")
+        self._svc = svc_acquire(self.cfg)
+        if self._svc is None:
+            self.error_occurred.emit("CameraService yaratilmadi — video rejimda ishlaydi")
             return False
 
-        self.model_loaded.emit()
-        self.status_changed.emit("AI tayyor")
+        # model_loaded signali _register_with_service() ichida emit qilinadi
         return True
+
+    def _register_with_service(self):
+        """
+        Background thread'da ishlaydi — video display ni bloklamaydi.
+        svc_register() model yuklashni (sekin) shu yerda bajaradi.
+        """
+        self.status_changed.emit("AI model yuklanmoqda...")
+        svc_register(self._cam_id, self._reader)
+        if self._running:
+            self.model_loaded.emit()
+            self.status_changed.emit("AI tayyor")
 
     # ── Notifiers ─────────────────────────────────────────────────────────
 
@@ -118,8 +148,7 @@ class DetectionWorker(QThread):
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 
     def _classify_person(self, person: dict) -> dict:
-        """'class' nomidan helmet/no-helmet aniqlaydi."""
-        cname = person.get("class", "").lower()
+        cname = person.get("class_name", person.get("class", "")).lower()
         if any(k in cname for k in _NO_HELMET_KEYS):
             person["has_helmet"] = False
         elif any(k in cname for k in _HELMET_KEYS):
@@ -150,13 +179,11 @@ class DetectionWorker(QThread):
     # ── Overlay chizish ───────────────────────────────────────────────────
 
     @staticmethod
-    def _draw_overlay(frame: np.ndarray, persons: list[dict],
-                      fps: float, today_count: int,
-                      cam_name: str, connected: bool) -> np.ndarray:
+    def _draw_overlay(frame: np.ndarray, persons: list[dict]) -> np.ndarray:
         h, w = frame.shape[:2]
 
         for p in persons:
-            box     = p.get("box", [])
+            box     = p.get("box", p.get("bbox_xyxy", []))
             tid     = p.get("track_id", -1)
             has_hel = p.get("has_helmet")
             if len(box) < 4:
@@ -173,43 +200,85 @@ class DetectionWorker(QThread):
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             lsz = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)[0]
             cv2.rectangle(frame, (x1, y1 - lsz[1] - 8), (x1 + lsz[0] + 4, y1), color, -1)
-            #cv2.putText(frame, label, (x1 + 2, y1 - 4),
-                        #cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
 
-        status_col  = (0, 200, 0) if connected else (0, 150, 220)
-        status_text = "ULANGAN" if connected else "ULANMOQDA..."
         cv2.rectangle(frame, (0, 0), (w, 36), (10, 14, 20), -1)
-        #cv2.putText(frame, f"  {cam_name}", (6, 22),
-        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-        # cv2.putText(frame, f"FPS: {fps:.1f}", (w - 160, 22),
-        #             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (180, 180, 180), 1)
-        # cv2.putText(frame, status_text, (w - 280, 22),
-        #             cv2.FONT_HERSHEY_SIMPLEX, 0.55, status_col, 1)
-        #viol_txt = f"Bugun: {today_count} buzilish"
         cv2.rectangle(frame, (0, h - 32), (w, h), (10, 14, 20), -1)
-        # cv2.putText(frame, viol_txt, (8, h - 10),
-        #             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (240, 100, 30), 1)
         return frame
 
     # ── Buzilish saqlash ──────────────────────────────────────────────────
+
+    def _start_violation_writer(self):
+        if self._save_thread and self._save_thread.is_alive():
+            return
+        self._save_thread = threading.Thread(
+            target=self._violation_writer_loop,
+            daemon=True,
+            name=f"ViolationWriter-{self._cam_id}",
+        )
+        self._save_thread.start()
+
+    def _stop_violation_writer(self):
+        if not self._save_thread or not self._save_thread.is_alive():
+            return
+        try:
+            self._save_queue.put(None, timeout=0.3)
+        except Full:
+            return
+        # Daemon thread — ilova yopilganda o'zi to'xtaydi
+        self._save_thread.join(timeout=1.0)
+
+    def _violation_writer_loop(self):
+        while True:
+            try:
+                item = self._save_queue.get(timeout=0.2)
+            except Empty:
+                continue
+
+            if item is None:
+                self._save_queue.task_done()
+                break
+
+            try:
+                event = self.violation_service.register_violation(
+                    frame          = item["frame"],
+                    person         = item["person"],
+                    camera_name    = item["camera_name"],
+                    company_id     = item["company_id"],
+                    violations_dir = item["violations_dir"],
+                    save_files     = item["save_files"],
+                    notifier       = self._notifier,
+                    backend        = self._backend,
+                )
+                self._today_count = self.db.get_today_count()
+                payload = event.to_payload()
+                payload["today_count"] = self._today_count
+                self.violation_detected.emit(payload)
+            except Exception as e:
+                tid = int(item.get("track_id", -1))
+                if tid >= 0:
+                    self._saved_violations.discard(tid)
+                self.error_occurred.emit(f"Buzilishni saqlashda xatolik: {e}")
+            finally:
+                self._save_queue.task_done()
 
     def _handle_violation(self, frame: np.ndarray, person: dict):
         tid = person.get("track_id", -1)
         if tid in self._saved_violations:
             return
         self._saved_violations.add(tid)
-        event = self.violation_service.register_violation(
-            frame          = frame,
-            person         = person,
-            camera_name    = self.cfg.camera_name,
-            company_id     = self.cfg.company_id,
-            violations_dir = self.cfg.violations_dir,
-            save_files     = self.cfg.save_violations,
-            notifier       = self._notifier,
-            backend        = self._backend,
-        )
-        self._today_count = self.db.get_today_count()
-        self.violation_detected.emit(event.to_payload())
+        try:
+            self._save_queue.put_nowait({
+                "track_id": tid,
+                "frame": frame.copy(),
+                "person": dict(person),
+                "camera_name": self.cfg.camera_name,
+                "company_id": self.cfg.company_id,
+                "violations_dir": self.cfg.violations_dir,
+                "save_files": self.cfg.save_violations,
+            })
+        except Full:
+            self._saved_violations.discard(tid)
+            self.error_occurred.emit("Buzilish saqlash navbati to'lib qoldi")
 
     # ── Yordamchi metodlar ────────────────────────────────────────────────
 
@@ -225,16 +294,15 @@ class DetectionWorker(QThread):
 
     @staticmethod
     def _to_qimage(frame: np.ndarray) -> QImage:
-        """
-        BGR numpy → QImage. BU WORKER THREAD'DA BAJARILADI.
-        Asosiy thread faqat QPixmap.fromImage() qiladi → ~10x kam CPU.
-        """
+        h, w = frame.shape[:2]
+        # Format_BGR888 (Qt 6): cvtColor dan qochadi, CPU yukini kamaytiradi
+        if hasattr(QImage.Format, "Format_BGR888"):
+            img = QImage(frame.data, w, h, 3 * w, QImage.Format.Format_BGR888)
+            return img.copy()
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        return QImage(rgb.tobytes(), w, h, ch * w, QImage.Format.Format_RGB888)
+        return QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888)
 
     def _emit_frame(self, frame: np.ndarray):
-        """Resize + BGR→RGB + QImage → emit. Hammasi worker thread'da."""
         display = self._resize_for_display(frame)
         self.frame_ready.emit(self._to_qimage(display))
 
@@ -248,7 +316,7 @@ class DetectionWorker(QThread):
             self._fps = 1.0 / avg if avg > 0 else 0.0
         self._last_fps_ts = now
 
-    def _ping_ms(self) -> float | None:
+    def _ping_ms(self) -> float:
         if self._reader and hasattr(self._reader, "latency_ms"):
             return float(self._reader.latency_ms)
         return 0.0
@@ -260,7 +328,7 @@ class DetectionWorker(QThread):
         self._today_count = self.db.get_today_count()
 
         self.status_changed.emit("Yuklanmoqda...")
-        has_ai = self._init_engine()
+        has_ai = self._init_service()
         self._setup_notifiers()
 
         rtsp_url = self.cfg.rtsp_url
@@ -269,6 +337,7 @@ class DetectionWorker(QThread):
             self._running = False
             return
 
+        self._start_violation_writer()
         self.status_changed.emit("Kameraga ulanmoqda...")
 
         is_stream = rtsp_url.startswith(("rtsp://", "rtmp://"))
@@ -280,15 +349,21 @@ class DetectionWorker(QThread):
                 max_reconnects  = int(self.cfg.get("max_reconnects", 999)),
                 target_fps      = int(self.cfg.get("video_fps_limit", 25)),
             )
-            self._reader.start()
+            self._reader.cam_id = self._cam_id
+            self._reader.start()  # Video darhol boshlanadi
+
+            # CameraService ga registratsiya — background thread'da (model yuklanishi sekin)
+            if has_ai and self._svc is not None:
+                threading.Thread(
+                    target=self._register_with_service,
+                    daemon=True,
+                    name=f"SvcReg-{self._cam_id}",
+                ).start()
         else:
             self._reader = cv2.VideoCapture(rtsp_url)
 
-        # Interval parametrlari
-        video_fps     = max(1, int(self.cfg.get("video_fps_limit", 25)))
-        ai_fps        = max(1, int(self.cfg.get("ai_fps_limit", 12)))
+        video_fps      = max(1, int(self.cfg.get("video_fps_limit", 25)))
         video_interval = 1.0 / video_fps
-        ai_interval    = 1.0 / ai_fps
 
         last_emit_ts   = 0.0
         last_frame_id  = -1
@@ -325,14 +400,17 @@ class DetectionWorker(QThread):
             # ── Video rate limiting ───────────────────────────────────────
             now = time.perf_counter()
             remaining = video_interval - (now - last_emit_ts)
-            if remaining > 0:
-                time.sleep(max(0.001, remaining - 0.001))
+            if remaining > 0.008:
+                # Uzoq kutish — to'liq uxla
+                time.sleep(remaining - 0.005)
+                continue
+            elif remaining > 0:
+                # Qisqa kutish — spin (Windows timer 15ms dan yaxshiroq)
                 continue
 
-            # Bir xil frame'ni qayta chiqarmaslik (RTSP buffer stuck)
             current_id = getattr(self._reader, "frame_count", self._frame_count)
             if current_id == last_frame_id:
-                time.sleep(0.001)
+                time.sleep(0.005)
                 continue
 
             last_emit_ts  = now
@@ -340,42 +418,29 @@ class DetectionWorker(QThread):
             self._update_fps(now)
             self._frame_count += 1
 
-            # ── AI inference ──────────────────────────────────────────────
-            if has_ai and self._engine is not None:
-                should_run_ai = (now - self._last_ai_ts) >= ai_interval
+            # ── AI natija (CameraService dan) ─────────────────────────────
+            if has_ai and self._svc is not None:
+                result = self._svc.latest_result(self._cam_id)
+                new_det = result is not None and result.timestamp != self._last_result_ts
 
-                if should_run_ai:
-                    self._engine.submit(id(self), frame)  # id(self) = unique per camera
-                    self._last_ai_ts = now
-
-                result = self._engine.get_result(id(self))
-                persons = self._last_persons
-
-                if result is not None:
-                    raw_detections, det_frame = result
-
-                    # Har bir detectionni classify qil
-                    classified = [self._classify_person(dict(d)) for d in raw_detections]
-
-                    # IoU tracker bilan stable IDlar
-                    persons = self._tracker.update(classified)
-
-                    # Violation confirmation
-                    persons = self._check_violations(persons)
+                if new_det:
+                    self._last_result_ts = result.timestamp
+                    classified = [self._classify_person(dict(d)) for d in result.detections]
+                    persons    = self._tracker.update(classified)
+                    persons    = self._check_violations(persons)
                     self._last_persons = persons
 
+                    violation_frame = result.raw_frame if result.raw_frame is not None else frame
                     for p in persons:
                         if p.get("is_new_violation", False):
-                            self._handle_violation(det_frame, p)
+                            self._handle_violation(violation_frame, p)
 
-                    # Detection aynan qaysi frame'da qilingan bo'lsa, box ham o'sha frame'ga chiziladi.
-                    display_frame = self._draw_overlay(
-                        det_frame.copy(), persons, self._fps,
-                        self._today_count, self.cfg.camera_name, connected,
-                    )
-                    self._emit_frame(display_frame)
-                else:
-                    self._emit_frame(frame)
+                persons = self._last_persons
+
+                # Display doim live framedan quriladi; raw_frame faqat violation
+                # saqlash uchun ishlatiladi.
+                display_frame = self._draw_overlay(frame.copy(), persons)
+                self._emit_frame(display_frame)
 
                 if self._frame_count % 30 == 0:
                     self.stats_updated.emit({
@@ -391,8 +456,7 @@ class DetectionWorker(QThread):
                     )
 
             else:
-                # ── Video-only rejim (AI o'chirilgan) ────────────────────
-                # cv2.cvtColor bu yerda — worker thread, asosiy thread EMAS
+                # ── Video-only rejim ──────────────────────────────────────
                 self._emit_frame(frame)
 
                 if self._frame_count % max(1, video_fps) == 0:
@@ -413,20 +477,25 @@ class DetectionWorker(QThread):
     # ── Tozalash ──────────────────────────────────────────────────────────
 
     def _cleanup(self):
+        # CameraService dan reader ni olib tashlaymiz
+        if self._svc is not None:
+            svc_unregister(self._cam_id)
+
         if self._reader:
             if hasattr(self._reader, "stop"):
                 self._reader.stop()
             elif hasattr(self._reader, "release"):
                 self._reader.release()
-        pool_release(id(self))
+
         self._tracker.reset()
+        self._stop_violation_writer()
         self.status_changed.emit("To'xtatildi")
 
     # ── Tashqi boshqaruv ──────────────────────────────────────────────────
 
     def stop(self):
         self._running = False
-        self.wait(2500)
+        self.wait(400)
 
     def pause(self):
         self._paused = True
