@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QFont
 
 from app.ui.theme import C
+from app.ui.ui_kit import button_style, input_style, panel_style, soft_card_style
 
 
 class UserAvatar(QLabel):
@@ -125,6 +126,7 @@ class UsersPage(QWidget):
         self.cfg = config_manager
         self._search_text = ""
         self._dept_combo_items: list[tuple[int, str]] = []
+        self._dept_filter_value = "all"
         self._setup_ui()
         self.refresh()
 
@@ -178,14 +180,7 @@ class UsersPage(QWidget):
         panel = QFrame()
         panel.setObjectName("userForm")
         panel.setFixedWidth(330)
-        panel.setStyleSheet("""
-            QFrame#userForm {
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);
-                border: 1px solid #1e293b;
-                border-radius: 12px;
-            }
-            QLabel { border: none; background: transparent; }
-        """)
+        panel.setStyleSheet(panel_style("userForm") + " QLabel { border: none; background: transparent; }")
 
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(16, 16, 16, 16)
@@ -204,39 +199,38 @@ class UsersPage(QWidget):
 
         self._department = QComboBox()
         self._department.setFixedHeight(36)
+        self._department.setStyleSheet(input_style())
         lay.addWidget(self._department)
 
         photo_row = QHBoxLayout()
         self._photo_path = QLineEdit()
         self._photo_path.setPlaceholderText("Rasm path")
         self._photo_path.setFixedHeight(36)
+        self._photo_path.setStyleSheet(input_style())
         photo_row.addWidget(self._photo_path, 1)
 
         browse = QPushButton("...")
         browse.setFixedSize(42, 36)
+        browse.setStyleSheet(button_style("secondary"))
         browse.clicked.connect(self._choose_photo)
         photo_row.addWidget(browse)
         lay.addLayout(photo_row)
 
         add_btn = QPushButton("+ Add Employee")
         add_btn.setFixedHeight(38)
-        add_btn.setStyleSheet("""
-            QPushButton {
-                background: #f97316;
-                color: #05090d;
-                border: none;
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 800;
-            }
-            QPushButton:hover { background: #fb923c; }
-        """)
+        add_btn.setStyleSheet(button_style("primary"))
         add_btn.clicked.connect(self._add_user)
         lay.addWidget(add_btn)
 
         self._search = self._input("Search users...")
         self._search.textChanged.connect(self.set_search_text)
         lay.addWidget(self._search)
+
+        self._dept_filter = QComboBox()
+        self._dept_filter.setFixedHeight(36)
+        self._dept_filter.setStyleSheet(input_style())
+        self._dept_filter.currentIndexChanged.connect(self._on_department_filter_changed)
+        lay.addWidget(self._dept_filter)
         lay.addStretch()
 
         hint = QLabel("Hodimlar mavjud kamera bo'limlariga biriktiriladi.")
@@ -250,24 +244,7 @@ class UsersPage(QWidget):
         inp = QLineEdit()
         inp.setPlaceholderText(placeholder)
         inp.setFixedHeight(36)
-        inp.setStyleSheet("""
-            QLineEdit {
-                background: rgba(2,6,23,0.72);
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.22);
-                border-radius: 7px;
-                padding: 0 10px;
-                font-size: 13px;
-            }
-            QLineEdit:hover {
-                background: rgba(15,23,42,0.70);
-                border-color: rgba(148,163,184,0.38);
-            }
-            QLineEdit:focus {
-                background: rgba(15,23,42,0.86);
-                border: 1px solid rgba(251,146,60,0.74);
-            }
-        """)
+        inp.setStyleSheet(input_style())
         return inp
 
     def _choose_photo(self):
@@ -279,12 +256,22 @@ class UsersPage(QWidget):
 
     def _load_departments(self):
         self._department.clear()
+        if hasattr(self, "_dept_filter"):
+            self._dept_filter.blockSignals(True)
+            self._dept_filter.clear()
+            self._dept_filter.addItem("All departments", "all")
         self._dept_combo_items = []
         for dep in self.cfg.get_departments():
             dep_id = dep.get("id")
             name = dep.get("name", "Bo'lim")
             self._dept_combo_items.append((dep_id, name))
             self._department.addItem(name, dep_id)
+            if hasattr(self, "_dept_filter"):
+                self._dept_filter.addItem(name, dep_id)
+        if hasattr(self, "_dept_filter"):
+            idx = self._dept_filter.findData(self._dept_filter_value)
+            self._dept_filter.setCurrentIndex(idx if idx >= 0 else 0)
+            self._dept_filter.blockSignals(False)
 
     def _add_user(self):
         try:
@@ -317,6 +304,10 @@ class UsersPage(QWidget):
         if hasattr(self, "_list_layout"):
             self._render_users()
 
+    def _on_department_filter_changed(self):
+        self._dept_filter_value = self._dept_filter.currentData()
+        self._render_users()
+
     def refresh(self):
         self._load_departments()
         self._render_users()
@@ -338,6 +329,8 @@ class UsersPage(QWidget):
                     str(user.get("employee_id", "")),
                 ]).lower()
             ]
+        if self._dept_filter_value != "all":
+            users = [user for user in users if user.get("department_id") == self._dept_filter_value]
         self._total_badge.setText(f"{len(users)} users")
 
         dep_map = {dep_id: name for dep_id, name in self._dept_combo_items}

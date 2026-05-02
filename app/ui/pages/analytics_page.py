@@ -1,43 +1,36 @@
-"""
-AnalyticsPage — kunlik / haftalik / soatlik grafik sahifasi.
-"""
+from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                              QFrame, QScrollArea, QPushButton, QComboBox,
-                              QSizePolicy)
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+from app.application.services.analytics_service import AnalyticsService
 from app.ui.theme import C
-from app.ui.widgets.bar_chart import BarChart, LineChart, HourlyBarChart
+from app.ui.ui_kit import add_summary_metric, button_style, chip_style, panel_style, soft_card_style
+from app.ui.widgets.bar_chart import BarChart, HourlyBarChart, LineChart
 
 
 class _SectionCard(QFrame):
-    """Sarlavhali va chart joylashadigan kartochka."""
-
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
-        self.setProperty("card", True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 12)
-        layout.setSpacing(8)
+        self.setObjectName("analyticsSection")
+        self.setStyleSheet(panel_style("analyticsSection"))
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 14)
+        lay.setSpacing(10)
 
         hdr = QHBoxLayout()
         lbl = QLabel(title)
-        font = QFont()
-        font.setPointSize(12)
-        font.setBold(True)
-        lbl.setFont(font)
-        lbl.setStyleSheet(f"color: {C('text_primary')};")
+        lbl.setStyleSheet(f"color: {C('text_primary')}; font-size: 14px; font-weight: 900;")
         hdr.addWidget(lbl)
         hdr.addStretch()
         self._hdr_row = hdr
-        layout.addLayout(hdr)
+        lay.addLayout(hdr)
 
         self._body = QVBoxLayout()
-        layout.addLayout(self._body)
+        self._body.setSpacing(8)
+        lay.addLayout(self._body)
 
     def add_header_widget(self, widget):
         self._hdr_row.addWidget(widget)
@@ -47,199 +40,150 @@ class _SectionCard(QFrame):
 
 
 class AnalyticsPage(QWidget):
-    """Analitika sahifasi."""
-
     def __init__(self, db, parent=None):
         super().__init__(parent)
         self.db = db
+        self.analytics = AnalyticsService(db)
         self._setup_ui()
         self._load_all()
 
-        # Har 5 daqiqada yangilash
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._load_all)
         self._timer.start(300_000)
 
-    # ── UI ────────────────────────────────────────────────────────────────
-
     def _setup_ui(self):
+        self.setStyleSheet(f"background: {C('bg_main')};")
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 10, 14, 10)
+        root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(12)
 
-        # Sarlavha + Yangilash tugma
         top = QHBoxLayout()
-        title = QLabel("Analitika")
-        font  = QFont()
-        font.setPointSize(14)
-        font.setBold(True)
-        title.setFont(font)
-        title.setStyleSheet(f"color: {C('text_primary')};")
-        top.addWidget(title)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        title = QLabel("Analytics")
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 22px; font-weight: 900;")
+        title_col.addWidget(title)
+        subtitle = QLabel("Violation trends by time, camera and operational health")
+        subtitle.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
+        title_col.addWidget(subtitle)
+        top.addLayout(title_col)
         top.addStretch()
-
-        refresh_btn = QPushButton("⟳  Yangilash")
-        refresh_btn.clicked.connect(self._load_all)
-        refresh_btn.setFixedHeight(30)
-        refresh_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {C('bg_input')};
-                color: {C('text_secondary')};
-                border: 1px solid {C('border')};
-                border-radius: 5px;
-                padding: 0 12px;
-                font-size: 12px;
-            }}
-            QPushButton:hover {{ color: {C('accent')}; border-color: {C('accent')}; }}
-        """)
-        top.addWidget(refresh_btn)
+        refresh = QPushButton("Refresh")
+        refresh.setFixedHeight(34)
+        refresh.setStyleSheet(button_style("secondary"))
+        refresh.clicked.connect(self._load_all)
+        top.addWidget(refresh)
         root.addLayout(top)
 
-        # Scroll qilish imkoni
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         container = QWidget()
         container.setStyleSheet("background: transparent;")
-        c_layout  = QVBoxLayout(container)
-        c_layout.setSpacing(12)
-        c_layout.setContentsMargins(0, 0, 4, 0)
+        c = QVBoxLayout(container)
+        c.setContentsMargins(0, 0, 4, 0)
+        c.setSpacing(12)
 
-        # ── Umumiy statistika kartalar ───────────────────────────────────
-        summary_frame = QFrame()
-        summary_frame.setProperty("card", True)
-        s_layout = QHBoxLayout(summary_frame)
-        s_layout.setContentsMargins(16, 12, 16, 12)
-        s_layout.setSpacing(0)
+        summary = QHBoxLayout()
+        summary.setSpacing(10)
+        self._stats_labels = {
+            "today": add_summary_metric(summary, "Today", "0", C("danger")),
+            "week": add_summary_metric(summary, "This Week", "0", C("accent_light")),
+            "month": add_summary_metric(summary, "This Month", "0", C("warning")),
+            "total": add_summary_metric(summary, "Total", "0", C("text_primary")),
+        }
+        c.addLayout(summary)
 
-        self._stats_labels = {}
-        for key, title_txt, color in [
-            ("today",   "Bugun",          C("danger")),
-            ("week",    "Bu hafta",       C("accent")),
-            ("month",   "Bu oy",          C("warning")),
-            ("total",   "Jami",           C("text_primary")),
-        ]:
-            col = QVBoxLayout()
-            col.setSpacing(4)
-            val_lbl = QLabel("—")
-            val_font = QFont()
-            val_font.setPointSize(22)
-            val_font.setBold(True)
-            val_lbl.setFont(val_font)
-            val_lbl.setStyleSheet(f"color: {color}; background: transparent;")
-            val_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            col.addWidget(val_lbl)
-
-            ttl_lbl = QLabel(title_txt)
-            ttl_lbl.setStyleSheet(
-                f"color: {C('text_muted')}; font-size: 11px; background: transparent;"
-            )
-            ttl_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            col.addWidget(ttl_lbl)
-
-            s_layout.addLayout(col, 1)
-
-            # Separator (oxirgidan tashqari)
-            if key != "total":
-                sep = QFrame()
-                sep.setFrameShape(QFrame.Shape.VLine)
-                sep.setStyleSheet(f"color: {C('border')};")
-                s_layout.addWidget(sep)
-
-            self._stats_labels[key] = val_lbl
-
-        c_layout.addWidget(summary_frame)
-
-        # ── Kunlik chart (oxirgi 30 kun) ──────────────────────────────────
-        daily_card = _SectionCard("Kunlik buzilishlar (oxirgi 30 kun)")
-
+        daily = _SectionCard("Daily violations")
         self._days_combo = QComboBox()
-        self._days_combo.addItems(["14 kun", "30 kun", "60 kun", "90 kun"])
+        self._days_combo.addItems(["14 days", "30 days", "60 days", "90 days"])
         self._days_combo.setCurrentIndex(1)
-        self._days_combo.setFixedWidth(90)
+        self._days_combo.setFixedWidth(100)
         self._days_combo.currentIndexChanged.connect(self._load_daily)
-        daily_card.add_header_widget(self._days_combo)
-
+        daily.add_header_widget(self._days_combo)
         self._bar_chart = BarChart()
-        self._bar_chart.setMinimumHeight(200)
-        daily_card.add_body_widget(self._bar_chart)
-        c_layout.addWidget(daily_card)
+        self._bar_chart.setMinimumHeight(210)
+        daily.add_body_widget(self._bar_chart)
+        c.addWidget(daily)
 
-        # ── Haftalik trend ────────────────────────────────────────────────
-        weekly_card = _SectionCard("Haftalik trend (oxirgi 8 hafta)")
+        middle = QHBoxLayout()
+        weekly = _SectionCard("Weekly trend")
         self._line_chart = LineChart()
-        self._line_chart.setMinimumHeight(180)
-        weekly_card.add_body_widget(self._line_chart)
-        c_layout.addWidget(weekly_card)
+        self._line_chart.setMinimumHeight(190)
+        weekly.add_body_widget(self._line_chart)
+        middle.addWidget(weekly, 2)
 
-        # ── Soatlik taqsimot ──────────────────────────────────────────────
-        hourly_card = _SectionCard("Bugungi soatlik taqsimot")
+        ranking = _SectionCard("Camera ranking")
+        self._ranking_layout = QVBoxLayout()
+        self._ranking_layout.setSpacing(7)
+        ranking._body.addLayout(self._ranking_layout)
+        middle.addWidget(ranking, 1)
+        c.addLayout(middle)
+
+        hourly = _SectionCard("Today's hourly distribution")
         self._hourly_chart = HourlyBarChart()
-        self._hourly_chart.setMinimumHeight(160)
-        hourly_card.add_body_widget(self._hourly_chart)
-
-        # Izoh
-        legend = QHBoxLayout()
-        for color, text in [(C("accent"), "Ish vaqti (08–18)"),
-                             (C("success"), "Ish vaqtidan tashqari")]:
-            dot = QLabel("■")
-            dot.setStyleSheet(f"color: {color}; font-size: 14px;")
-            lbl = QLabel(text)
-            lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
-            legend.addWidget(dot)
-            legend.addWidget(lbl)
-            legend.addSpacing(12)
-        legend.addStretch()
-        hourly_card._body.addLayout(legend)
-
-        c_layout.addWidget(hourly_card)
-        c_layout.addStretch()
-
+        self._hourly_chart.setMinimumHeight(170)
+        hourly.add_body_widget(self._hourly_chart)
+        c.addWidget(hourly)
+        c.addStretch()
         scroll.setWidget(container)
         root.addWidget(scroll, 1)
-
-    # ── Ma'lumot yuklash ──────────────────────────────────────────────────
 
     def _load_all(self):
         self._load_summary()
         self._load_daily()
         self._load_weekly()
         self._load_hourly()
+        self._load_ranking()
 
     def _load_summary(self):
-        from datetime import date, timedelta, datetime
-
-        today = date.today()
-        week_start  = today - timedelta(days=today.weekday())
-        month_start = date(today.year, today.month, 1)
-
-        today_data = self.db.get_violations(date_from=today, date_to=today, limit=10000)
-        week_data  = self.db.get_violations(date_from=week_start, date_to=today, limit=10000)
-        month_data = self.db.get_violations(date_from=month_start, date_to=today, limit=10000)
-        total      = self.db.get_total_count()
-
-        self._stats_labels["today"].setText(str(len(today_data)))
-        self._stats_labels["week"].setText(str(len(week_data)))
-        self._stats_labels["month"].setText(str(len(month_data)))
-        self._stats_labels["total"].setText(str(total))
+        data = self.analytics.summary_counts()
+        for key, label in self._stats_labels.items():
+            label.setText(str(data.get(key, 0)))
 
     def _load_daily(self):
-        days_map = {0: 14, 1: 30, 2: 60, 3: 90}
-        days = days_map.get(self._days_combo.currentIndex(), 30)
-        data = self.db.get_daily_counts(days=days)
-        self._bar_chart.set_data(data)
+        days = {0: 14, 1: 30, 2: 60, 3: 90}.get(self._days_combo.currentIndex(), 30)
+        self._bar_chart.set_data(self.analytics.daily_counts(days=days))
 
     def _load_weekly(self):
-        data = self.db.get_weekly_counts(weeks=8)
-        self._line_chart.set_data(data)
+        self._line_chart.set_data(self.analytics.weekly_counts(weeks=8))
 
     def _load_hourly(self):
-        data = self.db.get_hourly_counts(target_date=date.today())
-        self._hourly_chart.set_data(data)
+        self._hourly_chart.set_data(self.analytics.hourly_counts(target_date=date.today()))
 
-    # ── Tashqi yangilanish ────────────────────────────────────────────────
+    def _load_ranking(self):
+        while self._ranking_layout.count():
+            item = self._ranking_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        rows = self.analytics.camera_ranking(limit=6)
+        if not rows:
+            empty = QLabel("No camera data yet")
+            empty.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
+            self._ranking_layout.addWidget(empty)
+            return
+        max_count = max(row["count"] for row in rows)
+        for row in rows:
+            self._ranking_layout.addWidget(self._ranking_row(row["camera_name"], row["count"], max_count))
+
+    def _ranking_row(self, name: str, count: int, max_count: int) -> QWidget:
+        w = QFrame()
+        w.setStyleSheet(soft_card_style())
+        lay = QHBoxLayout(w)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(8)
+        n = QLabel(name)
+        n.setStyleSheet(f"color: {C('text_primary')}; font-size: 12px; font-weight: 800;")
+        lay.addWidget(n, 1)
+        bar = QFrame()
+        bar.setFixedSize(max(24, int(118 * count / max(max_count, 1))), 7)
+        bar.setStyleSheet(f"background: {C('accent')}; border: none; border-radius: 3px;")
+        lay.addWidget(bar)
+        c = QLabel(str(count))
+        c.setStyleSheet(chip_style(C("accent_light"), "rgba(249,115,22,0.10)"))
+        lay.addWidget(c)
+        return w
 
     def refresh(self):
-        """Violations page dan chaqiriladi."""
         self._load_all()

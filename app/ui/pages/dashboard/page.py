@@ -49,6 +49,8 @@ class DashboardPage(
         self._max_recent = 10
         self._online_count = 0
         self._total_count  = 0
+        self._total_persons = 0
+        self._model_loaded_cameras: set[int] = set()
         self._prev_net   = None
         self._prev_net_t = None
 
@@ -212,12 +214,17 @@ class DashboardPage(
             self._apply_camera_view()
 
     def on_model_loaded(self, cam_id: int):
+        self._model_loaded_cameras.add(cam_id)
         p = self._panels.get(cam_id)
         if p:
             p.set_model_loading()
+        if hasattr(self, "_update_ai_health"):
+            self._update_ai_health()
 
     def set_total_persons(self, count: int):
         self._total_persons = max(0, int(count or 0))
+        if hasattr(self, "_update_ai_health"):
+            self._update_ai_health()
 
     # ── Ichki metodlar ────────────────────────────────────────────────────
 
@@ -226,6 +233,8 @@ class DashboardPage(
         self._online_count = online
         self._ov_online.setText(str(online))
         self._ov_offline.setText(str(self._total_count - online))
+        if hasattr(self, "_update_ai_health"):
+            self._update_ai_health()
 
     def _refresh_stats(self):
         try:

@@ -1,113 +1,123 @@
-"""
-ViolationCard — buzilish foto kartochkasi.
-Thumbnail rasm + vaqt + Track ID ko'rsatadi.
-Bosish signali: kattalashtirish uchun.
-"""
+from __future__ import annotations
 
 import os
-import threading
 from datetime import datetime
+from pathlib import Path
 
-from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QLabel, QSizePolicy,
-                              QDialog, QHBoxLayout, QPushButton, QScrollArea)
-from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QPixmap, QImage, QCursor
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QPixmap
+from PyQt6.QtWidgets import QDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.theme import C
+from app.ui.ui_kit import button_style, chip_style, panel_style, soft_card_style
+
+
+def _time_text(value) -> str:
+    if isinstance(value, (int, float)) and value:
+        return datetime.fromtimestamp(value).strftime("%d.%m.%Y %H:%M:%S")
+    if isinstance(value, str) and value:
+        return value
+    return "-"
+
+
+class EvidenceImage(QLabel):
+    def __init__(self, path: str, empty_text: str, size: tuple[int, int], expand: bool = False, parent=None):
+        super().__init__(parent)
+        self._target_size = size
+        self._expand = expand
+        self.setFixedSize(*size)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet(
+            f"background: {C('bg_input')}; border: 1px solid rgba(148,163,184,0.14);"
+            f"border-radius: 8px; color: {C('text_muted')}; font-size: 11px; font-weight: 800;"
+        )
+        self._load(path, empty_text)
+
+    def _load(self, path: str, empty_text: str):
+        resolved = self._resolve_path(path)
+        if not resolved or not resolved.exists():
+            self.setText(empty_text)
+            return
+
+        pix = QPixmap(str(resolved))
+        if pix.isNull():
+            self.setText(empty_text)
+            return
+        self._apply(pix)
+
+    @staticmethod
+    def _resolve_path(path: str) -> Path | None:
+        if not path:
+            return None
+        p = Path(path)
+        if p.is_absolute():
+            return p
+        return Path.cwd() / p
+
+    def _apply(self, pix: QPixmap):
+        mode = Qt.AspectRatioMode.KeepAspectRatioByExpanding if self._expand else Qt.AspectRatioMode.KeepAspectRatio
+        self.setPixmap(
+            pix.scaled(
+                self._target_size[0],
+                self._target_size[1],
+                mode,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
 
 
 class ViolationCard(QFrame):
-    """
-    Buzilish kartochkasi.
-
-    Signals:
-        clicked(dict) — karta bosilganda violation ma'lumoti uzatiladi
-    """
-
     clicked = pyqtSignal(dict)
 
     def __init__(self, violation: dict, parent=None):
         super().__init__(parent)
         self.violation = violation
-        self.setFixedSize(160, 210)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setStyleSheet(f"""
-            ViolationCard {{
-                background-color: {C('bg_card')};
-                border: 1px solid {C('border')};
-                border-radius: 8px;
-            }}
-            ViolationCard:hover {{
-                border-color: {C('accent')};
-                background-color: {C('bg_hover')};
-            }}
-        """)
+        self.setMinimumSize(238, 294)
+        self.setStyleSheet(
+            "ViolationCard {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
+            "border: 1px solid rgba(148,163,184,0.14); border-radius: 8px;"
+            "}"
+            "ViolationCard:hover { border-color: rgba(249,115,22,0.62); background: #0f172a; }"
+            "QLabel { background: transparent; border: none; }"
+        )
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(5)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 10, 10, 10)
+        lay.setSpacing(8)
 
-        # Rasm
-        self._img_label = QLabel()
-        self._img_label.setFixedSize(144, 130)
-        self._img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._img_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {C('bg_input')};
-                border: 1px solid {C('border')};
-                border-radius: 5px;
-                color: {C('text_muted')};
-                font-size: 11px;
-            }}
-        """)
-        self._load_image()
-        layout.addWidget(self._img_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        crop_path = self.violation.get("crop_path", "")
+        lay.addWidget(EvidenceImage(crop_path, "NO\nIMAGE", (218, 152), expand=True))
 
-        # Vaqt
-        ts = self.violation.get("timestamp", 0)
-        dt_str = datetime.fromtimestamp(ts).strftime("%d.%m.%Y\n%H:%M:%S") if ts else "—"
-        time_lbl = QLabel(dt_str)
-        time_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        time_lbl.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 11px; background: transparent;"
-        )
-        layout.addWidget(time_lbl)
+        top = QHBoxLayout()
+        badge = QLabel("NO HELMET")
+        badge.setStyleSheet(chip_style("#fecaca", "rgba(239,68,68,0.16)"))
+        top.addWidget(badge)
+        top.addStretch()
 
-        # Track ID
+        confidence = float(self.violation.get("confidence", 0) or 0)
+        conf = QLabel(f"{confidence * 100:.0f}%")
+        conf.setStyleSheet(chip_style("#fed7aa", "rgba(249,115,22,0.10)"))
+        top.addWidget(conf)
+        lay.addLayout(top)
+
+        cam = QLabel(str(self.violation.get("camera_name") or "Unknown camera"))
+        cam.setStyleSheet(f"color: {C('text_primary')}; font-size: 13px; font-weight: 900;")
+        lay.addWidget(cam)
+
+        meta = QHBoxLayout()
         track_id = self.violation.get("track_id", "?")
         id_lbl = QLabel(f"ID: {track_id}")
-        id_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        id_lbl.setStyleSheet(
-            f"color: {C('accent')}; font-size: 11px; font-weight: bold; background: transparent;"
-        )
-        layout.addWidget(id_lbl)
-
-    def _load_image(self):
-        """Crop rasmni background thread da yuklaydi — main thread bloklamaydi."""
-        crop_path = self.violation.get("crop_path", "")
-        if not crop_path or not os.path.exists(crop_path):
-            self._img_label.setText("Rasm\nyuq")
-            return
-
-        def _bg(path=crop_path):
-            img = QImage(path)   # QImage thread-safe
-            if not img.isNull():
-                # Main thread ga qaytarish
-                QTimer.singleShot(0, lambda i=img: self._apply_image(i))
-
-        threading.Thread(target=_bg, daemon=True, name="ImgLoad").start()
-
-    def _apply_image(self, img: QImage):
-        if self._img_label is None:
-            return
-        px = QPixmap.fromImage(img).scaled(
-            144, 130,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation,
-        )
-        self._img_label.setPixmap(px)
+        id_lbl.setStyleSheet(f"color: {C('accent_light')}; font-size: 12px; font-weight: 900;")
+        meta.addWidget(id_lbl)
+        meta.addStretch()
+        time_lbl = QLabel(_time_text(self.violation.get("timestamp"))[-8:])
+        time_lbl.setStyleSheet(chip_style(C("text_secondary"), "rgba(148,163,184,0.08)"))
+        meta.addWidget(time_lbl)
+        lay.addLayout(meta)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -117,100 +127,83 @@ class ViolationCard(QFrame):
         super().mousePressEvent(event)
 
 
-# ── Kattalashtirish dialogi ────────────────────────────────────────────────
-
 class ViolationDetailDialog(QDialog):
-    """Bosib ochilgan to'liq buzilish dialogi."""
-
     def __init__(self, violation: dict, parent=None):
         super().__init__(parent)
         self.violation = violation
-        self.setWindowTitle(f"Buzilish — ID: {violation.get('track_id', '?')}")
-        self.setMinimumSize(700, 500)
-        self.setStyleSheet(f"QDialog {{ background-color: {C('bg_card')}; }}")
+        self.setWindowTitle(f"Violation Evidence - ID: {violation.get('track_id', '?')}")
+        self.setMinimumSize(920, 580)
+        self.setStyleSheet(f"QDialog {{ background: {C('bg_main')}; }}")
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(16, 16, 16, 16)
+        root.setSpacing(14)
 
-        # Chap: to'liq rasm
-        left = QVBoxLayout()
-        full_label = QLabel()
-        full_label.setFixedSize(400, 300)
-        full_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        full_label.setStyleSheet(
-            f"background: {C('bg_input')}; border-radius: 6px; color: {C('text_muted')};"
-        )
-        full_path = self.violation.get("full_path", "")
-        if full_path and os.path.exists(full_path):
-            px = QPixmap(full_path).scaled(
-                400, 300,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            full_label.setPixmap(px)
-        else:
-            full_label.setText("To'liq rasm\ntopilmadi")
-        left.addWidget(full_label)
+        image_panel = QFrame()
+        image_panel.setObjectName("evidencePanel")
+        image_panel.setStyleSheet(panel_style("evidencePanel"))
+        image_lay = QVBoxLayout(image_panel)
+        image_lay.setContentsMargins(14, 14, 14, 14)
+        image_lay.setSpacing(10)
 
-        # Crop rasm
-        crop_label = QLabel()
-        crop_label.setFixedSize(180, 120)
-        crop_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        crop_label.setStyleSheet(
-            f"background: {C('bg_input')}; border-radius: 6px; color: {C('text_muted')};"
-        )
-        crop_path = self.violation.get("crop_path", "")
-        if crop_path and os.path.exists(crop_path):
-            px2 = QPixmap(crop_path).scaled(
-                180, 120,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            crop_label.setPixmap(px2)
-        else:
-            crop_label.setText("Crop\ntopilmadi")
-        left.addWidget(crop_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addLayout(left)
+        title = QLabel("Evidence Review")
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 18px; font-weight: 900;")
+        image_lay.addWidget(title)
+        image_lay.addWidget(EvidenceImage(self.violation.get("full_path", ""), "FULL FRAME\nNOT FOUND", (560, 350)))
 
-        # O'ng: ma'lumotlar
-        right = QVBoxLayout()
-        right.setSpacing(10)
+        crop_row = QHBoxLayout()
+        crop_row.addWidget(EvidenceImage(self.violation.get("crop_path", ""), "CROP\nNOT FOUND", (180, 120), expand=True))
+        crop_hint = QLabel("Crop image is taken from the saved detection frame. Full frame remains available for context.")
+        crop_hint.setWordWrap(True)
+        crop_hint.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
+        crop_row.addWidget(crop_hint, 1)
+        image_lay.addLayout(crop_row)
+        root.addWidget(image_panel, 1)
 
-        def info_row(label, value, color=None):
-            row = QHBoxLayout()
-            lbl = QLabel(label + ":")
-            lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
-            lbl.setFixedWidth(130)
-            val = QLabel(str(value))
-            val.setStyleSheet(
-                f"color: {color or C('text_primary')}; font-size: 12px; font-weight: bold;"
-            )
-            val.setWordWrap(True)
-            row.addWidget(lbl)
-            row.addWidget(val, 1)
-            return row
+        info = QFrame()
+        info.setObjectName("metadataPanel")
+        info.setFixedWidth(300)
+        info.setStyleSheet(panel_style("metadataPanel"))
+        info_lay = QVBoxLayout(info)
+        info_lay.setContentsMargins(14, 14, 14, 14)
+        info_lay.setSpacing(10)
 
-        ts = self.violation.get("timestamp", 0)
-        dt_str = datetime.fromtimestamp(ts).strftime("%d.%m.%Y  %H:%M:%S") if ts else "—"
+        badge = QLabel("NO HELMET")
+        badge.setStyleSheet(chip_style("#fecaca", "rgba(239,68,68,0.16)"))
+        info_lay.addWidget(badge, 0, Qt.AlignmentFlag.AlignLeft)
 
-        right.addWidget(QLabel(
-            f"<b style='color:{C('accent')}; font-size:18px;'>"
-            f"Buzilish #{self.violation.get('id', '?')}</b>"
-        ))
-        right.addSpacing(10)
-        right.addLayout(info_row("Track ID",   self.violation.get("track_id", "?"), C("accent")))
-        right.addLayout(info_row("Vaqt",       dt_str))
-        right.addLayout(info_row("Kamera",     self.violation.get("camera_name", "—")))
-        right.addLayout(info_row("Ishonch",    f"{self.violation.get('confidence', 0)*100:.1f}%"))
-        right.addLayout(info_row("Crop fayl",  crop_path or "—"))
-        right.addLayout(info_row("Full fayl",  full_path or "—"))
-        right.addStretch()
+        for label, value in [
+            ("Violation ID", self.violation.get("id", "-")),
+            ("Track ID", self.violation.get("track_id", "-")),
+            ("Camera", self.violation.get("camera_name", "-")),
+            ("Time", _time_text(self.violation.get("timestamp"))),
+            ("Confidence", f"{float(self.violation.get('confidence', 0) or 0) * 100:.1f}%"),
+            ("Crop path", self.violation.get("crop_path", "-") or "-"),
+            ("Full path", self.violation.get("full_path", "-") or "-"),
+        ]:
+            info_lay.addWidget(self._info_row(label, value))
 
-        close_btn = QPushButton("Yopish")
-        close_btn.clicked.connect(self.accept)
-        close_btn.setProperty("accent", True)
-        right.addWidget(close_btn)
-        layout.addLayout(right)
+        info_lay.addStretch()
+        close = QPushButton("Close")
+        close.setFixedHeight(36)
+        close.setStyleSheet(button_style("primary"))
+        close.clicked.connect(self.accept)
+        info_lay.addWidget(close)
+        root.addWidget(info)
+
+    def _info_row(self, label: str, value) -> QWidget:
+        row = QFrame()
+        row.setStyleSheet(soft_card_style())
+        lay = QVBoxLayout(row)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(2)
+        k = QLabel(label)
+        k.setStyleSheet(f"color: {C('text_muted')}; font-size: 10px; font-weight: 800;")
+        lay.addWidget(k)
+        v = QLabel(str(value))
+        v.setWordWrap(True)
+        v.setStyleSheet(f"color: {C('text_primary')}; font-size: 12px; font-weight: 800;")
+        lay.addWidget(v)
+        return row

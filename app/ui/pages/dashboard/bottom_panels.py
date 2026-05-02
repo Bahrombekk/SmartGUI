@@ -287,6 +287,12 @@ class DashboardBottomPanelsMixin:
         )
         r_lay.addWidget(self._ai_desc_lbl)
 
+        self._ai_health_lbl = QLabel("0 active cameras | waiting for model")
+        self._ai_health_lbl.setStyleSheet(
+            "color: #94a3b8; font-size: 10px; background: transparent; border: none;"
+        )
+        r_lay.addWidget(self._ai_health_lbl)
+
         self._ai_toggle_btn = QPushButton("Pause AI")
         self._ai_toggle_btn.setFixedHeight(38)
         self._ai_toggle_btn.setStyleSheet("""
@@ -319,6 +325,7 @@ class DashboardBottomPanelsMixin:
             )
             self._ai_desc_lbl.setText("Smart detection is\nrunning smoothly.")
             self._ai_toggle_btn.setText("Pause AI")
+            self._update_ai_health()
         else:
             self._ai_status_lbl.setText("Paused")
             self._ai_status_lbl.setStyleSheet(
@@ -326,6 +333,17 @@ class DashboardBottomPanelsMixin:
             )
             self._ai_desc_lbl.setText("Detection is paused\nfor review.")
             self._ai_toggle_btn.setText("Start AI")
+            self._update_ai_health()
+
+    def _update_ai_health(self):
+        if not hasattr(self, "_ai_health_lbl"):
+            return
+        active = int(getattr(self, "_online_count", 0) or 0)
+        total = int(getattr(self, "_total_count", 0) or 0)
+        persons = int(getattr(self, "_total_persons", 0) or 0)
+        models = len(getattr(self, "_model_loaded_cameras", set()))
+        state = "paused" if not getattr(self, "_ai_active", True) else "running"
+        self._ai_health_lbl.setText(f"{active}/{total} cameras | {models} models | {persons} persons | {state}")
 
     # ── No Helmet ────────────────────────────────────────────────────────
 
@@ -785,6 +803,17 @@ class DashboardBottomPanelsMixin:
             "background: rgba(249,115,22,0.10); border-radius: 8px; font-size: 10px;"
             "font-weight: 900; color: #fdba74; border: 1px solid rgba(249,115,22,0.18);"
         )
+        crop_path = str(v.get("crop_path", "") or "")
+        if crop_path and os.path.exists(crop_path):
+            pix = QPixmap(crop_path)
+            if not pix.isNull():
+                avatar.setPixmap(
+                    pix.scaled(
+                        avatar.size(),
+                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
         lay.addWidget(avatar)
 
         info = QVBoxLayout()

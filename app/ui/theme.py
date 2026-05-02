@@ -3,6 +3,8 @@ Qorong'i mavzu — SmartHelmet uchun rang palitrasi.
 C(key) funksiya orqali rangga murojaat qilinadi.
 """
 
+from app.ui.design_system import COLORS
+
 _DARK = {
     # Asosiy fonlar — React SmartHelmet dizayni
     "bg_main":        "#03070b",
@@ -57,7 +59,7 @@ _DARK = {
 
 def C(key: str) -> str:
     """Mavzu rangini qaytaradi. Noma'lum kalit uchun fallback — oq."""
-    return _DARK.get(key, "#ffffff")
+    return COLORS.get(key, _DARK.get(key, "#ffffff"))
 
 
 def get_main_stylesheet() -> str:

@@ -444,6 +444,14 @@ class SettingsPage(QWidget):
         hint.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
         lay.addWidget(hint, 1)
 
+        self._restart_indicator = QLabel("Restart needed after save")
+        self._restart_indicator.setStyleSheet(
+            "color: #fdba74; background: rgba(249,115,22,0.10);"
+            "border: 1px solid rgba(249,115,22,0.20); border-radius: 8px;"
+            "padding: 5px 9px; font-size: 11px; font-weight: 800;"
+        )
+        lay.addWidget(self._restart_indicator)
+
         cancel_btn = QPushButton("  Bekor qilish")
         cancel_btn.setFixedHeight(36)
         cancel_btn.setStyleSheet(self._secondary_btn_style())
@@ -1842,6 +1850,8 @@ class SettingsPage(QWidget):
             "keep_files_days":   self._keep_days_spin.value(),
         })
         self.cfg.save()
+        if hasattr(self, "_restart_indicator"):
+            self._restart_indicator.setText("Saved | restart cameras")
         self.settings_saved.emit()
         QMessageBox.information(
             self, "Saqlandi",

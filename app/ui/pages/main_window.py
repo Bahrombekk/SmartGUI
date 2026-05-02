@@ -19,6 +19,7 @@ from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QPainter, QBrush, QShortcut
 
 from app.config.settings_manager import ConfigManager, CameraConfigProxy
+from app.bootstrap.startup_checks import run_startup_checks
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.workers.detection_worker import DetectionWorker
 from app.workers.camera_service import svc_destroy
@@ -409,6 +410,10 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_statusbar()
         self._setup_shortcuts()
+        self._startup_checks = run_startup_checks(self.cfg, self.db)
+        failed_checks = [check for check in self._startup_checks if not check.ok]
+        if failed_checks:
+            self._sb_status.setText(f"Startup checks: {len(failed_checks)} warning")
         self.showMaximized()
 
         QTimer.singleShot(600, self._start_all_cameras)
