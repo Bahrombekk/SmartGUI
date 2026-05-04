@@ -23,13 +23,13 @@ from app.bootstrap.startup_checks import run_startup_checks
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.workers.detection_worker import DetectionWorker
 from app.workers.camera_service import svc_destroy
+from app.workers.cleanup_worker import CleanupWorker
 from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.cameras_page import CamerasPage
 from app.ui.pages.violations_page import ViolationsPage
 from app.ui.pages.analytics_page import AnalyticsPage
 from app.ui.pages.users_page import UsersPage
 from app.ui.pages.settings_dialog import SettingsPage
-from app.ui.pages.about_page import AboutPage
 from app.ui.theme import C
 
 
@@ -44,7 +44,6 @@ class TopNavBar(QWidget):
     PAGE_REPORTS    = 3
     PAGE_ANALYTICS  = 2
     PAGE_USERS      = 5
-    PAGE_ABOUT      = 3
     PAGE_SETTINGS   = 6
 
     def __init__(self, on_page_change, on_settings, on_quit, on_search=None, parent=None):
@@ -107,8 +106,7 @@ class TopNavBar(QWidget):
             (1,                   "Cameras",   "camera.svg"),
             (self.PAGE_ANALYTICS, "Analytics", "analytics.svg"),
             (self.PAGE_REPORTS,   "Reports",   "reports.svg"),
-            (self.PAGE_USERS,      "Users",     "users.svg"),
-            (4,                   "Alerts",    "alerts.svg"),
+            (self.PAGE_USERS,     "Users",     "users.svg"),
         ]
 
         for page_id, label, icon_name in nav_items:
@@ -123,7 +121,6 @@ class TopNavBar(QWidget):
             lay.addWidget(btn)
             self._nav_btns[page_id] = btn
 
-        # Sozlamalar (dialog ochadi)
         settings_btn = QPushButton("Settings")
         settings_btn.setCheckable(True)
         settings_btn.setFixedHeight(58)
@@ -170,8 +167,8 @@ class TopNavBar(QWidget):
         self._bell_btn.setIcon(self._icon("bell.svg"))
         self._bell_btn.setIconSize(QSize(18, 18))
         self._bell_btn.setStyleSheet(self._icon_btn_style())
-        self._bell_btn.setToolTip("Alerts")
-        self._bell_btn.clicked.connect(lambda: self._nav_click(4))
+        self._bell_btn.setToolTip("Reports")
+        self._bell_btn.clicked.connect(lambda: self._nav_click(self.PAGE_REPORTS))
         lay.addWidget(self._bell_btn)
 
         # Notification badge
@@ -343,9 +340,8 @@ class TopNavBar(QWidget):
             1: 1,  # Cameras
             2: 3,  # Analytics
             3: 2,  # Reports → Violations
-            4: 2,  # Alerts → Violations
-            5: 5,  # Users
-            6: 6,  # Settings
+            5: 4,  # Users → stack 4
+            6: 5,  # Settings → stack 5
         }.get(page_id, 0)
         self._set_active(page_id)
         if page_id == self.PAGE_SETTINGS:
@@ -391,9 +387,8 @@ class MainWindow(QMainWindow):
     PAGE_CAMERAS    = 1
     PAGE_VIOLATIONS = 2
     PAGE_ANALYTICS  = 3
-    PAGE_ABOUT      = 4
-    PAGE_USERS      = 5
-    PAGE_SETTINGS   = 6
+    PAGE_USERS      = 4
+    PAGE_SETTINGS   = 5
 
     def __init__(self):
         super().__init__()
@@ -401,6 +396,7 @@ class MainWindow(QMainWindow):
         self.db  = ViolationsDB()
 
         self._workers: dict[int, DetectionWorker] = {}
+        self._cleanup_worker: CleanupWorker | None = None
         self._persons_per_cam: dict[int, int] = {}
         self._violation_count = 0
 
@@ -417,6 +413,7 @@ class MainWindow(QMainWindow):
         self.showMaximized()
 
         QTimer.singleShot(600, self._start_all_cameras)
+        QTimer.singleShot(1200, self._start_cleanup)
 
     # ── UI ────────────────────────────────────────────────────────────────
 
@@ -454,7 +451,6 @@ class MainWindow(QMainWindow):
         self._cameras    = CamerasPage(self.db, self.cfg)
         self._violations = ViolationsPage(self.db)
         self._analytics  = AnalyticsPage(self.db)
-        self._about      = AboutPage(self.cfg)
         self._users      = UsersPage(self.cfg)
         self._settings   = SettingsPage(self.cfg)
 
@@ -462,9 +458,8 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._cameras)     # 1
         self._stack.addWidget(self._violations)  # 2
         self._stack.addWidget(self._analytics)   # 3
-        self._stack.addWidget(self._about)       # 4
-        self._stack.addWidget(self._users)       # 5
-        self._stack.addWidget(self._settings)    # 6
+        self._stack.addWidget(self._users)       # 4
+        self._stack.addWidget(self._settings)    # 5
 
         self._dashboard.go_violations.connect(
             lambda: self._switch_page(self.PAGE_VIOLATIONS)
@@ -540,12 +535,12 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(page)
         if nav_page is None:
             nav_page = {
-                self.PAGE_DASHBOARD: 0,
-                self.PAGE_CAMERAS: 1,
+                self.PAGE_DASHBOARD:  0,
+                self.PAGE_CAMERAS:    1,
                 self.PAGE_VIOLATIONS: 3,
-                self.PAGE_ANALYTICS: 2,
-                self.PAGE_USERS: 5,
-                self.PAGE_SETTINGS: 6,
+                self.PAGE_ANALYTICS:  2,
+                self.PAGE_USERS:      5,
+                self.PAGE_SETTINGS:   6,
             }.get(page)
         if nav_page is not None:
             self._navbar.set_active_page(nav_page)
@@ -587,7 +582,7 @@ class MainWindow(QMainWindow):
                 lambda frame, cid=cam_id: self._dashboard.update_frame(cid, frame)
             )
             worker.frame_ready.connect(
-                lambda frame, cid=cam_id: self._cameras.update_frame(cid, frame)
+                lambda frame, cid=cam_id: self._cameras.update_frame(cid, frame)  # faqat detail panel uchun
             )
             worker.violation_detected.connect(self._on_violation)
             worker.stats_updated.connect(
@@ -615,8 +610,7 @@ class MainWindow(QMainWindow):
     def _stop_all_cameras(self):
         running = [w for w in self._workers.values() if w and w.isRunning()]
         for w in running:
-            w._running = False
-            w.quit()
+            w.stop()
         # Qisqa kutish: UI ni bloklamaslik uchun (avval 1500ms edi)
         for w in running:
             w.wait(300)
@@ -624,6 +618,25 @@ class MainWindow(QMainWindow):
         self._persons_per_cam.clear()
         self._navbar.set_pause_enabled(False)
         svc_destroy()  # CameraService va barcha DetectorGroup'larni to'xtatadi
+
+    def _start_cleanup(self):
+        if self._cleanup_worker and self._cleanup_worker.isRunning():
+            return
+        self._cleanup_worker = CleanupWorker(
+            self.db,
+            self.cfg,
+            keep_days=int(self.cfg.get("keep_files_days", 7)),
+            cleanup_files=bool(self.cfg.get("cleanup_files", False)),
+        )
+        self._cleanup_worker.finished_cleanup.connect(
+            lambda info: self._sb_status.setText(
+                f"Cleanup OK: {info.get('keep_days')} kun, {info.get('deleted_files')} fayl"
+            )
+        )
+        self._cleanup_worker.error_occurred.connect(
+            lambda msg: self._sb_status.setText(f"Cleanup xato: {msg[:60]}")
+        )
+        self._cleanup_worker.start()
 
     def _restart_all_cameras(self):
         self._stop_all_cameras()

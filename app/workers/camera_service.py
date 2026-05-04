@@ -87,7 +87,8 @@ class DetectorGroup(threading.Thread):
 
     def __init__(self, group_id: int, readers: list,
                  model_path: str, device: str,
-                 imgsz: int, confidence: float, batch_size: int):
+                 imgsz: int, confidence: float, batch_size: int,
+                 ai_fps_limit: int = 10, process_every_n: int = 1):
         super().__init__(daemon=True, name=f"DetectorGroup-{group_id}")
         self.group_id = group_id
         self.readers = readers
@@ -95,6 +96,8 @@ class DetectorGroup(threading.Thread):
         self.imgsz = imgsz
         self.confidence = confidence
         self.batch_size = batch_size
+        self.ai_interval = 1.0 / max(1, int(ai_fps_limit or 10))
+        self.process_every_n = max(1, int(process_every_n or 1))
 
         # Model yuklash
         self._is_engine = model_path.endswith(".engine")
@@ -112,6 +115,8 @@ class DetectorGroup(threading.Thread):
         }
         self._last_snaps: list = [None] * len(readers)
         self._processed_ts: list = [None] * len(readers)  # takroriy inference oldini olish
+        self._last_infer_time: list[float] = [0.0] * len(readers)
+        self._seen_counts: list[int] = [0] * len(readers)
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
 
@@ -155,15 +160,24 @@ class DetectorGroup(threading.Thread):
             # Faqat YANGI timestamp li framlarni olish (takroriy inference oldini olish)
             ready = [
                 (i, snap) for i, snap in enumerate(self._last_snaps)
-                if snap is not None and snap.timestamp != self._processed_ts[i]
+                if snap is not None
+                and snap.timestamp != self._processed_ts[i]
+                and (time.time() - self._last_infer_time[i]) >= self.ai_interval
             ]
             if not ready:
                 time.sleep(0.005)  # yangi frame kutish
                 continue
 
-            # Qayta ishlash boshlanganligi belgilash
+            filtered = []
             for idx, snap in ready:
+                self._seen_counts[idx] += 1
                 self._processed_ts[idx] = snap.timestamp
+                if self._seen_counts[idx] % self.process_every_n == 0:
+                    self._last_infer_time[idx] = time.time()
+                    filtered.append((idx, snap))
+            ready = filtered
+            if not ready:
+                continue
 
             processed = 0
             for start in range(0, len(ready), self.batch_size):
@@ -231,12 +245,15 @@ class CameraService:
 
     def __init__(self, model_path: str, imgsz: int = 640,
                  confidence: float = 0.35, device: str = "auto",
-                 cameras_per_model: int = 3, batch_size: int = 3):
+                 cameras_per_model: int = 3, batch_size: int = 3,
+                 ai_fps_limit: int = 10, process_every_n: int = 1):
         self.model_path = model_path
         self.imgsz = imgsz
         self.confidence = confidence
         self.cameras_per_model = cameras_per_model
         self.batch_size = batch_size
+        self.ai_fps_limit = ai_fps_limit
+        self.process_every_n = process_every_n
         self.device = self._resolve_device(device)
 
         if self.device != "cpu":
@@ -309,6 +326,8 @@ class CameraService:
                 imgsz=self.imgsz,
                 confidence=self.confidence,
                 batch_size=self.batch_size,
+                ai_fps_limit=self.ai_fps_limit,
+                process_every_n=self.process_every_n,
             )
             new_groups.append(g)
 
@@ -400,8 +419,10 @@ def svc_acquire(cfg) -> CameraService | None:
                 imgsz=int(cfg.get("yolo_imgsz", 640)),
                 confidence=float(cfg.get("confidence", 0.35)),
                 device=device,
-                cameras_per_model=3,
-                batch_size=3,
+                cameras_per_model=int(cfg.get("cameras_per_model", 3)),
+                batch_size=int(cfg.get("inference_batch_size", 3)),
+                ai_fps_limit=int(cfg.get("ai_fps_limit", 10)),
+                process_every_n=int(cfg.get("process_every_n", 1)),
             )
         return _svc
 

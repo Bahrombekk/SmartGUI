@@ -17,6 +17,10 @@ _DEFAULT_CAMERA = {
     "company_id": "61169935-7269-4782-a5d2-bdd42ef28bb0",
     "department_id": 1,
     "enabled": True,
+    "access_mode": "department",
+    "allowed_department_ids": [],
+    "allowed_employee_ids": [],
+    "polygon_points": [],
 }
 
 _DEFAULT_DEPARTMENT = {
@@ -54,22 +58,30 @@ DEFAULT_SETTINGS = {
     "confirmation_window": 10,
     "confirmation_threshold": 10,
     "violation_cooldown": 10,
+    "helmet_class_ids": [0],
+    "no_helmet_class_ids": [1],
 
     # Telegram
-    "telegram_enabled": True,
-    "telegram_token": "7688030501:AAH-vPO2a7FIu0oDGUzHpJa3Je7LASi505M",
-    "telegram_chat_ids": ["6036366867", "18367996"],
+    "telegram_enabled": False,
+    "telegram_token": "",
+    "telegram_chat_ids": [],
 
     # Backend API (company_id endi kamera ichida)
-    "backend_enabled": True,
-    "backend_url": "https://ai-project.das-uty.uz/api/camera/create",
-    "backend_login": "kaska",
-    "backend_password": "Kaska2025",
+    "backend_enabled": False,
+    "backend_url": "",
+    "backend_login": "",
+    "backend_password": "",
 
     # Saqlash
     "save_violations": True,
     "violations_dir": "",
     "keep_files_days": 7,
+    "cleanup_files": False,
+
+    # FaceID / access roster
+    "faceid_enabled": False,
+    "faceid_threshold": 0.72,
+    "access_roster_enabled": False,
 
     # Polygon
     "use_polygon": False,
@@ -81,6 +93,9 @@ DEFAULT_SETTINGS = {
     "display_max_width": 1280,
     "video_fps_limit": 25,
     "ai_fps_limit": 10,
+    "inference_batch_size": 3,
+    "cameras_per_model": 3,
+    "violation_save_queue_size": 64,
     "show_fps": True,
     "show_stats": True,
 
@@ -139,6 +154,14 @@ class ConfigManager:
                     cam["id"] = i + 1
                 if "department_id" not in cam:
                     cam["department_id"] = default_dep_id
+                if "access_mode" not in cam:
+                    cam["access_mode"] = "department"
+                if "allowed_department_ids" not in cam:
+                    cam["allowed_department_ids"] = []
+                if "allowed_employee_ids" not in cam:
+                    cam["allowed_employee_ids"] = []
+                if "polygon_points" not in cam:
+                    cam["polygon_points"] = []
             return
 
         # Eski formatdan migration
@@ -153,6 +176,10 @@ class ConfigManager:
             "company_id": old_company,
             "department_id": default_dep_id,
             "enabled": True,
+            "access_mode": "department",
+            "allowed_department_ids": [],
+            "allowed_employee_ids": [],
+            "polygon_points": [],
         }]
 
     def _migrate_users(self):
@@ -173,6 +200,8 @@ class ConfigManager:
                 user["photo_path"] = ""
             if "department_id" not in user:
                 user["department_id"] = default_dep
+            if "active" not in user:
+                user["active"] = True
         self._settings["users"] = users
 
     def save(self):
@@ -288,6 +317,7 @@ class ConfigManager:
             "employee_id": employee_id,
             "photo_path": photo_path or "",
             "department_id": dep_id,
+            "active": True,
         }
         users.append(user)
         self._settings["users"] = users
@@ -336,6 +366,10 @@ class ConfigManager:
             "company_id": company_id,
             "department_id": department_id or self.get_departments()[0].get("id", 1),
             "enabled": enabled,
+            "access_mode": "department",
+            "allowed_department_ids": [],
+            "allowed_employee_ids": [],
+            "polygon_points": [],
         }
         cameras.append(cam)
         self._settings["cameras"] = cameras
@@ -475,6 +509,10 @@ class CameraConfigProxy:
 
     # Kamera-specific xususiyatlar
     @property
+    def camera_id(self) -> int | None:
+        return self._cam.get("id")
+
+    @property
     def rtsp_url(self) -> str:
         return self._cam.get("rtsp_url", self._base.rtsp_url)
 
@@ -485,6 +523,14 @@ class CameraConfigProxy:
     @property
     def company_id(self) -> str:
         return self._cam.get("company_id", self._base.company_id)
+
+    @property
+    def department_id(self) -> int | None:
+        return self._cam.get("department_id")
+
+    @property
+    def camera(self) -> dict:
+        return dict(self._cam)
 
     # Qolgan xususiyatlar → base
     @property

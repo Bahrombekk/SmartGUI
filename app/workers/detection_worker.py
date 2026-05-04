@@ -19,14 +19,12 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage
 
 from app.application.services.violation_service import ViolationService
+from app.application.services.faceid_service import FaceIdService
+from app.domain.policies import AccessPolicy, HelmetPolicy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.infrastructure.camera.cv2_rtsp_reader import CV2RTSPReader
 from app.workers.camera_service import svc_acquire, svc_register, svc_unregister
 from app.workers.inference_engine import IoUTracker
-
-
-_NO_HELMET_KEYS = ("no_helmet", "no-helmet", "without", "head", "bare", "violation", "nohel")
-_HELMET_KEYS    = ("helmet", "with_helmet", "safe", "hardhat", "hard_hat")
 
 
 class DetectionWorker(QThread):
@@ -60,6 +58,12 @@ class DetectionWorker(QThread):
         self.cfg = config_manager
         self.db  = db
         self.violation_service = ViolationService(db)
+        self.helmet_policy = HelmetPolicy(
+            helmet_class_ids=set(int(x) for x in self.cfg.get("helmet_class_ids", [0])),
+            no_helmet_class_ids=set(int(x) for x in self.cfg.get("no_helmet_class_ids", [1])),
+        )
+        self.access_policy = AccessPolicy()
+        self.faceid_service: FaceIdService | None = None
 
         self._running = False
         self._paused  = False
@@ -82,8 +86,9 @@ class DetectionWorker(QThread):
 
         # Violations
         self._today_count         = 0
-        self._saved_violations:   set[int]       = set()
+        self._saved_violations:   set[tuple[int, str]] = set()
         self._no_helmet_frames:   dict[int, int] = {}
+        self._access_frames:      dict[int, int] = {}
         self._save_queue: Queue[dict | None] = Queue(
             maxsize=max(1, int(self.cfg.get("violation_save_queue_size", 64)))
         )
@@ -146,17 +151,20 @@ class DetectionWorker(QThread):
             except Exception as e:
                 print(f"[Worker] Backend yuklanmadi: {e}")
 
+    def _setup_faceid(self):
+        if not bool(self.cfg.get("faceid_enabled", False) or self.cfg.get("access_roster_enabled", False)):
+            return
+        try:
+            self.faceid_service = FaceIdService(self.db, self.cfg)
+            self.faceid_service.enroll_from_settings_users()
+        except Exception as e:
+            self.faceid_service = None
+            self.error_occurred.emit(f"FaceID tayyorlanmadi: {e}")
+
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 
     def _classify_person(self, person: dict) -> dict:
-        cname = person.get("class_name", person.get("class", "")).lower()
-        if any(k in cname for k in _NO_HELMET_KEYS):
-            person["has_helmet"] = False
-        elif any(k in cname for k in _HELMET_KEYS):
-            person["has_helmet"] = True
-        else:
-            person["has_helmet"] = None
-        return person
+        return self.helmet_policy.classify(person)
 
     def _check_violations(self, persons: list[dict]) -> list[dict]:
         threshold  = int(self.cfg.get("confirmation_threshold", 10))
@@ -170,12 +178,50 @@ class DetectionWorker(QThread):
                 self._no_helmet_frames[tid] = self._no_helmet_frames.get(tid, 0) + 1
                 p["is_new_violation"] = (
                     self._no_helmet_frames[tid] == threshold
-                    and tid not in self._saved_violations
+                    and (tid, "no_helmet") not in self._saved_violations
                 )
             else:
                 self._no_helmet_frames[tid] = 0
                 p["is_new_violation"] = False
         return persons
+
+    def _check_access_violation(self, frame: np.ndarray, person: dict):
+        if self.faceid_service is None:
+            return None
+        tid = person.get("track_id", -1)
+        if (tid, "unknown_person") in self._saved_violations or (tid, "unauthorized_area") in self._saved_violations:
+            return None
+
+        threshold = int(self.cfg.get("confirmation_threshold", 10))
+        self._access_frames[tid] = self._access_frames.get(tid, 0) + 1
+        if self._access_frames[tid] < threshold:
+            return None
+
+        crop = self._crop_person(frame, person)
+        identity = self.faceid_service.match_person_crop(crop) if crop is not None else None
+        camera = getattr(self.cfg, "camera", {})
+        violation = self.access_policy.evaluate(camera, identity)
+        if violation is None:
+            return None
+        person["employee_id"] = violation.employee_id
+        person["employee_name"] = violation.employee_name
+        person["identity_confidence"] = violation.identity_confidence
+        return violation.violation_type
+
+    @staticmethod
+    def _crop_person(frame: np.ndarray, person: dict) -> np.ndarray | None:
+        box = person.get("box", person.get("bbox_xyxy", []))
+        if len(box) != 4 or frame is None or frame.size == 0:
+            return None
+        h, w = frame.shape[:2]
+        x1, y1, x2, y2 = [int(v) for v in box]
+        x1 = max(0, min(w - 1, x1))
+        x2 = max(0, min(w, x2))
+        y1 = max(0, min(h - 1, y1))
+        y2 = max(0, min(h, y2))
+        if x2 <= x1 or y2 <= y1:
+            return None
+        return frame[y1:y2, x1:x2].copy()
 
     # ── Overlay chizish ───────────────────────────────────────────────────
 
@@ -247,6 +293,12 @@ class DetectionWorker(QThread):
                     company_id     = item["company_id"],
                     violations_dir = item["violations_dir"],
                     save_files     = item["save_files"],
+                    violation_type = item.get("violation_type", "no_helmet"),
+                    camera_id      = item.get("camera_id"),
+                    department_id  = item.get("department_id"),
+                    employee_id    = item["person"].get("employee_id"),
+                    employee_name  = item["person"].get("employee_name", ""),
+                    identity_confidence = float(item["person"].get("identity_confidence", 0.0) or 0.0),
                     notifier       = self._notifier,
                     backend        = self._backend,
                 )
@@ -257,28 +309,32 @@ class DetectionWorker(QThread):
             except Exception as e:
                 tid = int(item.get("track_id", -1))
                 if tid >= 0:
-                    self._saved_violations.discard(tid)
+                    self._saved_violations.discard((tid, item.get("violation_type", "no_helmet")))
                 self.error_occurred.emit(f"Buzilishni saqlashda xatolik: {e}")
             finally:
                 self._save_queue.task_done()
 
-    def _handle_violation(self, frame: np.ndarray, person: dict):
+    def _handle_violation(self, frame: np.ndarray, person: dict, violation_type: str = "no_helmet"):
         tid = person.get("track_id", -1)
-        if tid in self._saved_violations:
+        key = (tid, violation_type)
+        if key in self._saved_violations:
             return
-        self._saved_violations.add(tid)
+        self._saved_violations.add(key)
         try:
             self._save_queue.put_nowait({
                 "track_id": tid,
+                "violation_type": violation_type,
                 "frame": frame.copy(),
                 "person": dict(person),
                 "camera_name": self.cfg.camera_name,
+                "camera_id": getattr(self.cfg, "camera_id", None),
+                "department_id": getattr(self.cfg, "department_id", None),
                 "company_id": self.cfg.company_id,
                 "violations_dir": self.cfg.violations_dir,
                 "save_files": self.cfg.save_violations,
             })
         except Full:
-            self._saved_violations.discard(tid)
+            self._saved_violations.discard(key)
             self.error_occurred.emit("Buzilish saqlash navbati to'lib qoldi")
 
     # ── Yordamchi metodlar ────────────────────────────────────────────────
@@ -328,6 +384,7 @@ class DetectionWorker(QThread):
         self.status_changed.emit("Yuklanmoqda...")
         has_ai = self._init_service()
         self._setup_notifiers()
+        self._setup_faceid()
 
         rtsp_url = self.cfg.rtsp_url
         if not rtsp_url:
@@ -431,7 +488,10 @@ class DetectionWorker(QThread):
                     violation_frame = result.raw_frame if result.raw_frame is not None else frame
                     for p in persons:
                         if p.get("is_new_violation", False):
-                            self._handle_violation(violation_frame, p)
+                            self._handle_violation(violation_frame, p, "no_helmet")
+                        access_type = self._check_access_violation(violation_frame, p)
+                        if access_type:
+                            self._handle_violation(violation_frame, p, access_type)
 
                 persons = self._last_persons
 

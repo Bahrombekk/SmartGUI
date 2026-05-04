@@ -40,23 +40,42 @@ class _TestThread(QThread):
                 if not token:
                     self.result.emit(False, "Token kiritilmagan")
                     return
+                chat_ids = self.data.get("chat_ids", [])
                 r = requests.get(
                     f"https://api.telegram.org/bot{token}/getMe", timeout=10
                 )
-                if r.status_code == 200:
-                    name = r.json().get("result", {}).get("first_name", "Bot")
-                    self.result.emit(True, f"Bot ulandi: {name}")
-                else:
+                if r.status_code != 200:
                     self.result.emit(False, f"Xatolik: {r.status_code}")
+                    return
+                name = r.json().get("result", {}).get("first_name", "Bot")
+                if chat_ids:
+                    msg = requests.post(
+                        f"https://api.telegram.org/bot{token}/sendMessage",
+                        data={"chat_id": chat_ids[0], "text": "SmartHelmet test notification"},
+                        timeout=10,
+                    )
+                    if msg.status_code != 200:
+                        self.result.emit(False, f"Bot ulandi, lekin chat test xato: {msg.status_code}")
+                        return
+                self.result.emit(True, f"Bot ulandi: {name}")
             except Exception as e:
                 self.result.emit(False, str(e))
         elif self.mode == "model":
             model_path = self.data.get("path", "")
-            if os.path.exists(model_path):
-                size = os.path.getsize(model_path) // (1024 * 1024)
-                self.result.emit(True, f"Model topildi ({size} MB)")
-            else:
+            if not os.path.exists(model_path):
                 self.result.emit(False, f"Fayl topilmadi:\n{model_path}")
+                return
+            try:
+                import numpy as np
+                from ultralytics import YOLO
+
+                model = YOLO(model_path, task="detect")
+                dummy = np.zeros((320, 320, 3), dtype=np.uint8)
+                model.predict([dummy], imgsz=320, conf=0.25, verbose=False, max_det=1, device="cpu")
+                size = os.path.getsize(model_path) // (1024 * 1024)
+                self.result.emit(True, f"Model yuklandi va sample inference o'tdi ({size} MB)")
+            except Exception as e:
+                self.result.emit(False, f"Model yuklanmadi: {e}")
 
 
 # ── Kamera tahrirlash dialogi ──────────────────────────────────────────────
@@ -214,16 +233,22 @@ class SettingsPage(QWidget):
 
     NAV_CAMERAS  = 0
     NAV_MODEL    = 1
-    NAV_TELEGRAM = 2
-    NAV_BACKEND  = 3
-    NAV_STORAGE  = 4
+    NAV_FACEID   = 2
+    NAV_TELEGRAM = 3
+    NAV_BACKEND  = 4
+    NAV_STORAGE  = 5
+    NAV_PERF     = 6
+    NAV_DIAG     = 7
 
     _NAV_ITEMS = [
         (0, "camera.svg",  "Kameralar"),
-        (1, "cpu.svg",     "Model"),
-        (2, "send.svg",    "Telegram"),
-        (3, "server.svg",  "Backend API"),
-        (4, "database.svg","Saqlash"),
+        (1, "cpu.svg",     "AI Model"),
+        (2, "users.svg",   "FaceID"),
+        (3, "send.svg",    "Notifications"),
+        (4, "server.svg",  "Backend Sync"),
+        (5, "database.svg","Saqlash"),
+        (6, "settings.svg","Performance"),
+        (7, "info.svg",    "Diagnostics"),
     ]
 
     def __init__(self, config_manager, parent=None):
@@ -323,9 +348,12 @@ class SettingsPage(QWidget):
         self._stack.setStyleSheet("background: transparent;")
         self._stack.addWidget(self._make_cameras_page())
         self._stack.addWidget(self._make_model_page())
+        self._stack.addWidget(self._make_faceid_page())
         self._stack.addWidget(self._make_telegram_page())
         self._stack.addWidget(self._make_backend_page())
         self._stack.addWidget(self._make_storage_page())
+        self._stack.addWidget(self._make_performance_page())
+        self._stack.addWidget(self._make_diagnostics_page())
         c_lay.addWidget(self._stack, 1)
         c_lay.addWidget(self._build_footer())
         root.addWidget(content_w, 1)
@@ -1647,9 +1675,50 @@ class SettingsPage(QWidget):
 
     # ── Telegram page ─────────────────────────────────────────────────────
 
+    def _make_faceid_page(self) -> QWidget:
+        page, lay = self._scroll_page()
+        lay.addLayout(self._page_header("FaceID", "Hodimlarni yuz orqali tanish va access roster"))
+
+        card = self._panel()
+        g = QVBoxLayout(card)
+        g.setContentsMargins(18, 16, 18, 16)
+        g.setSpacing(12)
+
+        self._faceid_enabled = QCheckBox("FaceID ni yoqish")
+        self._access_roster_enabled = QCheckBox("Access roster alertlarini yoqish")
+        g.addWidget(self._faceid_enabled)
+        g.addWidget(self._access_roster_enabled)
+
+        g.addWidget(self._form_label("Match threshold:"))
+        row = QHBoxLayout()
+        self._faceid_threshold = QDoubleSpinBox()
+        self._faceid_threshold.setRange(0.40, 0.95)
+        self._faceid_threshold.setDecimals(2)
+        self._faceid_threshold.setSingleStep(0.02)
+        self._faceid_threshold.setFixedWidth(90)
+        row.addWidget(self._faceid_threshold)
+        note = QLabel("yuqori = kamroq false match")
+        note.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
+        row.addWidget(note)
+        row.addStretch()
+        g.addLayout(row)
+
+        g.addWidget(self._hsep())
+        roster = QLabel(
+            "Hodim rasmlari Users sahifasida qo'shiladi. Startup paytida "
+            "yuz embeddinglari lokal DBga tayyorlanadi."
+        )
+        roster.setWordWrap(True)
+        roster.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
+        g.addWidget(roster)
+
+        lay.addWidget(card)
+        lay.addStretch()
+        return page
+
     def _make_telegram_page(self) -> QWidget:
         page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Telegram", "Bot xabarnomalari sozlamalari"))
+        lay.addLayout(self._page_header("Notifications", "Telegram xabarnomalari va optional sync navbati"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1698,7 +1767,7 @@ class SettingsPage(QWidget):
 
     def _make_backend_page(self) -> QWidget:
         page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Backend API", "Serverga ulanish sozlamalari"))
+        lay.addLayout(self._page_header("Backend Sync", "Optional backend sync sozlamalari"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1776,6 +1845,76 @@ class SettingsPage(QWidget):
         days_row.addStretch()
         g.addLayout(days_row)
 
+        self._cleanup_files_check = QCheckBox("Eski image fayllarni ham avtomatik tozalash")
+        g.addWidget(self._cleanup_files_check)
+
+        lay.addWidget(card)
+        lay.addStretch()
+        return page
+
+    def _make_performance_page(self) -> QWidget:
+        page, lay = self._scroll_page()
+        lay.addLayout(self._page_header("Performance", "Kamera va AI inference yuklamasi"))
+
+        card = self._panel()
+        g = QVBoxLayout(card)
+        g.setContentsMargins(18, 16, 18, 16)
+        g.setSpacing(12)
+
+        g.addWidget(self._form_label("Video FPS limit:"))
+        self._video_fps_spin = QSpinBox()
+        self._video_fps_spin.setRange(1, 60)
+        self._video_fps_spin.setFixedWidth(80)
+        g.addWidget(self._video_fps_spin)
+
+        g.addWidget(self._form_label("AI FPS limit (kamera boshiga):"))
+        self._perf_ai_fps_spin = QSpinBox()
+        self._perf_ai_fps_spin.setRange(1, 30)
+        self._perf_ai_fps_spin.setFixedWidth(80)
+        g.addWidget(self._perf_ai_fps_spin)
+
+        g.addWidget(self._form_label("Inference batch size:"))
+        self._batch_spin = QSpinBox()
+        self._batch_spin.setRange(1, 8)
+        self._batch_spin.setFixedWidth(80)
+        g.addWidget(self._batch_spin)
+
+        g.addWidget(self._form_label("Cameras per model:"))
+        self._cams_per_model_spin = QSpinBox()
+        self._cams_per_model_spin.setRange(1, 8)
+        self._cams_per_model_spin.setFixedWidth(80)
+        g.addWidget(self._cams_per_model_spin)
+
+        g.addWidget(self._form_label("Violation save queue size:"))
+        self._queue_size_spin = QSpinBox()
+        self._queue_size_spin.setRange(8, 512)
+        self._queue_size_spin.setFixedWidth(90)
+        g.addWidget(self._queue_size_spin)
+
+        lay.addWidget(card)
+        lay.addStretch()
+        return page
+
+    def _make_diagnostics_page(self) -> QWidget:
+        page, lay = self._scroll_page()
+        lay.addLayout(self._page_header("Diagnostics", "Startup checklar va production signal"))
+
+        card = self._panel()
+        g = QVBoxLayout(card)
+        g.setContentsMargins(18, 16, 18, 16)
+        g.setSpacing(12)
+
+        self._diag_summary = QLabel("")
+        self._diag_summary.setWordWrap(True)
+        self._diag_summary.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px;")
+        g.addWidget(self._diag_summary)
+
+        refresh = QPushButton("Diagnostics yangilash")
+        refresh.setFixedHeight(36)
+        refresh.setStyleSheet(self._secondary_btn_style())
+        refresh.clicked.connect(self._refresh_diagnostics)
+        g.addWidget(refresh)
+
         lay.addWidget(card)
         lay.addStretch()
         return page
@@ -1811,6 +1950,9 @@ class SettingsPage(QWidget):
         self._half_check.setChecked(bool(c.get("half_precision", True)))
         self._proc_n_spin.setValue(int(c.get("process_every_n", 1)))
         self._ai_fps_spin.setValue(int(c.get("ai_fps_limit", 5)))
+        self._faceid_enabled.setChecked(bool(c.get("faceid_enabled", False)))
+        self._access_roster_enabled.setChecked(bool(c.get("access_roster_enabled", False)))
+        self._faceid_threshold.setValue(float(c.get("faceid_threshold", 0.72)))
 
         self._tg_enabled.setChecked(bool(c.get("telegram_enabled", True)))
         self._tg_token.setText(c.get("telegram_token", ""))
@@ -1824,6 +1966,13 @@ class SettingsPage(QWidget):
         self._save_check.setChecked(bool(c.get("save_violations", True)))
         self._viol_dir_edit.setText(str(c.get("violations_dir", "")))
         self._keep_days_spin.setValue(int(c.get("keep_files_days", 7)))
+        self._cleanup_files_check.setChecked(bool(c.get("cleanup_files", False)))
+        self._video_fps_spin.setValue(int(c.get("video_fps_limit", 25)))
+        self._perf_ai_fps_spin.setValue(int(c.get("ai_fps_limit", 10)))
+        self._batch_spin.setValue(int(c.get("inference_batch_size", 3)))
+        self._cams_per_model_spin.setValue(int(c.get("cameras_per_model", 3)))
+        self._queue_size_spin.setValue(int(c.get("violation_save_queue_size", 64)))
+        self._refresh_diagnostics()
 
     def _save(self):
         ids_raw  = self._tg_chat_ids.text()
@@ -1837,7 +1986,10 @@ class SettingsPage(QWidget):
             "use_gpu":           self._gpu_check.isChecked(),
             "half_precision":    self._half_check.isChecked(),
             "process_every_n":   self._proc_n_spin.value(),
-            "ai_fps_limit":      self._ai_fps_spin.value(),
+            "ai_fps_limit":      self._perf_ai_fps_spin.value(),
+            "faceid_enabled":    self._faceid_enabled.isChecked(),
+            "access_roster_enabled": self._access_roster_enabled.isChecked(),
+            "faceid_threshold":  self._faceid_threshold.value(),
             "telegram_enabled":  self._tg_enabled.isChecked(),
             "telegram_token":    self._tg_token.text().strip(),
             "telegram_chat_ids": chat_ids,
@@ -1848,6 +2000,11 @@ class SettingsPage(QWidget):
             "save_violations":   self._save_check.isChecked(),
             "violations_dir":    self._viol_dir_edit.text().strip(),
             "keep_files_days":   self._keep_days_spin.value(),
+            "cleanup_files":     self._cleanup_files_check.isChecked(),
+            "video_fps_limit":   self._video_fps_spin.value(),
+            "inference_batch_size": self._batch_spin.value(),
+            "cameras_per_model": self._cams_per_model_spin.value(),
+            "violation_save_queue_size": self._queue_size_spin.value(),
         })
         self.cfg.save()
         if hasattr(self, "_restart_indicator"):
@@ -1874,7 +2031,7 @@ class SettingsPage(QWidget):
             self._viol_dir_edit.setText(path)
 
     def _test_model(self):
-        self._test_model_result.setText("Tekshirilmoqda...")
+        self._test_model_result.setText("Model yuklanishi tekshirilmoqda...")
         self._test_model_result.setStyleSheet(f"color: {C('text_muted')};")
         t = _TestThread("model", {"path": self._model_edit.text().strip()})
         t.result.connect(self._on_model_test_result)
@@ -1903,6 +2060,26 @@ class SettingsPage(QWidget):
         color = C("success") if ok else C("danger")
         self._tg_result.setText(("✓ " if ok else "✗ ") + msg)
         self._tg_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+
+
+    def _refresh_diagnostics(self):
+        if not hasattr(self, "_diag_summary"):
+            return
+        cameras = self.cfg.get_cameras()
+        users = self.cfg.get_users()
+        active_users = [u for u in users if u.get("active", True)]
+        photo_users = [
+            u for u in active_users
+            if u.get("photo_path") and Path(u.get("photo_path")).exists()
+        ]
+        lines = [
+            f"Kameralar: {len(cameras)} total / {len(self.cfg.get_enabled_cameras())} enabled",
+            f"Employees: {len(active_users)} active / {len(photo_users)} with valid photos",
+            f"AI: {'enabled' if self.cfg.get('ai_model_enabled', False) else 'disabled'} | imgsz {self.cfg.get('yolo_imgsz', 640)}",
+            f"FaceID: {'enabled' if self.cfg.get('faceid_enabled', False) else 'disabled'} | access roster {'on' if self.cfg.get('access_roster_enabled', False) else 'off'}",
+            f"Notifications: Telegram {'on' if self.cfg.get('telegram_enabled', False) else 'off'}, Backend {'on' if self.cfg.get('backend_enabled', False) else 'off'}",
+        ]
+        self._diag_summary.setText("\n".join(lines))
 
 
 # Backwards-compat alias

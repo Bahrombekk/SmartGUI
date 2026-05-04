@@ -24,7 +24,11 @@
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/201",
       "company_id": "www",
       "department_id": 1,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 1,
@@ -32,7 +36,11 @@
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/301",
       "company_id": "wq",
       "department_id": 2,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 2,
@@ -40,7 +48,11 @@
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/501",
       "company_id": "1",
       "department_id": 2,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 4,
@@ -48,7 +60,11 @@
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/601",
       "company_id": "2",
       "department_id": 2,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 5,
@@ -56,7 +72,11 @@
       "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/201",
       "company_id": "1",
       "department_id": 1,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 6,
@@ -64,7 +84,11 @@
       "rtsp_url": "0",
       "company_id": "1",
       "department_id": 1,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 7,
@@ -72,7 +96,11 @@
       "rtsp_url": "01",
       "company_id": "1",
       "department_id": 1,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 8,
@@ -80,7 +108,11 @@
       "rtsp_url": "0000",
       "company_id": "1",
       "department_id": 3,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     },
     {
       "id": 9,
@@ -88,7 +120,11 @@
       "rtsp_url": "0258",
       "company_id": "2",
       "department_id": 3,
-      "enabled": true
+      "enabled": true,
+      "access_mode": "department",
+      "allowed_department_ids": [],
+      "allowed_employee_ids": [],
+      "polygon_points": []
     }
   ],
   "users": [
@@ -98,7 +134,8 @@
       "last_name": "Vali",
       "employee_id": "002",
       "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
-      "department_id": 2
+      "department_id": 2,
+      "active": true
     },
     {
       "id": 3,
@@ -106,7 +143,8 @@
       "last_name": "Ali",
       "employee_id": "003",
       "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
-      "department_id": 1
+      "department_id": 1,
+      "active": true
     },
     {
       "id": 4,
@@ -114,7 +152,8 @@
       "last_name": "A2",
       "employee_id": "004",
       "photo_path": "C:/Users/User/Downloads/Telegram Desktop/11.jpg",
-      "department_id": 1
+      "department_id": 1,
+      "active": true
     }
   ],
   "reconnect_delay": 3,
@@ -132,6 +171,12 @@
   "confirmation_window": 10,
   "confirmation_threshold": 10,
   "violation_cooldown": 10,
+  "helmet_class_ids": [
+    0
+  ],
+  "no_helmet_class_ids": [
+    1
+  ],
   "telegram_enabled": false,
   "telegram_token": "",
   "telegram_chat_ids": [],
@@ -142,6 +187,10 @@
   "save_violations": true,
   "violations_dir": "",
   "keep_files_days": 7,
+  "cleanup_files": false,
+  "faceid_enabled": true,
+  "faceid_threshold": 0.72,
+  "access_roster_enabled": true,
   "use_polygon": false,
   "polygon_points": [],
   "theme": "dark",
@@ -149,10 +198,14 @@
   "display_max_width": 960,
   "video_fps_limit": 25,
   "ai_fps_limit": 25,
+  "inference_batch_size": 3,
+  "cameras_per_model": 3,
+  "violation_save_queue_size": 64,
   "show_fps": true,
   "show_stats": true,
   "tracker_config": "",
   "rtsp_url": "rtsp://admin:password@192.168.1.100:554/Streaming/Channels/101",
   "camera_name": "Kamera 1",
-  "company_id": ""
+  "company_id": "",
+  "cameras_grid_columns": 6
 }

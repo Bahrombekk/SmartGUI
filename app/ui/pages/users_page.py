@@ -1,5 +1,5 @@
 """
-UsersPage - hodimlar ro'yxati va bo'limlar bo'yicha ko'rinish.
+Employees page - hodimlar ro'yxati, FaceID rasmlari va bo'limlar bo'yicha ko'rinish.
 """
 
 from pathlib import Path
@@ -90,13 +90,21 @@ class UserCard(QFrame):
         name.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 700;")
         info.addWidget(name)
 
-        emp_id = QLabel(f"ID: {user.get('employee_id', '')}")
+        active = bool(user.get("active", True))
+        emp_id = QLabel(f"ID: {user.get('employee_id', '')}  |  {'Active' if active else 'Inactive'}")
         emp_id.setStyleSheet("color: #fb923c; font-size: 12px; font-weight: 600;")
         info.addWidget(emp_id)
 
         dep = QLabel(department_name or "Bo'limsiz")
         dep.setStyleSheet("color: #94a3b8; font-size: 12px;")
         info.addWidget(dep)
+        face_status = "FaceID photo ready" if user.get("photo_path") and Path(user.get("photo_path")).exists() else "FaceID photo missing"
+        face = QLabel(face_status)
+        face.setStyleSheet(
+            "color: #34d399; font-size: 11px;" if "ready" in face_status
+            else "color: #fbbf24; font-size: 11px;"
+        )
+        info.addWidget(face)
         info.addStretch()
         lay.addLayout(info, 1)
 
@@ -139,7 +147,7 @@ class UsersPage(QWidget):
         header = QHBoxLayout()
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
-        title = QLabel("Users")
+        title = QLabel("Employees")
         title.setStyleSheet("color: #ffffff; font-size: 20px; font-weight: 800;")
         title_col.addWidget(title)
         subtitle = QLabel("Hodimlar rasmlari, ID raqamlari va bo'limlar bo'yicha ro'yxat")
@@ -148,7 +156,7 @@ class UsersPage(QWidget):
         header.addLayout(title_col)
         header.addStretch()
 
-        self._total_badge = QLabel("0 users")
+        self._total_badge = QLabel("0 employees")
         self._total_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._total_badge.setFixedHeight(32)
         self._total_badge.setStyleSheet(
@@ -186,7 +194,7 @@ class UsersPage(QWidget):
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(10)
 
-        title = QLabel("Add Employee")
+        title = QLabel("Add Employee / FaceID")
         title.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 800;")
         lay.addWidget(title)
 
@@ -222,7 +230,7 @@ class UsersPage(QWidget):
         add_btn.clicked.connect(self._add_user)
         lay.addWidget(add_btn)
 
-        self._search = self._input("Search users...")
+        self._search = self._input("Search employees...")
         self._search.textChanged.connect(self.set_search_text)
         lay.addWidget(self._search)
 
@@ -331,7 +339,7 @@ class UsersPage(QWidget):
             ]
         if self._dept_filter_value != "all":
             users = [user for user in users if user.get("department_id") == self._dept_filter_value]
-        self._total_badge.setText(f"{len(users)} users")
+        self._total_badge.setText(f"{len(users)} employees")
 
         dep_map = {dep_id: name for dep_id, name in self._dept_combo_items}
         for dep_id, dep_name in self._dept_combo_items:
