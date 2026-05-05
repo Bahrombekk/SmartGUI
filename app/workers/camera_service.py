@@ -189,6 +189,8 @@ class DetectorGroup(threading.Thread):
                     "imgsz": self.imgsz,
                     "verbose": False,
                     "max_det": 50,
+                    "save": False,
+                    "save_txt": False,
                 }
                 if not self._is_engine:
                     kwargs["device"] = self.device

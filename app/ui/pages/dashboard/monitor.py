@@ -26,8 +26,8 @@ class DashboardMonitorMixin:
         monitor_panel.setObjectName("monitorPanel")
         monitor_panel.setStyleSheet(
             "QFrame#monitorPanel {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
-            "border: 1px solid #1e293b;"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c1520,stop:1 #07101a);"
+            "border: 2px solid #1e5fa8;"
             "border-radius: 12px;"
             "}"
         )
@@ -164,7 +164,7 @@ class DashboardMonitorMixin:
         self._cam_container.setStyleSheet("background: transparent;")
         self._cam_container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._cam_grid = QGridLayout(self._cam_container)
-        self._cam_grid.setSpacing(10)
+        self._cam_grid.setSpacing(6)
         self._cam_grid.setContentsMargins(0, 0, 0, 0)
 
         scroll.setWidget(self._cam_container)

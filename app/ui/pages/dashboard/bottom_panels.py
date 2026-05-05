@@ -36,8 +36,8 @@ class DashboardBottomPanelsMixin:
         ]:
             card = QFrame()
             card.setStyleSheet(
-                "QFrame { background: rgba(15,23,42,0.62);"
-                "border: 1px solid rgba(148,163,184,0.10); border-radius: 8px; }"
+                "QFrame { background: #0e1d2e;"
+                "border: 1px solid #1e5fa8; border-radius: 8px; }"
             )
             col = QVBoxLayout(card)
             col.setContentsMargins(8, 7, 8, 7)
@@ -75,8 +75,8 @@ class DashboardBottomPanelsMixin:
         # Recognition Rate
         rr = QFrame()
         rr.setStyleSheet(
-            "QFrame { background: rgba(15,23,42,0.50);"
-            "border: 1px solid rgba(148,163,184,0.10); border-radius: 8px; }"
+            "QFrame { background: #0e1d2e;"
+            "border: 1px solid #1e5fa8; border-radius: 8px; }"
         )
         rr_lay = QVBoxLayout(rr)
         rr_lay.setContentsMargins(10, 8, 10, 8)
@@ -119,7 +119,7 @@ class DashboardBottomPanelsMixin:
         accent = "#ef4444" if red else "#2dd4bf"
         bg = "rgba(239,68,68,0.08)" if red else "rgba(45,212,191,0.07)"
         w.setStyleSheet(
-            f"QFrame {{ background: {bg}; border: 1px solid rgba(148,163,184,0.12); border-radius: 8px; }}"
+            f"QFrame {{ background: {bg}; border: 1px solid #1e5fa8; border-radius: 8px; }}"
         )
         lay = QVBoxLayout(w)
         lay.setContentsMargins(10, 8, 10, 8)
@@ -499,8 +499,8 @@ class DashboardBottomPanelsMixin:
         row.setStyleSheet(
             "QFrame {"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 rgba(15,23,42,0.74), stop:1 rgba(17,24,39,0.48));"
-            "border: 1px solid rgba(148,163,184,0.12);"
+            "stop:0 #0e1d2e, stop:1 #0a1520);"
+            "border: 1px solid #1e5fa8;"
             "border-radius: 8px;"
             "}"
         )
@@ -620,8 +620,8 @@ class DashboardBottomPanelsMixin:
     def _event_row(self, v: dict) -> QWidget:
         w = QWidget()
         w.setStyleSheet(
-            "background: rgba(15,23,42,0.46);"
-            "border: 1px solid rgba(148,163,184,0.08);"
+            "background: #0e1d2e;"
+            "border: 1px solid #1e5fa8;"
             "border-radius: 8px;"
         )
         w.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -718,10 +718,10 @@ class DashboardBottomPanelsMixin:
         crop.setFixedSize(58, 58)
         crop.setAlignment(Qt.AlignmentFlag.AlignCenter)
         crop.setStyleSheet(
-            "background: rgba(15,23,42,0.72);"
-            "border: 1px solid rgba(148,163,184,0.12);"
+            "background: #0a1520;"
+            "border: 1px solid #1e5fa8;"
             "border-radius: 8px;"
-            "color: #94a3b8; font-size: 9px; font-weight: 800;"
+            "color: #60a5fa; font-size: 9px; font-weight: 800;"
         )
         crop_path = str(v.get("crop_path", "") or "")
         if crop_path and os.path.exists(crop_path):
@@ -785,8 +785,8 @@ class DashboardBottomPanelsMixin:
         w = QWidget()
         w.setFixedHeight(58)
         w.setStyleSheet(
-            "background: rgba(15,23,42,0.58);"
-            "border: 1px solid rgba(148,163,184,0.09);"
+            "background: #0e1d2e;"
+            "border: 1px solid #1e5fa8;"
             "border-radius: 8px;"
         )
         w.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -794,14 +794,13 @@ class DashboardBottomPanelsMixin:
         lay.setContentsMargins(10, 0, 10, 0)
         lay.setSpacing(10)
 
-        # Avatar placeholder
-        avatar = QLabel("👤")
-        avatar.setText("ID")
-        avatar.setFixedSize(38, 38)
+        # Avatar
+        avatar = QLabel("ID")
+        avatar.setFixedSize(40, 40)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         avatar.setStyleSheet(
-            "background: rgba(249,115,22,0.10); border-radius: 8px; font-size: 10px;"
-            "font-weight: 900; color: #fdba74; border: 1px solid rgba(249,115,22,0.18);"
+            "background: rgba(249,115,22,0.14); border-radius: 8px; font-size: 10px;"
+            "font-weight: 900; color: #fb923c; border: 1px solid rgba(249,115,22,0.50);"
         )
         crop_path = str(v.get("crop_path", "") or "")
         if crop_path and os.path.exists(crop_path):
@@ -817,30 +816,39 @@ class DashboardBottomPanelsMixin:
         lay.addWidget(avatar)
 
         info = QVBoxLayout()
-        info.setSpacing(2)
+        info.setSpacing(3)
 
         person_id = v.get("track_id", v.get("person_id", "—"))
         id_str = f"ID: {person_id:04d}" if isinstance(person_id, int) else f"ID: {person_id}"
         id_lbl = QLabel(id_str)
         id_lbl.setStyleSheet(
-            "color: #fb923c; font-size: 12px; font-weight: bold; background: transparent;"
+            "color: #fb923c; font-size: 12px; font-weight: 800; background: transparent;"
         )
         info.addWidget(id_lbl)
 
         cam_name = v.get("camera_name", v.get("camera_id", ""))
         name_lbl = QLabel(str(cam_name) if cam_name else "Unknown")
         name_lbl.setStyleSheet(
-            "color: #e2e8f0; font-size: 11px; background: transparent;"
+            "color: #93c5fd; font-size: 11px; font-weight: 600; background: transparent;"
         )
         info.addWidget(name_lbl)
         lay.addLayout(info, 1)
 
-        status_lbl = QLabel("OK Helmet" if has_helmet else "! No Helmet")
-        status_lbl.setStyleSheet(
-            self._soft_status_style(
-                "#34d399" if has_helmet else "#ef4444",
-                "rgba(52,211,153,0.10)" if has_helmet else "rgba(239,68,68,0.10)",
+        if has_helmet:
+            status_lbl = QLabel("✓ Helmet")
+            status_lbl.setStyleSheet(
+                "color: #34d399; background: rgba(52,211,153,0.12);"
+                "border: 1px solid rgba(52,211,153,0.55);"
+                "border-radius: 7px; padding: 4px 10px;"
+                "font-size: 10px; font-weight: 800;"
             )
-        )
+        else:
+            status_lbl = QLabel("! No Helmet")
+            status_lbl.setStyleSheet(
+                "color: #f87171; background: rgba(239,68,68,0.15);"
+                "border: 1px solid rgba(239,68,68,0.60);"
+                "border-radius: 7px; padding: 4px 10px;"
+                "font-size: 10px; font-weight: 800;"
+            )
         lay.addWidget(status_lbl)
         return w

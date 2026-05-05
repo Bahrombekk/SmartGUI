@@ -55,12 +55,11 @@ class EvidenceImage(QLabel):
         return Path.cwd() / p
 
     def _apply(self, pix: QPixmap):
-        mode = Qt.AspectRatioMode.KeepAspectRatioByExpanding if self._expand else Qt.AspectRatioMode.KeepAspectRatio
         self.setPixmap(
             pix.scaled(
                 self._target_size[0],
                 self._target_size[1],
-                mode,
+                Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
         )

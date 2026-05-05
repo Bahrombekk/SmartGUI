@@ -1,15 +1,12 @@
 """
 Dashboard — CameraPanel widget.
-SmartHelmet dizayniga mos: header (status + nom) + video + footer (vaqt + fps).
 """
 
-import datetime
 import numpy as np
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QFrame, QSizePolicy)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QFont, QPen
 
 from app.ui.theme import C
 from app.ui.widgets.video_label import VideoLabel
@@ -17,12 +14,6 @@ from app.ui.widgets.video_label import VideoLabel
 
 class CameraPanel(QFrame):
     clicked = pyqtSignal(int)
-    """
-    Bitta kamera uchun widget:
-      ┌─ header: status dot | #NN CamName  |  ● REC / Live / Offline ──┐
-      │  VideoLabel                                                      │
-      └─ footer: 10:20:58  ───────────────────────── 30 fps  2 kishi ──┘
-    """
 
     def __init__(self, cam_id: int, cam_name: str, rtsp_url: str,
                  company_id: str, parent=None):
@@ -38,36 +29,28 @@ class CameraPanel(QFrame):
 
         self.setProperty("cam_panel", True)
         self.setMinimumSize(260, 180)
-        self.setStyleSheet(
-            "QFrame[cam_panel='true'] {"
-            "background: #000000;"
-            "border: none;"
-            "border-radius: 10px;"
-            "}"
-        )
+        self._apply_panel_style(False)
 
         self._pulse_timer = QTimer(self)
-        self._pulse_timer.setInterval(900)
+        self._pulse_timer.setInterval(800)
         self._pulse_timer.timeout.connect(self._pulse_dot)
-
-        self._clock_timer = QTimer(self)
-        self._clock_timer.setInterval(1000)
-        self._clock_timer.timeout.connect(self._update_clock)
-        self._clock_timer.start()
 
         self._setup_ui()
 
-    def set_selected(self, selected: bool):
-        self._selected = selected
-        border = C("accent") if selected else "#1e293b"
-        ring = "rgba(249,115,22,0.25)" if selected else "#000000"
+    def _apply_panel_style(self, selected: bool):
+        border = C("accent") if selected else "#1e5fa8"
+        bg     = "rgba(249,115,22,0.10)" if selected else "#060e18"
         self.setStyleSheet(
             "QFrame[cam_panel='true'] {"
-            f"background: {ring};"
+            f"background: {bg};"
             f"border: 2px solid {border};"
             "border-radius: 10px;"
             "}"
         )
+
+    def set_selected(self, selected: bool):
+        self._selected = selected
+        self._apply_panel_style(selected)
 
     # ── UI ────────────────────────────────────────────────────────────────
 
@@ -81,44 +64,50 @@ class CameraPanel(QFrame):
 
     def _build_header(self) -> QWidget:
         hdr = QWidget()
-        hdr.setFixedHeight(36)
+        hdr.setFixedHeight(38)
         hdr.setStyleSheet(
-            "background: rgba(7,16,22,0.92);"
-            "border-radius: 10px 10px 0 0;"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #091828, stop:1 #071016);"
+            "border-radius: 9px 9px 0 0;"
         )
         lay = QHBoxLayout(hdr)
         lay.setContentsMargins(10, 0, 10, 0)
-        lay.setSpacing(6)
+        lay.setSpacing(8)
 
-        # Status dot
+        # Pulsing status dot
         self._dot = QLabel("●")
-        self._dot.setText("o")
-        self._dot.setFixedWidth(14)
+        self._dot.setFixedSize(18, 18)
+        self._dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dot.setStyleSheet(
-            f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
+            "color: #fbbf24; font-size: 13px; background: transparent;"
         )
         lay.addWidget(self._dot)
 
-        # Camera number
-        num = QLabel(f"{self.cam_id:02d}")
-        num.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 11px; font-weight: bold;"
-            " background: transparent;"
+        # Camera ID pill
+        id_pill = QLabel(f"{self.cam_id:02d}")
+        id_pill.setFixedSize(30, 20)
+        id_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        id_pill.setStyleSheet(
+            "background: rgba(30,95,168,0.40);"
+            "color: #93c5fd;"
+            "border: 1px solid rgba(30,95,168,0.70);"
+            "border-radius: 5px;"
+            "font-size: 10px; font-weight: 800;"
         )
-        lay.addWidget(num)
+        lay.addWidget(id_pill)
 
         # Camera name
-        name = QLabel(self.cam_name)
-        name.setStyleSheet(
-            f"color: {C('text_primary')}; font-size: 11px; font-weight: 600;"
+        name_lbl = QLabel(self.cam_name)
+        name_lbl.setStyleSheet(
+            "color: #e8f4ff; font-size: 12px; font-weight: 700;"
             " background: transparent;"
         )
-        lay.addWidget(name, 1)
+        lay.addWidget(name_lbl, 1)
 
-        # Status badge
+        # Status badge (LIVE / OFFLINE / connecting)
         self._badge = QLabel("Ulanmoqda")
         self._badge.setStyleSheet(
-            f"color: {C('warning')}; font-size: 10px; font-weight: bold;"
+            "color: #fbbf24; font-size: 10px; font-weight: 800;"
             " background: transparent;"
         )
         lay.addWidget(self._badge)
@@ -136,87 +125,108 @@ class CameraPanel(QFrame):
 
     def _build_footer(self) -> QWidget:
         ftr = QWidget()
-        ftr.setFixedHeight(26)
+        ftr.setFixedHeight(28)
         ftr.setStyleSheet(
-            "background: rgba(7,16,22,0.92);"
-            "border-radius: 0 0 10px 10px;"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #091828, stop:1 #071016);"
+            "border-radius: 0 0 9px 9px;"
         )
         lay = QHBoxLayout(ftr)
-        lay.setContentsMargins(10, 0, 10, 0)
-        lay.setSpacing(8)
+        lay.setContentsMargins(12, 0, 12, 0)
+        lay.setSpacing(0)
 
-        self._time_lbl = QLabel("--:--:--")
-        self._time_lbl.setStyleSheet(
-            "color: #dce5ef; font-size: 10px; background: rgba(0,0,0,0.55);"
-            "border-radius: 4px; padding: 2px 6px;"
-        )
-        lay.addWidget(self._time_lbl)
-        lay.addStretch()
-
+        # FPS — left
         self._fps_lbl = QLabel("-- fps")
         self._fps_lbl.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            "color: #60a5fa; font-size: 10px; font-weight: 700;"
+            " background: transparent;"
         )
         lay.addWidget(self._fps_lbl)
 
-        lay.addWidget(self._vsep())
+        lay.addStretch()
+
+        # Person count — right with icon dot
+        self._persons_dot = QLabel("●")
+        self._persons_dot.setStyleSheet(
+            "color: #475569; font-size: 7px; background: transparent;"
+        )
+        lay.addWidget(self._persons_dot)
+
+        lay.addSpacing(4)
 
         self._persons_lbl = QLabel("0 kishi")
         self._persons_lbl.setStyleSheet(
-            f"color: {C('text_secondary')}; font-size: 10px; background: transparent;"
+            "color: #94a3b8; font-size: 10px; font-weight: 700;"
+            " background: transparent;"
         )
         lay.addWidget(self._persons_lbl)
 
         return ftr
-
-    @staticmethod
-    def _vsep() -> QLabel:
-        s = QLabel("|")
-        s.setStyleSheet(f"color: {C('border')}; font-size: 11px; background: transparent;")
-        return s
 
     # ── Pulsing dot ───────────────────────────────────────────────────────
 
     def _pulse_dot(self):
         self._pulse_on = not self._pulse_on
         if self._connected:
-            col = C('success') if self._pulse_on else "#1a5a28"
+            col = "#22c55e" if self._pulse_on else "#14532d"
             self._dot.setStyleSheet(
-                f"color: {col}; font-size: 9px; background: transparent;"
+                f"color: {col}; font-size: 13px; background: transparent;"
             )
 
-    # ── Tashqi yangilanishlar ─────────────────────────────────────────────
-
-    def _update_clock(self):
-        self._time_lbl.setText(datetime.datetime.now().strftime("%H:%M:%S"))
+    # ── External updates ──────────────────────────────────────────────────
 
     def set_frame(self, frame):
         self._video.set_frame(frame)
 
     def set_stats(self, fps: float, persons: int, today: int, connected: bool):
         self._fps_lbl.setText(f"{fps:.0f} fps")
-        self._persons_lbl.setText(f"{persons} kishi")
+
+        if persons > 0:
+            self._persons_lbl.setText(f"{persons} kishi")
+            self._persons_lbl.setStyleSheet(
+                "color: #34d399; font-size: 10px; font-weight: 700; background: transparent;"
+            )
+            self._persons_dot.setStyleSheet(
+                "color: #34d399; font-size: 7px; background: transparent;"
+            )
+        else:
+            self._persons_lbl.setText("0 kishi")
+            self._persons_lbl.setStyleSheet(
+                "color: #475569; font-size: 10px; font-weight: 700; background: transparent;"
+            )
+            self._persons_dot.setStyleSheet(
+                "color: #334155; font-size: 7px; background: transparent;"
+            )
 
         self._connected = connected
         if connected:
             if not self._pulse_timer.isActive():
                 self._pulse_timer.start()
             self._dot.setStyleSheet(
-                f"color: {C('success')}; font-size: 9px; background: transparent;"
+                "color: #22c55e; font-size: 13px; background: transparent;"
             )
+            self._badge.setText("● LIVE")
             self._badge.setStyleSheet(
-                f"color: {C('danger')}; font-size: 10px; font-weight: bold;"
-                " background: transparent;"
+                "color: #ef4444; font-size: 10px; font-weight: 900;"
+                " background: rgba(239,68,68,0.12);"
+                " border: 1px solid rgba(239,68,68,0.30);"
+                " border-radius: 5px; padding: 0 6px;"
             )
-            self._badge.setText("Live")
+            self._fps_lbl.setStyleSheet(
+                "color: #60a5fa; font-size: 10px; font-weight: 700; background: transparent;"
+            )
         else:
             self._pulse_timer.stop()
             self._dot.setStyleSheet(
-                f"color: {C('cam_idle')}; font-size: 9px; background: transparent;"
+                "color: #374151; font-size: 13px; background: transparent;"
             )
             self._badge.setText("Offline")
             self._badge.setStyleSheet(
-                f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+                "color: #64748b; font-size: 10px; font-weight: 800;"
+                " background: transparent;"
+            )
+            self._fps_lbl.setStyleSheet(
+                "color: #334155; font-size: 10px; font-weight: 700; background: transparent;"
             )
             if not self._video._has_frame:
                 self._video.show_error()
@@ -226,21 +236,21 @@ class CameraPanel(QFrame):
         self._pulse_timer.stop()
         self._connected = False
         self._dot.setStyleSheet(
-            f"color: {C('danger')}; font-size: 9px; background: transparent;"
+            "color: #ef4444; font-size: 13px; background: transparent;"
         )
         self._badge.setText("Offline")
         self._badge.setStyleSheet(
-            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
+            "color: #64748b; font-size: 10px; font-weight: 800; background: transparent;"
         )
 
     def set_model_loading(self):
         self._video.show_connecting()
         self._dot.setStyleSheet(
-            f"color: {C('warning')}; font-size: 9px; background: transparent;"
+            "color: #fbbf24; font-size: 13px; background: transparent;"
         )
         self._badge.setText("Yuklanmoqda")
         self._badge.setStyleSheet(
-            f"color: {C('warning')}; font-size: 10px; background: transparent;"
+            "color: #fbbf24; font-size: 10px; font-weight: 800; background: transparent;"
         )
 
     def mousePressEvent(self, event):

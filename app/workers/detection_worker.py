@@ -20,7 +20,7 @@ from PyQt6.QtGui import QImage
 
 from app.application.services.violation_service import ViolationService
 from app.application.services.faceid_service import FaceIdService
-from app.domain.policies import AccessPolicy, HelmetPolicy
+from app.domain.policies import AccessPolicy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.infrastructure.camera.cv2_rtsp_reader import CV2RTSPReader
 from app.workers.camera_service import svc_acquire, svc_register, svc_unregister
@@ -58,10 +58,6 @@ class DetectionWorker(QThread):
         self.cfg = config_manager
         self.db  = db
         self.violation_service = ViolationService(db)
-        self.helmet_policy = HelmetPolicy(
-            helmet_class_ids=set(int(x) for x in self.cfg.get("helmet_class_ids", [0])),
-            no_helmet_class_ids=set(int(x) for x in self.cfg.get("no_helmet_class_ids", [1])),
-        )
         self.access_policy = AccessPolicy()
         self.faceid_service: FaceIdService | None = None
 
@@ -74,9 +70,16 @@ class DetectionWorker(QThread):
         self._cam_id: int = id(self)   # unique per worker
 
         # Tracker
-        self._tracker = IoUTracker(iou_thresh=0.25, max_age=80)
+        self._tracker = IoUTracker(iou_thresh=0.15, max_age=150)
         self._last_persons: list[dict] = []
         self._last_result_ts: float | None = None  # oxirgi qayta ishlangan result
+
+        # Class separation config (class 0 = person, 1 = green inner, 2 = red inner)
+        self._person_class_id = int(self.cfg.get("person_class_id", 0))
+        self._green_class_ids = set(int(x) for x in self.cfg.get("helmet_class_ids", [1]))
+        self._red_class_ids   = set(int(x) for x in self.cfg.get("no_helmet_class_ids", [2]))
+        self._box_pad         = int(self.cfg.get("class0_box_pad", 50))
+        self._track_statuses: dict[int, str] = {}  # track_id -> "green"|"red"|"yellow"
 
         # FPS
         self._frame_count   = 0
@@ -163,8 +166,60 @@ class DetectionWorker(QThread):
 
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 
-    def _classify_person(self, person: dict) -> dict:
-        return self.helmet_policy.classify(person)
+    def _process_detections(self, detections: list[dict]) -> list[dict]:
+        """
+        Faqat class 0 ni track qiladi.
+        Har bir class 0 box ichida class 1 (yashil) yoki class 2 (qizil) borligini
+        bir marta tekshiradi va natijani cache'da saqlaydi.
+        """
+        persons    = [d for d in detections if d.get("class_id") == self._person_class_id]
+        green_boxes = [d["box"] for d in detections if d.get("class_id") in self._green_class_ids]
+        red_boxes   = [d["box"] for d in detections if d.get("class_id") in self._red_class_ids]
+
+        tracked = self._tracker.update(persons)
+
+        active_ids = {p["track_id"] for p in tracked}
+        self._track_statuses = {
+            tid: s for tid, s in self._track_statuses.items() if tid in active_ids
+        }
+
+        for p in tracked:
+            tid    = p["track_id"]
+            cached = self._track_statuses.get(tid)
+            if cached in ("green", "red"):
+                p["has_helmet"] = (cached == "green")
+            else:
+                padded = self._pad_box(p["box"], self._box_pad)
+                status = self._inner_status(padded, green_boxes, red_boxes)
+                if status != "yellow":
+                    self._track_statuses[tid] = status
+                p["has_helmet"] = True if status == "green" else (False if status == "red" else None)
+
+        return tracked
+
+    @staticmethod
+    def _pad_box(box: list, pad: int) -> list:
+        return [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad]
+
+    def _inner_status(self, person_box: list, green_boxes: list, red_boxes: list) -> str:
+        for box in green_boxes:
+            if self._box_overlaps(person_box, box):
+                return "green"
+        for box in red_boxes:
+            if self._box_overlaps(person_box, box):
+                return "red"
+        return "yellow"
+
+    @staticmethod
+    def _box_overlaps(outer: list, inner: list, threshold: float = 0.3) -> bool:
+        """inner box ning kamida threshold qismi outer ichida bo'lsa True."""
+        x1 = max(outer[0], inner[0]); y1 = max(outer[1], inner[1])
+        x2 = min(outer[2], inner[2]); y2 = min(outer[3], inner[3])
+        if x2 <= x1 or y2 <= y1:
+            return False
+        inter = (x2 - x1) * (y2 - y1)
+        inner_area = max(1.0, (inner[2] - inner[0]) * (inner[3] - inner[1]))
+        return (inter / inner_area) >= threshold
 
     def _check_violations(self, persons: list[dict]) -> list[dict]:
         threshold  = int(self.cfg.get("confirmation_threshold", 10))
@@ -223,6 +278,22 @@ class DetectionWorker(QThread):
             return None
         return frame[y1:y2, x1:x2].copy()
 
+    @staticmethod
+    def _extrapolate_box(p: dict, t: float) -> dict:
+        """Box pozitsiyasini velocity asosida t detection-frame oldinga suradi."""
+        vx = p.get("vx", 0.0)
+        vy = p.get("vy", 0.0)
+        if abs(vx) < 0.3 and abs(vy) < 0.3:
+            return p
+        p = dict(p)
+        box = list(p.get("box", p.get("bbox_xyxy", [])))
+        if len(box) == 4:
+            dx, dy = vx * t, vy * t
+            box = [box[0]+dx, box[1]+dy, box[2]+dx, box[3]+dy]
+            p["box"] = box
+            p["bbox_xyxy"] = box
+        return p
+
     # ── Overlay chizish ───────────────────────────────────────────────────
 
     @staticmethod
@@ -230,23 +301,18 @@ class DetectionWorker(QThread):
         h, w = frame.shape[:2]
 
         for p in persons:
-            box     = p.get("box", p.get("bbox_xyxy", []))
-            tid     = p.get("track_id", -1)
-            has_hel = p.get("has_helmet")
+            box = p.get("box", p.get("bbox_xyxy", []))
             if len(box) < 4:
                 continue
             x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-
+            has_hel = p.get("has_helmet")
             if has_hel is True:
-                color = (0, 200, 0);   label = f"HELMET  ID:{tid}"
+                color = (0, 200, 0)    # yashil  — class 1 aniqlandi
             elif has_hel is False:
-                color = (0, 0, 220);   label = f"NO HELMET  ID:{tid}"
+                color = (0, 0, 220)    # qizil   — class 2 aniqlandi
             else:
-                color = (0, 140, 255); label = f"PERSON  ID:{tid}"
-
+                color = (0, 255, 255)  # sariq   — hech narsa aniqlanmadi
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            lsz = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)[0]
-            cv2.rectangle(frame, (x1, y1 - lsz[1] - 8), (x1 + lsz[0] + 4, y1), color, -1)
 
         cv2.rectangle(frame, (0, 0), (w, 36), (10, 14, 20), -1)
         cv2.rectangle(frame, (0, h - 32), (w, h), (10, 14, 20), -1)
@@ -480,9 +546,8 @@ class DetectionWorker(QThread):
 
                 if new_det:
                     self._last_result_ts = result.timestamp
-                    classified = [self._classify_person(dict(d)) for d in result.detections]
-                    persons    = self._tracker.update(classified)
-                    persons    = self._check_violations(persons)
+                    persons = self._process_detections(result.detections)
+                    persons = self._check_violations(persons)
                     self._last_persons = persons
 
                     violation_frame = result.raw_frame if result.raw_frame is not None else frame
@@ -494,6 +559,14 @@ class DetectionWorker(QThread):
                             self._handle_violation(violation_frame, p, access_type)
 
                 persons = self._last_persons
+
+                # AI result kelmaganida velocity bilan box pozitsiyasini oldinlash
+                if persons and self._last_result_ts is not None:
+                    elapsed = now - self._last_result_ts
+                    ai_fps  = max(1, int(self.cfg.get("ai_fps_limit", 10)))
+                    t = min(elapsed * ai_fps, 2.5)
+                    if t > 0.1:
+                        persons = [self._extrapolate_box(p, t) for p in persons]
 
                 # Display doim live framedan quriladi; raw_frame faqat violation
                 # saqlash uchun ishlatiladi.
@@ -546,6 +619,7 @@ class DetectionWorker(QThread):
                 self._reader.release()
 
         self._tracker.reset()
+        self._track_statuses.clear()
         self._stop_violation_writer()
         self.status_changed.emit("To'xtatildi")
 

@@ -20,7 +20,7 @@ class CameraTreeBranch(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(QPen(QColor("#2b3d52"), 1))
+        p.setPen(QPen(QColor("#1e5fa8"), 1))
         x = 16
         y_mid = self.height() // 2
         p.drawLine(x, 0, x, self.height())
@@ -238,8 +238,8 @@ class DashboardSidebarMixin:
         cam_panel.setObjectName("cameraSidebarPanel")
         cam_panel.setStyleSheet(
             "QFrame#cameraSidebarPanel {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);"
-            "border: 1px solid #1e293b;"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c1520,stop:1 #07101a);"
+            "border: 2px solid #1e5fa8;"
             "border-radius: 12px;"
             "}"
         )

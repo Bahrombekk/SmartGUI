@@ -58,8 +58,8 @@ DEFAULT_SETTINGS = {
     "confirmation_window": 10,
     "confirmation_threshold": 10,
     "violation_cooldown": 10,
-    "helmet_class_ids": [0],
-    "no_helmet_class_ids": [1],
+    "helmet_class_ids": [1],
+    "no_helmet_class_ids": [2],
 
     # Telegram
     "telegram_enabled": False,
@@ -129,6 +129,14 @@ class ConfigManager:
 
         self._migrate_cameras()
         self._migrate_users()
+        self._migrate_class_ids()
+
+    def _migrate_class_ids(self):
+        """Eski helmet_class_ids:[0]/no_helmet_class_ids:[1] → [1]/[2] ga ko'chirish."""
+        if self._settings.get("helmet_class_ids") == [0]:
+            self._settings["helmet_class_ids"] = [1]
+        if self._settings.get("no_helmet_class_ids") == [1]:
+            self._settings["no_helmet_class_ids"] = [2]
 
     def _migrate_cameras(self):
         """

@@ -11,8 +11,8 @@ class DashboardStylesMixin:
         return (
             f"QFrame#{name} {{"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            "stop:0 rgba(15,23,42,0.88), stop:1 rgba(7,16,22,0.96));"
-            "border: 1px solid rgba(148,163,184,0.14);"
+            "stop:0 #0c1520, stop:1 #07101a);"
+            "border: 1px solid #1e5fa8;"
             "border-radius: 8px;"
             "}"
         )
@@ -27,10 +27,10 @@ class DashboardStylesMixin:
     @staticmethod
     def _panel_meta_style() -> str:
         return (
-            "color: #94a3b8; font-size: 10px;"
-            "background: rgba(148,163,184,0.08);"
-            "border: 1px solid rgba(148,163,184,0.10);"
-            "border-radius: 8px; padding: 2px 7px;"
+            "color: #93c5fd; font-size: 10px; font-weight: 700;"
+            "background: rgba(30,95,168,0.18);"
+            "border: 1px solid rgba(30,95,168,0.60);"
+            "border-radius: 7px; padding: 2px 8px;"
         )
 
     @staticmethod
@@ -56,8 +56,8 @@ class DashboardStylesMixin:
     def _soft_status_style(color: str, bg: str) -> str:
         return (
             f"color: {color}; background: {bg};"
-            "border: 1px solid rgba(148,163,184,0.14);"
-            "border-radius: 8px; padding: 2px 7px;"
+            f"border: 1px solid {color};"
+            "border-radius: 7px; padding: 2px 8px;"
             "font-size: 10px; font-weight: 800;"
         )
 

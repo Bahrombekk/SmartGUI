@@ -8,8 +8,9 @@ BUG FIX: QImage(rgb.data, ...) — PyQt6 da numpy memoryview egnida qoladi
 
 import numpy as np
 from PyQt6.QtWidgets import QLabel, QSizePolicy
-from PyQt6.QtCore import Qt, QTimer, QRect
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QColor, QFont, QPen, QBrush
+from PyQt6.QtCore import Qt, QTimer, QRect, QRectF, QPointF
+from PyQt6.QtGui import (QPixmap, QImage, QPainter, QColor, QFont, QPen, QBrush,
+                          QRadialGradient)
 
 from app.ui.theme import C
 
@@ -64,33 +65,90 @@ class VideoLabel(QLabel):
             p = QPainter(self)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             w, h = self.width(), self.height()
+            cx, cy_mid = w / 2, h / 2
+
+            # Fon
             p.fillRect(0, 0, w, h, QColor("#0a0e14"))
+            grad = QRadialGradient(cx, cy_mid, min(w, h) * 0.45)
+            grad.setColorAt(0.0, QColor(22, 44, 60, 55))
+            grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+            p.fillRect(0, 0, w, h, QBrush(grad))
 
-            cx, cy = w // 2, h // 2
+            sc = min(w, h) / 260.0
+            u  = 30.0 * sc
+            sw = max(1.5, 2.0 * sc)  # stroke width
 
-            # Kamera belgisi
-            icon_r = max(min(w, h) // 7, 20)
-            rw, rh = icon_r * 2, int(icon_r * 1.4)
-            rx, ry = cx - rw // 2, cy - 20 - rh // 2
+            icx = cx
+            icy = cy_mid - u * 0.35
 
-            pen = QPen(QColor(C('text_muted')), 2)
-            p.setPen(pen)
+            # ── Kamera body ──
+            bw, bh = u * 3.6, u * 2.0
+            body = QRectF(icx - bw/2, icy - bh/2, bw, bh)
+            p.setPen(QPen(QColor("#2d4d63"), sw))
+            p.setBrush(QBrush(QColor(12, 24, 36, 160)))
+            p.drawRoundedRect(body, u * 0.38, u * 0.38)
+
+            # ── Viewfinder bump (tepada) ──
+            vfw, vfh = u * 0.9, u * 0.5
+            vf = QRectF(icx - vfw/2, icy - bh/2 - vfh + 2, vfw, vfh)
+            p.setBrush(QBrush(QColor(12, 24, 36, 160)))
+            p.drawRoundedRect(vf, u * 0.15, u * 0.15)
+
+            # ── Linza ──
+            lo, lm, li = u * 0.78, u * 0.53, u * 0.24
+            lx, ly = icx - u * 0.22, icy
+
+            p.setPen(QPen(QColor("#2d4d63"), sw))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(rx, ry, rw, rh, 4, 4)
+            p.drawEllipse(QRectF(lx - lo, ly - lo, lo * 2, lo * 2))
 
-            lens_r = max(icon_r // 2, 8)
-            p.drawEllipse(cx - lens_r, cy - 20 - lens_r, lens_r * 2, lens_r * 2)
-            p.drawRect(cx + rw // 2 - 6, ry - 6, 12, 6)
+            p.setPen(QPen(QColor("#1e3548"), max(1.0, sw - 0.5)))
+            p.setBrush(QBrush(QColor(8, 18, 30, 220)))
+            p.drawEllipse(QRectF(lx - lm, ly - lm, lm * 2, lm * 2))
 
-            # Diagonal chiziq
-            p.drawLine(rx - 4, ry - 4, rx + rw + 4, ry + rh + 4)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(24, 46, 66, 180)))
+            p.drawEllipse(QRectF(lx - li, ly - li, li * 2, li * 2))
 
-            # "Camera is offline" matni
-            font = QFont("Segoe UI", 11)
-            p.setFont(font)
-            p.setPen(QPen(QColor(C('text_muted'))))
-            p.drawText(QRect(0, cy + 16, w, 28),
-                       Qt.AlignmentFlag.AlignCenter, "Camera is offline")
+            # ── Yozuv nuqtasi (o'ng yuqori, qizil — offline) ──
+            dr = u * 0.16
+            dx = icx + bw/2 - u * 0.5
+            dy = icy - bh/2 + u * 0.4
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(160, 40, 40, 200)))
+            p.drawEllipse(QRectF(dx - dr, dy - dr, dr * 2, dr * 2))
+
+            # ── Qizil X badge (pastki o'ng burchak) ──
+            badge_r = u * 0.62
+            bx_ = icx + bw/2 - u * 0.1
+            by_ = icy + bh/2 - u * 0.1
+
+            p.setPen(QPen(QColor("#0a0e14"), max(2.0, sw + 0.5)))
+            p.setBrush(QBrush(QColor(170, 35, 35, 235)))
+            p.drawEllipse(QRectF(bx_ - badge_r, by_ - badge_r, badge_r * 2, badge_r * 2))
+
+            xp = QPen(QColor("#ffffff"), max(1.5, sw))
+            xp.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(xp)
+            xo = badge_r * 0.42
+            p.drawLine(QPointF(bx_ - xo, by_ - xo), QPointF(bx_ + xo, by_ + xo))
+            p.drawLine(QPointF(bx_ + xo, by_ - xo), QPointF(bx_ - xo, by_ + xo))
+
+            # ── Matn ──
+            ty = int(icy + bh / 2 + u * 0.85)
+
+            f1 = QFont("Segoe UI", max(9, int(11.5 * sc)), QFont.Weight.DemiBold)
+            p.setFont(f1)
+            p.setPen(QColor("#4e6e84"))
+            p.drawText(QRect(0, ty, w, int(u) + 10),
+                       Qt.AlignmentFlag.AlignCenter, "Kamera offline")
+
+            f2 = QFont("Segoe UI", max(7, int(9 * sc)))
+            p.setFont(f2)
+            p.setPen(QColor("#2b3e4e"))
+            p.drawText(QRect(0, ty + int(u * 0.88), w, int(u * 0.85) + 8),
+                       Qt.AlignmentFlag.AlignCenter, "Ulanish yo'q")
+
             p.end()
         else:
             super().paintEvent(event)

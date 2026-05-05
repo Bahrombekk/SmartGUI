@@ -23,14 +23,18 @@ class ViolationFileStorage:
             return "", "", None
 
         x1, y1, x2, y2 = map(int, box)
-        y1a = max(y1 - 10, 0)
-        x1a = max(x1 - 5, 0)
-        x2a = min(x2 + 5, frame.shape[1])
-        y2a = min(y2 + 5, frame.shape[0])
 
-        crop = frame[y1a:y2a, x1a:x2a].copy()
         full = frame.copy()
         cv2.rectangle(full, (x1, y1), (x2, y2), (0, 0, 220), 3)
+
+        bw, bh = max(1, x2 - x1), max(1, y2 - y1)
+        pad_x = max(40, int(bw * 0.5))
+        pad_y = max(60, int(bh * 0.6))
+        cx1 = max(x1 - pad_x, 0)
+        cy1 = max(y1 - pad_y, 0)
+        cx2 = min(x2 + pad_x, frame.shape[1])
+        cy2 = min(y2 + pad_y, frame.shape[0])
+        crop = frame[cy1:cy2, cx1:cx2].copy()
 
         output_dir.mkdir(parents=True, exist_ok=True)
         dt_str = datetime.fromtimestamp(timestamp).strftime("%Y%m%d_%H%M%S")

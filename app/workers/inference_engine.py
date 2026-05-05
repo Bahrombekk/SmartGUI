@@ -102,14 +102,14 @@ class IoUTracker:
             else:
                 old = self._tracks[tid]["box"]
                 new = det["box"]
-                alpha = 0.35
+                alpha = 0.5
                 cx_old, cy_old = self._center(old)
                 cx_new, cy_new = self._center(new)
                 vx = (1 - alpha) * self._tracks[tid].get("vx", 0.0) + alpha * (cx_new - cx_old)
                 vy = (1 - alpha) * self._tracks[tid].get("vy", 0.0) + alpha * (cy_new - cy_old)
 
             self._tracks[tid] = {"box": det["box"], "age": 0, "vx": vx, "vy": vy}
-            result.append({**det, "track_id": tid})
+            result.append({**det, "track_id": tid, "vx": vx, "vy": vy})
         return result
 
     def reset(self):
