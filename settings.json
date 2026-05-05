@@ -93,7 +93,7 @@
     {
       "id": 7,
       "name": "DAS",
-      "rtsp_url": "01",
+      "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/401",
       "company_id": "1",
       "department_id": 1,
       "enabled": true,
@@ -105,7 +105,7 @@
     {
       "id": 8,
       "name": "Das1",
-      "rtsp_url": "0000",
+      "rtsp_url": "rtsp://admin:1q2w3e4r5t@192.168.170.160:554/Streaming/Channels/501",
       "company_id": "1",
       "department_id": 3,
       "enabled": true,

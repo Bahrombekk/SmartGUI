@@ -8,6 +8,7 @@ on-demand preview for the selected camera.
 
 from __future__ import annotations
 
+import datetime
 import time
 from pathlib import Path
 
@@ -101,8 +102,99 @@ class CameraBanner(QLabel):
         painter.end()
 
 
+class BannerWithOverlay(QWidget):
+    reconnect_clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        self._banner = CameraBanner(self)
+
+        self._count_badge = QLabel(self)
+        self._count_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._count_badge.setStyleSheet(
+            "background: rgba(239,68,68,0.82); color: #fff;"
+            "border: 1px solid rgba(239,68,68,0.90); border-radius: 7px;"
+            "font-size: 10px; font-weight: 900; padding: 2px 7px;"
+        )
+        self._count_badge.hide()
+
+        self._viol_thumb = QLabel(self)
+        self._viol_thumb.setFixedSize(58, 44)
+        self._viol_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._viol_thumb.setStyleSheet(
+            "border: 2px solid rgba(239,68,68,0.70); border-radius: 4px;"
+            "background: #050c14;"
+        )
+        self._viol_thumb.hide()
+
+        self._reconnect_btn = QPushButton("↻  Reconnect", self)
+        self._reconnect_btn.setFixedHeight(32)
+        self._reconnect_btn.setMinimumWidth(110)
+        self._reconnect_btn.setStyleSheet(
+            "QPushButton { background: rgba(30,95,168,0.85); color: #e0f0ff;"
+            "border: 1px solid #1e5fa8; border-radius: 8px;"
+            "font-size: 11px; font-weight: 800; padding: 0 18px; }"
+            "QPushButton:hover { background: rgba(45,128,200,0.95); color: #fff; }"
+        )
+        self._reconnect_btn.clicked.connect(self.reconnect_clicked)
+        self._reconnect_btn.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._banner.resize(self.size())
+        self._reposition_overlays()
+
+    def _reposition_overlays(self):
+        w, h = self.width(), self.height()
+        self._count_badge.adjustSize()
+        self._count_badge.move(8, 8)
+        self._viol_thumb.move(max(0, w - 64), 6)
+        bw = max(self._reconnect_btn.sizeHint().width(), 110)
+        self._reconnect_btn.resize(bw, 32)
+        self._reconnect_btn.move((w - bw) // 2, (h - 32) // 2)
+
+    def set_image(self, pixmap: QPixmap):
+        self._banner.set_image(pixmap)
+
+    def set_count(self, count: int):
+        if count > 0:
+            self._count_badge.setText(f"⚠ {count}")
+            self._count_badge.adjustSize()
+            self._count_badge.move(8, 8)
+            self._count_badge.show()
+            self._count_badge.raise_()
+        else:
+            self._count_badge.hide()
+
+    def set_last_violation(self, path: str):
+        if path:
+            pix = QPixmap(path)
+            if not pix.isNull():
+                pix = pix.scaled(
+                    58, 44,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self._viol_thumb.setPixmap(pix)
+                self._viol_thumb.show()
+                self._viol_thumb.raise_()
+                return
+        self._viol_thumb.hide()
+
+    def set_reconnect_visible(self, visible: bool):
+        if visible:
+            self._reconnect_btn.show()
+            self._reconnect_btn.raise_()
+            self._reposition_overlays()
+        else:
+            self._reconnect_btn.hide()
+
+
 class CameraGridCard(QFrame):
     clicked = pyqtSignal(int)
+    reconnect_requested = pyqtSignal(int)
 
     def __init__(self, camera: dict, department_name: str, parent=None, *, tall: bool = False):
         super().__init__(parent)
@@ -131,9 +223,10 @@ class CameraGridCard(QFrame):
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(7)
 
-        self._banner = CameraBanner()
+        self._banner = BannerWithOverlay()
         self._banner.setFixedHeight(200 if self._tall else 135)
         self._banner.set_image(self._banner_pixmap())
+        self._banner.reconnect_clicked.connect(lambda: self.reconnect_requested.emit(self.cam_id))
         lay.addWidget(self._banner)
 
         # Info row: pill badge + name + status
@@ -215,6 +308,11 @@ class CameraGridCard(QFrame):
         self._metric_value(self._ping, "--" if ping_ms is None else f"{max(0, int(ping_ms))}", TEXT_2)
         self._metric_value(self._today, str(detections or 0), ACCENT if detections else TEXT_2)
         self._metric_value(self._ai, "Run" if status == "live" else _status_label(status), LIVE if status == "live" else STATUS_COLORS.get(status, MUTED))
+        self._banner.set_count(detections or 0)
+        self._banner.set_reconnect_visible(status in {"offline", "error"})
+
+    def set_last_violation(self, path: str):
+        self._banner.set_last_violation(path)
 
     def mousePressEvent(self, event):
         self.clicked.emit(self.cam_id)
@@ -513,6 +611,21 @@ class CameraDetailPanel(QFrame):
         lay.addWidget(health)
         lay.addWidget(self._divider())
 
+        lay.addWidget(self._section_header("TODAY'S ACTIVITY"))
+        activity = QWidget()
+        activity.setStyleSheet("background: transparent;")
+        al = QHBoxLayout(activity)
+        al.setContentsMargins(14, 6, 14, 12)
+        al.setSpacing(8)
+        self._today_chip = self._chip("TODAY", "0")
+        self._total_chip = self._chip("TOTAL", "0")
+        self._uptime_chip = self._chip("HEALTH", "--")
+        al.addWidget(self._today_chip)
+        al.addWidget(self._total_chip)
+        al.addWidget(self._uptime_chip)
+        lay.addWidget(activity)
+        lay.addWidget(self._divider())
+
         lay.addWidget(self._section_header("CAMERA CONFIG"))
         config = QWidget()
         config.setStyleSheet("background: transparent;")
@@ -573,10 +686,13 @@ class CameraDetailPanel(QFrame):
         self._set_info(self._row_access, str(cam.get("access_mode", "department")))
         self._set_info(self._row_last, "Waiting for stream")
         self._update_health(stats)
+        self._chip_value(self._uptime_chip, "Online" if stats.get("connected") else "Offline",
+                         LIVE if stats.get("connected") else OFFLINE)
         self._video._has_frame = False
         self._video.clear()
         self._video.setText("Preview")
         self._events_ts = 0.0
+        self._rebuild_stats()
         self._rebuild_events()
 
     def toggle_expanded(self):
@@ -592,6 +708,8 @@ class CameraDetailPanel(QFrame):
         self._badge.setText(_status_label(status))
         self._badge.setStyleSheet(self._badge_css(status))
         self._update_health(stats)
+        self._chip_value(self._uptime_chip, "Online" if stats.get("connected") else "Offline",
+                         LIVE if stats.get("connected") else OFFLINE)
         if status in {"offline", "error"} and not self._preview_active:
             self._video.show_error()
 
@@ -620,6 +738,20 @@ class CameraDetailPanel(QFrame):
         self._chip_value(self._ping_chip, "--" if ping is None else f"{max(0, int(ping))} ms", TEXT_2)
         self._chip_value(self._status_chip, "Online" if ok else "Offline", LIVE if ok else OFFLINE)
         self._set_info(self._row_last, "Now" if ok else "No signal")
+
+    def _rebuild_stats(self):
+        cam = next((c for c in self._cameras if c.get("id") == self._cam_id), None)
+        today_count = 0
+        total_count = 0
+        try:
+            events = self.db.get_violations(limit=200, camera_name=cam.get("name") if cam else None)
+            today_str = datetime.date.today().isoformat()
+            today_count = sum(1 for e in events if str(e.get("created_at", "")).startswith(today_str))
+            total_count = len(events)
+        except Exception:
+            pass
+        self._chip_value(self._today_chip, str(today_count), ACCENT if today_count else MUTED)
+        self._chip_value(self._total_chip, str(total_count), TEXT_2)
 
     def _rebuild_events(self):
         now = time.monotonic()
@@ -878,6 +1010,7 @@ class SidebarResizeHandle(QWidget):
 class CamerasPage(QWidget):
     add_camera_requested = pyqtSignal()
     departments_changed = pyqtSignal()
+    reconnect_requested = pyqtSignal(int)
 
     def __init__(self, db, config_manager, parent=None):
         super().__init__(parent)
@@ -892,6 +1025,7 @@ class CamerasPage(QWidget):
         self._filter = "all"
         self._grid_columns = max(3, self.cfg.get("cameras_grid_columns", 4) if self.cfg else 4)
         self._search_text = ""
+        self._sort_mode = "default"
         self._build_ui()
 
     def resizeEvent(self, event):
@@ -1157,6 +1291,23 @@ class CamerasPage(QWidget):
         self._refresh_column_buttons()
         lay.addLayout(toolbar)
 
+        sort_row = QHBoxLayout()
+        sort_row.setSpacing(6)
+        sort_lbl = QLabel("Sort:")
+        sort_lbl.setStyleSheet(f"color: {DIM}; font-size: 10px; font-weight: 900;")
+        sort_row.addWidget(sort_lbl)
+        self._sort_btns: dict[str, QPushButton] = {}
+        for key, label in [("default", "Default"), ("events", "Events ↓"), ("offline", "Offline first"), ("az", "A–Z")]:
+            btn = QPushButton(label)
+            btn.setFixedHeight(26)
+            btn.setCheckable(True)
+            btn.setStyleSheet(self._sort_chip_style(key == "default"))
+            btn.clicked.connect(lambda _, k=key: self._set_sort(k))
+            self._sort_btns[key] = btn
+            sort_row.addWidget(btn)
+        sort_row.addStretch()
+        lay.addLayout(sort_row)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -1238,6 +1389,15 @@ class CamerasPage(QWidget):
     def on_violation(self, data: dict):
         if self._selected is not None and self._detail.isVisible():
             self._detail._rebuild_events()
+            self._detail._rebuild_stats()
+        cam_name = data.get("camera_name", "")
+        crop_path = data.get("crop_path") or data.get("violation_image") or data.get("image_path") or ""
+        if cam_name and crop_path:
+            cam = next((c for c in self._cameras if c.get("name") == cam_name), None)
+            if cam:
+                card = self._cards.get(cam.get("id"))
+                if card:
+                    card.set_last_violation(str(crop_path))
 
     def _set_filter(self, key: str):
         self._filter = key
@@ -1286,10 +1446,7 @@ class CamerasPage(QWidget):
         self._cards.clear()
         visible = sorted(
             [c for c in self._cameras if self._matches(c)],
-            key=lambda c: (
-                {"live": 0, "connecting": 1, "offline": 2, "error": 2}.get(self._status.get(c.get("id"), "connecting"), 1),
-                str(c.get("name", "")),
-            ),
+            key=self._card_sort_key,
         )
         n = len(visible)
         cols = max(3, min(self._grid_columns, n if n else 1))
@@ -1298,6 +1455,7 @@ class CamerasPage(QWidget):
             cid = cam.get("id")
             card = CameraGridCard(cam, self._dept_name(cam.get("department_id")))
             card.clicked.connect(self._select_camera)
+            card.reconnect_requested.connect(self._on_reconnect_requested)
             stats = self._stats.get(cid, {})
             card.set_status(
                 self._status.get(cid, "connecting"),
@@ -1445,6 +1603,35 @@ class CamerasPage(QWidget):
             self._fleet_stat_set(self._fs_conn, str(warn))
         self._rebuild_locations()
 
+    def _card_sort_key(self, c):
+        cid = c.get("id")
+        status = self._status.get(cid, "connecting")
+        name = str(c.get("name", "")).lower()
+        status_order = {"live": 0, "connecting": 1, "offline": 2, "error": 2}.get(status, 1)
+        events = self._stats.get(cid, {}).get("today_count", 0)
+        if self._sort_mode == "events":
+            return (-events, status_order, name)
+        if self._sort_mode == "offline":
+            offline_order = {"offline": 0, "error": 0, "connecting": 1, "live": 2}.get(status, 1)
+            return (offline_order, status_order, name)
+        if self._sort_mode == "az":
+            return (0, 0, name)
+        return (status_order, 0, name)
+
+    def _set_sort(self, key: str):
+        self._sort_mode = key
+        for k, btn in self._sort_btns.items():
+            btn.setChecked(k == key)
+            btn.setStyleSheet(self._sort_chip_style(k == key))
+        self._render_grid()
+
+    def _on_reconnect_requested(self, cam_id: int):
+        self._status[cam_id] = "connecting"
+        card = self._cards.get(cam_id)
+        if card:
+            card.set_status("connecting")
+        self.reconnect_requested.emit(cam_id)
+
     def _dept_name(self, dep_id) -> str:
         dep = self.cfg.get_department_by_id(dep_id) if self.cfg else None
         return dep.get("name", "") if dep else ""
@@ -1508,6 +1695,21 @@ class CamerasPage(QWidget):
             "border: 1px solid #1e5fa8; border-radius: 7px;"
             "font-size: 12px; font-weight: 900; }"
             f"QPushButton:hover {{ color: {TEXT_2}; border-color: #2d80c8; background: #0e2030; }}"
+        )
+
+    @staticmethod
+    def _sort_chip_style(active: bool) -> str:
+        if active:
+            return (
+                "QPushButton { background: rgba(30,95,168,0.30); color: #93c5fd;"
+                "border: 1px solid #1e5fa8; border-radius: 6px;"
+                "font-size: 10px; font-weight: 800; padding: 0 10px; }"
+            )
+        return (
+            f"QPushButton {{ background: rgba(255,255,255,0.04); color: {MUTED};"
+            f"border: 1px solid {BORDER}; border-radius: 6px;"
+            "font-size: 10px; font-weight: 700; padding: 0 10px; }"
+            f"QPushButton:hover {{ color: {TEXT_2}; border-color: {BORDER_STRONG}; }}"
         )
 
     @staticmethod

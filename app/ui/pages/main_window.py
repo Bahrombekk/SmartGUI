@@ -450,7 +450,7 @@ class MainWindow(QMainWindow):
         self._dashboard  = DashboardPage(self.db, self.cfg)
         self._cameras    = CamerasPage(self.db, self.cfg)
         self._violations = ViolationsPage(self.db)
-        self._analytics  = AnalyticsPage(self.db)
+        self._analytics  = AnalyticsPage(self.db, self.cfg)
         self._users      = UsersPage(self.cfg)
         self._settings   = SettingsPage(self.cfg)
 

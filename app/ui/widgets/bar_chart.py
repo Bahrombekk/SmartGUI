@@ -32,7 +32,7 @@ class BarChart(QWidget):
         self._data = data or []
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(180)
-        self.setStyleSheet(f"background: {C('bg_card')}; border-radius: 8px;")
+        self.setStyleSheet("background: transparent; border-radius: 8px;")
 
     def set_data(self, data: list):
         self._data = data or []
@@ -76,17 +76,29 @@ class BarChart(QWidget):
             x   = pad_l + int(chart_w * i / n) + 1
             y   = pad_t + chart_h - bh
 
-            # Gradient bar
-            grad = QLinearGradient(x, y, x, y + bh)
-            grad.setColorAt(0.0, QColor(C("accent")))
-            grad.setColorAt(1.0, QColor(C("accent_dim")))
-            p.setBrush(QBrush(grad))
-            p.setPen(Qt.PenStyle.NoPen)
+            helmet_h = int(bh * 0.42)
+            no_helmet_h = max(0, bh - helmet_h)
+            r = min(3, bar_w // 2)
 
-            path = QPainterPath()
-            r    = min(3, bar_w // 2)
-            path.addRoundedRect(x, y, bar_w, bh, r, r)
-            p.drawPath(path)
+            if helmet_h > 0:
+                green = QLinearGradient(x, y + no_helmet_h, x, y + bh)
+                green.setColorAt(0.0, QColor(C("success")))
+                green.setColorAt(1.0, QColor(C("success_dim")))
+                p.setBrush(QBrush(green))
+                p.setPen(Qt.PenStyle.NoPen)
+                base = QPainterPath()
+                base.addRoundedRect(x, y + no_helmet_h, bar_w, helmet_h, r, r)
+                p.drawPath(base)
+
+            if no_helmet_h > 0:
+                red = QLinearGradient(x, y, x, y + no_helmet_h)
+                red.setColorAt(0.0, QColor(C("danger")))
+                red.setColorAt(1.0, QColor(C("danger_dim")))
+                p.setBrush(QBrush(red))
+                p.setPen(Qt.PenStyle.NoPen)
+                top = QPainterPath()
+                top.addRoundedRect(x, y, bar_w, no_helmet_h, r, r)
+                p.drawPath(top)
 
             # X label (har 3 chi)
             if i % max(1, n // 10) == 0:
@@ -118,7 +130,7 @@ class LineChart(QWidget):
         self._data = data or []
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(160)
-        self.setStyleSheet(f"background: {C('bg_card')}; border-radius: 8px;")
+        self.setStyleSheet("background: transparent; border-radius: 8px;")
 
     def set_data(self, data: list):
         self._data = data or []
@@ -222,7 +234,7 @@ class HourlyBarChart(QWidget):
         self._data = data or [{"hour": i, "count": 0} for i in range(24)]
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumHeight(150)
-        self.setStyleSheet(f"background: {C('bg_card')}; border-radius: 8px;")
+        self.setStyleSheet("background: transparent; border-radius: 8px;")
 
     def set_data(self, data: list):
         self._data = data or []
@@ -259,7 +271,10 @@ class HourlyBarChart(QWidget):
 
             hour = d.get("hour", i)
             # Ish vaqti (8–18) — boshqa rang
-            if 8 <= hour < 18:
+            if 14 <= hour < 17:
+                color = C("danger")
+                dim   = C("accent_dim")
+            elif 8 <= hour < 18:
                 color = C("accent")
                 dim   = C("accent_dim")
             else:
