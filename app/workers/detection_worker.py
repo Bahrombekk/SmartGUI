@@ -406,7 +406,7 @@ class DetectionWorker(QThread):
     # ── Yordamchi metodlar ────────────────────────────────────────────────
 
     def _resize_for_display(self, frame: np.ndarray) -> np.ndarray:
-        max_w = int(self.cfg.get("display_max_width", 960))
+        max_w = int(self.cfg.get("display_max_width", 640))
         if max_w <= 0:
             return frame
         h, w = frame.shape[:2]
@@ -495,8 +495,23 @@ class DetectionWorker(QThread):
                 time.sleep(0.05)
                 continue
 
+            # ── Video rate limiting (frame copy dan OLDIN) ────────────────
+            now = time.perf_counter()
+            remaining = video_interval - (now - last_emit_ts)
+            if remaining > 0.008:
+                time.sleep(remaining - 0.005)
+                continue
+            elif remaining > 0:
+                time.sleep(0.001)   # spin o'rniga qisqa uxlash
+                continue
+
             # ── Frame olish ───────────────────────────────────────────────
             if is_stream:
+                current_id = getattr(self._reader, "frame_count", self._frame_count)
+                if current_id == last_frame_id:
+                    time.sleep(0.005)
+                    continue
+
                 ok, frame = self._reader.get_frame()
                 connected = self._reader.is_connected
                 if not ok:
@@ -511,28 +526,13 @@ class DetectionWorker(QThread):
                     continue
                 no_frame_count = 0
             else:
+                current_id = self._frame_count
                 ok, frame = self._reader.read()
                 connected = ok
                 if not ok:
                     self._running = False
                     self.status_changed.emit("Video fayl tugadi")
                     break
-
-            # ── Video rate limiting ───────────────────────────────────────
-            now = time.perf_counter()
-            remaining = video_interval - (now - last_emit_ts)
-            if remaining > 0.008:
-                # Uzoq kutish — to'liq uxla
-                time.sleep(remaining - 0.005)
-                continue
-            elif remaining > 0:
-                # Qisqa kutish — spin (Windows timer 15ms dan yaxshiroq)
-                continue
-
-            current_id = getattr(self._reader, "frame_count", self._frame_count)
-            if current_id == last_frame_id:
-                time.sleep(0.005)
-                continue
 
             last_emit_ts  = now
             last_frame_id = current_id
@@ -570,7 +570,7 @@ class DetectionWorker(QThread):
 
                 # Display doim live framedan quriladi; raw_frame faqat violation
                 # saqlash uchun ishlatiladi.
-                display_frame = self._draw_overlay(frame.copy(), persons)
+                display_frame = self._draw_overlay(frame, persons)
                 self._emit_frame(display_frame)
 
                 if self._frame_count % 30 == 0:

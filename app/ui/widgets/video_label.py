@@ -30,6 +30,7 @@ class VideoLabel(QLabel):
         self._has_frame  = False
         self._mode       = "connecting"   # connecting | loading | offline | live
         self._anim_step  = 0
+        self._qimage: QImage | None = None
 
         self._anim_timer = QTimer(self)
         self._anim_timer.setInterval(500)
@@ -61,6 +62,19 @@ class VideoLabel(QLabel):
     # ── Offline/xatolik holati — custom paint ─────────────────────────────
 
     def paintEvent(self, event):
+        if self._has_frame and self._qimage is not None:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            iw, ih = self._qimage.width(), self._qimage.height()
+            sw, sh = self.width(), self.height()
+            if iw > 0 and ih > 0 and sw > 0 and sh > 0:
+                ratio = min(sw / iw, sh / ih)
+                dw, dh = int(iw * ratio), int(ih * ratio)
+                dx, dy = (sw - dw) // 2, (sh - dh) // 2
+                p.fillRect(0, 0, sw, sh, QColor("#0a0e14"))
+                p.drawImage(QRect(dx, dy, dw, dh), self._qimage)
+            p.end()
+            return
         if self._mode == "offline" and not self._has_frame:
             p = QPainter(self)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -156,42 +170,27 @@ class VideoLabel(QLabel):
     # ── Frame ko'rsatish ─────────────────────────────────────────────────
 
     def set_frame(self, frame):
-        """
-        Frame'ni ko'rsatadi.
-
-        frame: QImage  — worker thread'da tayyorlangan (cv2.cvtColor u yerda bajarilgan)
-               np.ndarray — backward compatibility (BGR, cv2.cvtColor bu yerda bo'ladi)
-
-        Asosiy thread ishi: QPixmap.fromImage() + scaled() + setPixmap() — juda tez (~0.5ms).
-        Eski yo'l (numpy): cv2.cvtColor bu thread'da — legacy qo'llab-quvvatlash uchun.
-        """
+        """frame: QImage (worker thread'dan) yoki np.ndarray (legacy)."""
         if frame is None:
             return
         try:
             if isinstance(frame, QImage):
-                qimg = frame
+                self._qimage = frame
             else:
-                # numpy (BGR) — eski yo'l
                 if frame.size == 0:
                     return
                 import cv2 as _cv2
                 rgb = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb.shape
-                qimg = QImage(rgb.tobytes(), w, h, ch * w, QImage.Format.Format_RGB888)
-
-            pixmap = QPixmap.fromImage(qimg)
-            scaled = pixmap.scaled(
-                self.width(), self.height(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation,
-            )
-            self.setPixmap(scaled)
+                self._qimage = QImage(rgb.tobytes(), w, h, ch * w, QImage.Format.Format_RGB888)
 
             if not self._has_frame:
                 self._has_frame = True
                 self._mode = "live"
                 self._anim_timer.stop()
                 self._apply_base_style()
+
+            self.update()
 
         except Exception as e:
             print(f"[VideoLabel] Frame xatosi: {e}")
@@ -231,12 +230,5 @@ class VideoLabel(QLabel):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self._mode == "offline":
+        if self._mode == "offline" or self._has_frame:
             self.update()
-        elif self._has_frame and self.pixmap() and not self.pixmap().isNull():
-            scaled = self.pixmap().scaled(
-                self.width(), self.height(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.FastTransformation,
-            )
-            self.setPixmap(scaled)

@@ -151,18 +151,21 @@ class DetectorGroup(threading.Thread):
         self._warmup()
 
         while not self._stop_event.is_set():
-            # Har bir readerdan snapshot olish
+            now = time.time()
+
+            # Faqat AI interval yaqinlashayotgan kameralar uchun snapshot (frame copy)
             for i, reader in enumerate(self.readers):
-                snap = reader.snapshot()
-                if snap.frame is not None:
-                    self._last_snaps[i] = snap
+                if now - self._last_infer_time[i] >= self.ai_interval * 0.85:
+                    snap = reader.snapshot()
+                    if snap.frame is not None:
+                        self._last_snaps[i] = snap
 
             # Faqat YANGI timestamp li framlarni olish (takroriy inference oldini olish)
             ready = [
                 (i, snap) for i, snap in enumerate(self._last_snaps)
                 if snap is not None
                 and snap.timestamp != self._processed_ts[i]
-                and (time.time() - self._last_infer_time[i]) >= self.ai_interval
+                and (now - self._last_infer_time[i]) >= self.ai_interval
             ]
             if not ready:
                 time.sleep(0.005)  # yangi frame kutish

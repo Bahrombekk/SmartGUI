@@ -282,8 +282,11 @@ class CV2RTSPReader(threading.Thread):
                         break
 
                     _now = time.perf_counter()
-                    if _now - _last_retrieve < _interval:
-                        time.sleep(0.001)
+                    _elapsed = _now - _last_retrieve
+                    if _elapsed < _interval:
+                        _remaining = _interval - _elapsed
+                        if _remaining > 0.010:
+                            time.sleep(max(0.005, _remaining - 0.005))
                         continue
                     _last_retrieve = _now
 

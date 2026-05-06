@@ -29,7 +29,15 @@ from app.ui.ui_kit import (
 )
 from app.ui.widgets.violation_card import ViolationCard, ViolationDetailDialog
 
-_PAGE_LIMIT = 80
+_PAGE_LIMIT = 60
+
+_BTN_ACTIVE = (
+    "QPushButton {"
+    f"background: {C('accent_hover')}; color: #05090d;"
+    "border: none; border-radius: 8px; font-weight: 900; padding: 0 14px;"
+    "}"
+)
+_BTN_INACTIVE = button_style("secondary")
 
 
 class ViolationsPage(QWidget):
@@ -43,10 +51,14 @@ class ViolationsPage(QWidget):
         self._loading = False
         self._pending_reload = False
         self._camera_filter = "All Cameras"
+        self._active_period_idx = 1          # Week bosib turiladi default
         self._summary_labels: dict[str, QLabel] = {}
+        self._period_btns: list[QPushButton] = []
         self._data_ready.connect(self._on_data_ready)
         self._setup_ui()
         self._load_violations()
+
+    # ── UI qurish ─────────────────────────────────────────────────────────
 
     def _setup_ui(self):
         self.setStyleSheet(f"background: {C('bg_main')};")
@@ -54,30 +66,45 @@ class ViolationsPage(QWidget):
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(10)
 
+        # ── Sarlavha ───────────────────────────────────────────────────────
         header = QHBoxLayout()
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title = QLabel("Reports")
-        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 22px; font-weight: 900;")
+        title.setStyleSheet(
+            f"color: {C('text_primary')}; font-size: 22px; font-weight: 900;"
+        )
         title_col.addWidget(title)
-        subtitle = QLabel("No Helmet evidence gallery with crop and full-frame review")
+        subtitle = QLabel("No Helmet evidence gallery — crop and full-frame review")
         subtitle.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
         title_col.addWidget(subtitle)
         header.addLayout(title_col)
         header.addStretch()
-        self._status_lbl = QLabel("Loading...")
-        self._status_lbl.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px;")
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(
+            f"color: {C('text_secondary')}; font-size: 12px;"
+        )
         header.addWidget(self._status_lbl)
         root.addLayout(header)
 
+        # ── Summary kartalar ───────────────────────────────────────────────
         summary = QHBoxLayout()
         summary.setSpacing(10)
-        self._summary_labels["today"] = add_summary_metric(summary, "Today", "0", C("danger"))
-        self._summary_labels["week"] = add_summary_metric(summary, "Week", "0", C("accent_light"))
-        self._summary_labels["month"] = add_summary_metric(summary, "Month", "0", C("warning"))
-        self._summary_labels["total"] = add_summary_metric(summary, "Total", "0", C("text_primary"))
+        self._summary_labels["today"] = add_summary_metric(
+            summary, "Today", "—", C("danger")
+        )
+        self._summary_labels["week"] = add_summary_metric(
+            summary, "Week", "—", C("accent_light")
+        )
+        self._summary_labels["month"] = add_summary_metric(
+            summary, "Month", "—", C("warning")
+        )
+        self._summary_labels["total"] = add_summary_metric(
+            summary, "Total", "—", C("text_primary")
+        )
         root.addLayout(summary)
 
+        # ── Filter panel ───────────────────────────────────────────────────
         filters = QFrame()
         filters.setObjectName("reportsFilters")
         filters.setStyleSheet(panel_style("reportsFilters"))
@@ -85,58 +112,84 @@ class ViolationsPage(QWidget):
         f.setContentsMargins(12, 10, 12, 10)
         f.setSpacing(8)
 
-        for label, days in [("Today", 0), ("Week", 7), ("Month", 30), ("All", -1)]:
+        for i, (label, days) in enumerate(
+            [("Today", 0), ("Week", 7), ("Month", 30), ("All", -1)]
+        ):
             btn = QPushButton(label)
             btn.setFixedHeight(34)
-            btn.setStyleSheet(button_style("secondary"))
-            btn.clicked.connect(lambda _, d=days: self._quick_filter(d))
+            btn.setStyleSheet(
+                _BTN_ACTIVE if i == self._active_period_idx else _BTN_INACTIVE
+            )
+            btn.clicked.connect(lambda _, d=days, idx=i: self._quick_filter(d, idx))
             f.addWidget(btn)
+            self._period_btns.append(btn)
+
+        f.addWidget(self._sep())
 
         self._date_from = QDateEdit()
         self._date_from.setCalendarPopup(True)
-        self._date_from.setDate(QDate.currentDate().addDays(-30))
+        self._date_from.setDate(QDate.currentDate().addDays(-7))
+        self._date_from.setFixedHeight(34)
         self._date_from.setStyleSheet(input_style())
         f.addWidget(self._date_from)
 
         self._date_to = QDateEdit()
         self._date_to.setCalendarPopup(True)
         self._date_to.setDate(QDate.currentDate())
+        self._date_to.setFixedHeight(34)
         self._date_to.setStyleSheet(input_style())
         f.addWidget(self._date_to)
 
         self._camera_combo = QComboBox()
         self._camera_combo.addItem("All Cameras")
         self._camera_combo.setMinimumWidth(150)
+        self._camera_combo.setFixedHeight(34)
         self._camera_combo.setStyleSheet(input_style())
         self._camera_combo.currentTextChanged.connect(self._on_camera_filter_changed)
         f.addWidget(self._camera_combo)
 
         f.addStretch()
-        search = QPushButton("Apply")
-        search.setFixedHeight(34)
-        search.setStyleSheet(button_style("primary"))
-        search.clicked.connect(self._load_violations)
-        f.addWidget(search)
 
-        refresh = QPushButton("Refresh")
-        refresh.setFixedHeight(34)
-        refresh.setStyleSheet(button_style("secondary"))
-        refresh.clicked.connect(self._load_violations)
-        f.addWidget(refresh)
+        apply_btn = QPushButton("Apply")
+        apply_btn.setFixedHeight(34)
+        apply_btn.setStyleSheet(button_style("primary"))
+        apply_btn.clicked.connect(self._on_apply)
+        f.addWidget(apply_btn)
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setFixedHeight(34)
+        refresh_btn.setStyleSheet(button_style("secondary"))
+        refresh_btn.clicked.connect(self._load_violations)
+        f.addWidget(refresh_btn)
+
         root.addWidget(filters)
 
+        # ── Karta grid ─────────────────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+
         self._grid_widget = QWidget()
         self._grid_widget.setStyleSheet("background: transparent;")
         self._grid = QGridLayout(self._grid_widget)
         self._grid.setSpacing(10)
         self._grid.setContentsMargins(0, 0, 4, 0)
-        self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._grid.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
         scroll.setWidget(self._grid_widget)
         root.addWidget(scroll, 1)
+
+    @staticmethod
+    def _sep() -> QFrame:
+        line = QFrame()
+        line.setFixedWidth(1)
+        line.setFixedHeight(24)
+        line.setStyleSheet("background: rgba(148,163,184,0.18); border: none;")
+        return line
+
+    # ── Ma'lumot yuklash ──────────────────────────────────────────────────
 
     def _load_violations(self):
         if self._loading:
@@ -144,8 +197,11 @@ class ViolationsPage(QWidget):
             return
         self._loading = True
         self._pending_reload = False
-        self._status_lbl.setText("Loading evidence...")
-        self._show_loading_state()
+        self._status_lbl.setText("Refreshing...")
+
+        # Birinchi yuklanishda (grid bo'sh) placeholder ko'rsat
+        if not self._violations:
+            self._show_loading_state()
 
         d_from = self._date_from.date().toPyDate()
         d_to = self._date_to.date().toPyDate()
@@ -153,9 +209,14 @@ class ViolationsPage(QWidget):
 
         def _bg():
             try:
-                rows = self.db.get_violations(date_from=d_from, date_to=d_to, limit=_PAGE_LIMIT)
+                rows = self.db.get_violations(
+                    date_from=d_from, date_to=d_to, limit=_PAGE_LIMIT
+                )
                 if camera_filter != "All Cameras":
-                    rows = [v for v in rows if str(v.get("camera_name") or "") == camera_filter]
+                    rows = [
+                        v for v in rows
+                        if str(v.get("camera_name") or "") == camera_filter
+                    ]
                 summary = self.analytics.summary_counts()
                 status = self.analytics.format_range_status(len(rows), d_from, d_to)
                 self._data_ready.emit(rows, status, summary)
@@ -163,6 +224,10 @@ class ViolationsPage(QWidget):
                 self._data_ready.emit([], f"Xatolik: {exc}", {})
 
         threading.Thread(target=_bg, daemon=True, name="ViolationsLoad").start()
+
+    def _on_apply(self):
+        self._set_active_period(-1)   # hech bir period tanlanganda aktiv emas
+        self._load_violations()
 
     def _on_data_ready(self, violations: list, status_text: str, summary: dict):
         self._loading = False
@@ -179,7 +244,9 @@ class ViolationsPage(QWidget):
             label.setText(str(summary.get(key, 0)))
 
     def _sync_camera_filter_options(self, violations: list[dict]):
-        cameras = sorted({str(v.get("camera_name") or "Unknown") for v in violations})
+        cameras = sorted(
+            {str(v.get("camera_name") or "Unknown") for v in violations}
+        )
         current = self._camera_filter
         self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
@@ -193,7 +260,10 @@ class ViolationsPage(QWidget):
         self._camera_filter = text or "All Cameras"
         self._load_violations()
 
-    def _quick_filter(self, days: int):
+    # ── Tez filter tugmalar ───────────────────────────────────────────────
+
+    def _quick_filter(self, days: int, btn_idx: int):
+        self._set_active_period(btn_idx)
         today = date.today()
         if days == 0:
             d_from = today
@@ -205,9 +275,18 @@ class ViolationsPage(QWidget):
         self._date_to.setDate(QDate(today.year, today.month, today.day))
         self._load_violations()
 
+    def _set_active_period(self, idx: int):
+        self._active_period_idx = idx
+        for i, btn in enumerate(self._period_btns):
+            btn.setStyleSheet(_BTN_ACTIVE if i == idx else _BTN_INACTIVE)
+
+    # ── Grid qurilishi ────────────────────────────────────────────────────
+
     def _show_loading_state(self):
         self._clear_grid()
-        state = make_empty_state("Loading evidence", "Violation gallery is refreshing.", "info")
+        state = make_empty_state(
+            "Loading evidence", "Violation gallery is loading.", "info"
+        )
         state.setMinimumHeight(260)
         self._grid.addWidget(state, 0, 0)
 
@@ -220,12 +299,17 @@ class ViolationsPage(QWidget):
     def _rebuild_grid(self):
         self._clear_grid()
         if not self._violations:
-            state = make_empty_state("No violations found", "Try another date range or camera filter.")
+            state = make_empty_state(
+                "No violations found",
+                "Try another date range or camera filter.",
+            )
             state.setMinimumHeight(280)
             self._grid.addWidget(state, 0, 0)
             return
 
-        cols = responsive_columns(self._grid_widget.width(), card_width=252, minimum=1, maximum=5)
+        cols = responsive_columns(
+            self._grid_widget.width(), card_width=256, minimum=1, maximum=5
+        )
         for idx, violation in enumerate(self._violations):
             card = ViolationCard(violation)
             card.clicked.connect(self._open_detail)
@@ -234,6 +318,8 @@ class ViolationsPage(QWidget):
     def _open_detail(self, violation: dict):
         dlg = ViolationDetailDialog(violation, self)
         dlg.exec()
+
+    # ── Tashqi API ────────────────────────────────────────────────────────
 
     def add_new_violation(self, data: dict):
         if self._loading:

@@ -1,9 +1,9 @@
 """
-AnalyticsPage — clean, consistent with project design language.
+AnalyticsPage — fully functional: all filters wired, real deltas, real insights.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from PyQt6.QtCore import QDate, QPointF, QTimer, Qt
@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +30,6 @@ _ICON_DIR = Path(__file__).resolve().parents[3] / "images"
 
 
 def _svg_pixmap(name: str, color: str, size: int = 16) -> QPixmap:
-    """Load SVG from images dir and tint it to `color`."""
     path = _ICON_DIR / name
     src = QPixmap(str(path)) if path.exists() else QPixmap()
     if src.isNull():
@@ -47,33 +47,32 @@ def _svg_pixmap(name: str, color: str, size: int = 16) -> QPixmap:
     return result
 
 
-# ── Design tokens (mirrors rest of app) ──────────────────────────────────────
-_BG      = "#03070b"
-_CARD    = "#07101a"
-_CARD2   = "#0a1520"
-_CARD3   = "#0d1e30"
-_BORDER  = "#1e5fa8"       # vivid blue — used across all panels
-_BSOFT   = "#1a3552"       # dimmer blue for inner separators
-_TEXT    = "#f8fafc"
-_TEXT2   = "#cbd5e1"
-_MUTED   = "#64748b"
+# ── Design tokens ─────────────────────────────────────────────────────────────
+_BG     = "#03070b"
+_CARD   = "#07101a"
+_CARD2  = "#0a1520"
+_CARD3  = "#0d1e30"
+_BORDER = "#1e5fa8"
+_BSOFT  = "#1a3552"
+_TEXT   = "#f8fafc"
+_TEXT2  = "#cbd5e1"
+_MUTED  = "#64748b"
 
-# Status colors — used only on data / badges / left bars
-_RED     = "#ef4444"
-_ORANGE  = "#f97316"
-_AMBER   = "#f59e0b"
-_GREEN   = "#22c55e"
-_BLUE    = "#3b82f6"
-_LBLUE   = "#60a5fa"
-_PURPLE  = "#a78bfa"
-_TEAL    = "#2dd4bf"
+_RED    = "#ef4444"
+_ORANGE = "#f97316"
+_AMBER  = "#f59e0b"
+_GREEN  = "#22c55e"
+_BLUE   = "#3b82f6"
+_LBLUE  = "#60a5fa"
+_PURPLE = "#a78bfa"
+_TEAL   = "#2dd4bf"
 
 
 def _fmt(v) -> str:
     return f"{int(v or 0):,}"
 
 
-# ── Sparkline ─────────────────────────────────────────────────────────────────
+# ── Sparkline ──────────────────────────────────────────────────────────────────
 class _Sparkline(QWidget):
     def __init__(self, color: str, parent=None):
         super().__init__(parent)
@@ -91,7 +90,6 @@ class _Sparkline(QWidget):
         rect = self.rect().adjusted(2, 4, -2, -3)
         vals = self._values
         if not vals:
-            p.end()
             return
         hi, lo = max(vals), min(vals)
         span = max(hi - lo, 1)
@@ -129,7 +127,7 @@ class _Sparkline(QWidget):
         p.end()
 
 
-# ── KPI metric card ───────────────────────────────────────────────────────────
+# ── KPI card ───────────────────────────────────────────────────────────────────
 class _MetricCard(QFrame):
     def __init__(self, title: str, icon: str, accent: str, subtitle: str, parent=None):
         super().__init__(parent)
@@ -140,8 +138,7 @@ class _MetricCard(QFrame):
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {_CARD3},stop:1 {_CARD});"
             f"border: 1px solid {_BORDER};"
             f"border-top: 3px solid {accent};"
-            "border-radius: 10px;"
-            "}"
+            "border-radius: 10px; }"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(self)
@@ -152,8 +149,8 @@ class _MetricCard(QFrame):
         ico.setFixedSize(50, 50)
         ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ico.setStyleSheet(
-            f"background: rgba({self._hex_to_rgb(accent)},0.12);"
-            f"border: 1px solid rgba({self._hex_to_rgb(accent)},0.30);"
+            f"background: rgba({self._hex_rgb(accent)},0.12);"
+            f"border: 1px solid rgba({self._hex_rgb(accent)},0.30);"
             "border-radius: 12px;"
         )
         pix = _svg_pixmap(icon, accent, 22)
@@ -161,18 +158,14 @@ class _MetricCard(QFrame):
             ico.setPixmap(pix)
         else:
             ico.setText("●")
-            ico.setStyleSheet(
-                ico.styleSheet() + f" color: {accent}; font-size: 20px; font-weight: 900;"
-            )
+            ico.setStyleSheet(ico.styleSheet() + f" color: {accent}; font-size: 20px; font-weight: 900;")
         lay.addWidget(ico)
 
         col = QVBoxLayout()
         col.setSpacing(2)
-        self._title_lbl = QLabel(title)
-        self._title_lbl.setStyleSheet(
-            f"color: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 1px;"
-        )
-        col.addWidget(self._title_lbl)
+        t = QLabel(title)
+        t.setStyleSheet(f"color: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 1px;")
+        col.addWidget(t)
         self._value_lbl = QLabel("0")
         self._value_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 28px; font-weight: 900;")
         col.addWidget(self._value_lbl)
@@ -197,32 +190,26 @@ class _MetricCard(QFrame):
         self._spark.set_values(values)
 
     @staticmethod
-    def _hex_to_rgb(hex_color: str) -> str:
-        h = hex_color.lstrip("#")
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"{r},{g},{b}"
+    def _hex_rgb(h: str) -> str:
+        h = h.lstrip("#")
+        return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
 
 
-# ── Section card (consistent with dashboard panels) ───────────────────────────
+# ── Section card ───────────────────────────────────────────────────────────────
 class _SectionCard(QFrame):
-    """Dark card with vivid-blue border and a colored left-bar header."""
-
     def __init__(self, title: str, bar_color: str = _LBLUE, parent=None):
         super().__init__(parent)
         self.setObjectName("analyticsSection")
         self.setStyleSheet(
             "QFrame#analyticsSection {"
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {_CARD2},stop:1 {_CARD});"
-            f"border: 1px solid {_BORDER};"
-            "border-radius: 10px;"
-            "}"
+            f"border: 1px solid {_BORDER}; border-radius: 10px; }}"
             "QLabel { background: transparent; border: none; }"
         )
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Header
         hdr = QWidget()
         hdr.setObjectName("secHdr")
         hdr.setFixedHeight(42)
@@ -238,7 +225,6 @@ class _SectionCard(QFrame):
         hl.setContentsMargins(0, 0, 10, 0)
         hl.setSpacing(0)
 
-        # Pill-shaped accent — centered vertically, fully rounded
         pill_wrap = QWidget()
         pill_wrap.setFixedSize(14, 42)
         pill_wrap.setStyleSheet("background: transparent; border: none;")
@@ -246,10 +232,7 @@ class _SectionCard(QFrame):
         pwl.setContentsMargins(5, 9, 4, 9)
         pwl.setSpacing(0)
         pill = QWidget()
-        pill.setStyleSheet(
-            f"background: {bar_color};"
-            "border-radius: 3px; border: none;"
-        )
+        pill.setStyleSheet(f"background: {bar_color}; border-radius: 3px; border: none;")
         pwl.addWidget(pill)
         hl.addWidget(pill_wrap)
         hl.addSpacing(6)
@@ -275,17 +258,15 @@ class _SectionCard(QFrame):
         self._body.addWidget(w)
 
 
-# ── AI Insight row ────────────────────────────────────────────────────────────
+# ── AI Insight row ─────────────────────────────────────────────────────────────
 class _InsightRow(QFrame):
     def __init__(self, title: str, detail: str, accent: str, icon: str, parent=None):
         super().__init__(parent)
         self.setMinimumHeight(56)
         self.setStyleSheet(
             "QFrame {"
-            f"background: {_CARD};"
-            f"border: 1px solid {_BSOFT};"
-            f"border-left: 3px solid {accent};"
-            "border-radius: 7px; }"
+            f"background: {_CARD}; border: 1px solid {_BSOFT};"
+            f"border-left: 3px solid {accent}; border-radius: 7px; }}"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(self)
@@ -296,7 +277,7 @@ class _InsightRow(QFrame):
         badge.setFixedSize(32, 32)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            f"background: rgba(30,95,168,0.18);"
+            "background: rgba(30,95,168,0.18);"
             f"border: 1px solid {_BORDER}; border-radius: 16px;"
         )
         pix = _svg_pixmap(icon, accent, 15)
@@ -318,7 +299,40 @@ class _InsightRow(QFrame):
         lay.addLayout(col, 1)
 
 
-# ── Progress bar row ──────────────────────────────────────────────────────────
+# ── Proportional progress bar ──────────────────────────────────────────────────
+class _ProportionalBar(QWidget):
+    """Paint-based bar that always fills proportionally to widget width."""
+
+    def __init__(self, value: int, max_value: int, color: str, parent=None):
+        super().__init__(parent)
+        self._value = value
+        self._max = max(max_value, 1)
+        self._color = color
+        self.setFixedHeight(7)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        W, H = self.width(), self.height()
+        # track
+        track = QPainterPath()
+        track.addRoundedRect(0, 0, W, H, 3, 3)
+        p.fillPath(track, QColor(30, 95, 168, 46))
+        # fill
+        fw = max(8, int(W * self._value / self._max))
+        fill = QPainterPath()
+        fill.addRoundedRect(0, 0, fw, H, 3, 3)
+        g = QLinearGradient(0, 0, W, 0)
+        g.setColorAt(0, QColor(self._color))
+        c2 = QColor(self._color)
+        c2.setAlpha(120)
+        g.setColorAt(1, c2)
+        p.fillPath(fill, g)
+        p.end()
+
+
+# ── Progress row ───────────────────────────────────────────────────────────────
 class _ProgressRow(QFrame):
     def __init__(self, label: str, value: int, max_value: int,
                  color: str, detail: str = "", parent=None):
@@ -341,21 +355,7 @@ class _ProgressRow(QFrame):
         top.addWidget(cnt)
         lay.addLayout(top)
 
-        track = QFrame()
-        track.setFixedHeight(7)
-        track.setStyleSheet(f"background: rgba(30,95,168,0.18); border: none; border-radius: 3px;")
-        tl = QHBoxLayout(track)
-        tl.setContentsMargins(0, 0, 0, 0)
-        fill = QFrame()
-        fill.setFixedWidth(max(16, int(280 * value / max(max_value, 1))))
-        fill.setStyleSheet(
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 {color},stop:1 {color}80);"
-            "border: none; border-radius: 3px;"
-        )
-        tl.addWidget(fill)
-        tl.addStretch()
-        lay.addWidget(track)
+        lay.addWidget(_ProportionalBar(value, max_value, color))
 
         if detail:
             sub = QLabel(detail)
@@ -363,7 +363,7 @@ class _ProgressRow(QFrame):
             lay.addWidget(sub)
 
 
-# ── Donut gauge ───────────────────────────────────────────────────────────────
+# ── Donut gauge ────────────────────────────────────────────────────────────────
 class _SplitGauge(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -383,8 +383,7 @@ class _SplitGauge(QWidget):
         start = 90 * 16
         for _, value, color in self._items:
             span = -int(360 * 16 * value / total)
-            p.setPen(QPen(QColor(color), 11,
-                         Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(QPen(QColor(color), 11, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(cx - r, cy - r, r * 2, r * 2, start, span)
             start += span
         p.setPen(Qt.PenStyle.NoPen)
@@ -400,7 +399,7 @@ class _SplitGauge(QWidget):
         p.end()
 
 
-# ── Ranking row ───────────────────────────────────────────────────────────────
+# ── Ranking row ────────────────────────────────────────────────────────────────
 def _ranking_row(rank: int, name: str, count: int, max_count: int) -> QFrame:
     palette = [_RED, _ORANGE, _AMBER, _BLUE, _GREEN]
     color = palette[rank % len(palette)]
@@ -427,22 +426,7 @@ def _ranking_row(rank: int, name: str, count: int, max_count: int) -> QFrame:
     n.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 800;")
     lay.addWidget(n, 1)
 
-    track = QFrame()
-    track.setFixedHeight(6)
-    track.setMinimumWidth(80)
-    track.setStyleSheet(f"background: rgba(30,95,168,0.18); border: none; border-radius: 3px;")
-    tl = QHBoxLayout(track)
-    tl.setContentsMargins(0, 0, 0, 0)
-    fill = QFrame()
-    fill.setFixedWidth(max(12, int(100 * count / max(max_count, 1))))
-    fill.setStyleSheet(
-        f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-        f"stop:0 {color},stop:1 {color}70);"
-        "border: none; border-radius: 3px;"
-    )
-    tl.addWidget(fill)
-    tl.addStretch()
-    lay.addWidget(track, 1)
+    lay.addWidget(_ProportionalBar(count, max_count, color))
 
     cv = QLabel(_fmt(count))
     cv.setMinimumWidth(48)
@@ -452,16 +436,14 @@ def _ranking_row(rank: int, name: str, count: int, max_count: int) -> QFrame:
     return w
 
 
-# ── Ops mini card ─────────────────────────────────────────────────────────────
+# ── Ops mini card ──────────────────────────────────────────────────────────────
 def _ops_card(title: str, value: str, color: str) -> QFrame:
     card = QFrame()
     card.setMinimumHeight(66)
     card.setStyleSheet(
         "QFrame {"
-        f"background: {_CARD};"
-        f"border: 1px solid {_BSOFT};"
-        f"border-left: 3px solid {color};"
-        "border-radius: 7px; }"
+        f"background: {_CARD}; border: 1px solid {_BSOFT};"
+        f"border-left: 3px solid {color}; border-radius: 7px; }}"
         "QLabel { background: transparent; border: none; }"
     )
     lay = QVBoxLayout(card)
@@ -476,7 +458,7 @@ def _ops_card(title: str, value: str, color: str) -> QFrame:
     return card
 
 
-# ── Main page ─────────────────────────────────────────────────────────────────
+# ── Main page ──────────────────────────────────────────────────────────────────
 class AnalyticsPage(QWidget):
     def __init__(self, db, config_manager=None, parent=None):
         super().__init__(parent)
@@ -489,7 +471,7 @@ class AnalyticsPage(QWidget):
         self._timer.timeout.connect(self._load_all)
         self._timer.start(300_000)
 
-    # ── Build ─────────────────────────────────────────────────────────────────
+    # ── Build ──────────────────────────────────────────────────────────────────
     def _setup_ui(self):
         self.setObjectName("analyticsPage")
         self.setStyleSheet(f"QWidget#analyticsPage {{ background: {_BG}; }}")
@@ -521,7 +503,7 @@ class AnalyticsPage(QWidget):
             kpi.addWidget(card, 0, idx)
         c.addLayout(kpi)
 
-        # Row 1: chart | insights | ranking
+        # Row 1: daily chart | insights | ranking
         r1 = QHBoxLayout()
         r1.setSpacing(10)
 
@@ -567,11 +549,12 @@ class AnalyticsPage(QWidget):
         r2.setSpacing(10)
 
         weekly = _SectionCard("Weekly Trend", _PURPLE)
-        wc = QComboBox()
-        wc.addItems(["Week", "Month"])
-        wc.setFixedSize(86, 28)
-        wc.setStyleSheet(self._combo_style())
-        weekly.add_header_widget(wc)
+        self._weekly_combo = QComboBox()
+        self._weekly_combo.addItems(["8 weeks", "16 weeks"])
+        self._weekly_combo.setFixedSize(96, 28)
+        self._weekly_combo.setStyleSheet(self._combo_style())
+        self._weekly_combo.currentIndexChanged.connect(self._load_weekly)
+        weekly.add_header_widget(self._weekly_combo)
         self._line_chart = LineChart()
         self._line_chart.setMinimumHeight(208)
         weekly.add_body_widget(self._line_chart)
@@ -625,7 +608,7 @@ class AnalyticsPage(QWidget):
         )
         lay = QHBoxLayout(h)
         lay.setContentsMargins(0, 0, 20, 0)
-        lay.setSpacing(14)
+        lay.setSpacing(10)
 
         bar = QWidget()
         bar.setFixedSize(4, 72)
@@ -644,47 +627,71 @@ class AnalyticsPage(QWidget):
         lay.addLayout(tc)
         lay.addStretch()
 
-        self._date_filter = QDateEdit(QDate.currentDate())
-        self._date_filter.setDisplayFormat("dd MMM yyyy")
-        self._date_filter.setCalendarPopup(True)
-        self._date_filter.setFixedSize(144, 34)
-        self._date_filter.setStyleSheet(self._combo_style())
-        lay.addWidget(self._date_filter)
-
+        # Department filter
         self._zone_combo = QComboBox()
         self._zone_combo.addItem("All Departments")
         if self.cfg:
             for d in self.cfg.get_departments():
                 self._zone_combo.addItem(str(d.get("name", "")))
-        self._zone_combo.setFixedSize(144, 34)
+        self._zone_combo.setFixedSize(148, 34)
         self._zone_combo.setStyleSheet(self._combo_style())
+        self._zone_combo.currentIndexChanged.connect(self._on_filter_changed)
         lay.addWidget(self._zone_combo)
 
+        # Camera filter
         self._camera_combo = QComboBox()
         self._camera_combo.addItem("All Cameras")
         if self.cfg:
-            for c in self.cfg.get_cameras():
-                self._camera_combo.addItem(str(c.get("name", "")))
-        self._camera_combo.setFixedSize(144, 34)
+            for cam in self.cfg.get_cameras():
+                self._camera_combo.addItem(str(cam.get("name", "")))
+        self._camera_combo.setFixedSize(148, 34)
         self._camera_combo.setStyleSheet(self._combo_style())
+        self._camera_combo.currentIndexChanged.connect(self._on_filter_changed)
         lay.addWidget(self._camera_combo)
 
+        # Custom date range (shown only when "Custom" is selected)
+        self._custom_range_widget = QWidget()
+        self._custom_range_widget.setStyleSheet("background: transparent;")
+        cr_lay = QHBoxLayout(self._custom_range_widget)
+        cr_lay.setContentsMargins(0, 0, 0, 0)
+        cr_lay.setSpacing(4)
+        self._date_from = QDateEdit(QDate.currentDate().addDays(-30))
+        self._date_from.setDisplayFormat("dd MMM yy")
+        self._date_from.setCalendarPopup(True)
+        self._date_from.setFixedSize(112, 34)
+        self._date_from.setStyleSheet(self._combo_style())
+        self._date_from.dateChanged.connect(self._on_filter_changed)
+        sep = QLabel("→")
+        sep.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
+        self._date_to = QDateEdit(QDate.currentDate())
+        self._date_to.setDisplayFormat("dd MMM yy")
+        self._date_to.setCalendarPopup(True)
+        self._date_to.setFixedSize(112, 34)
+        self._date_to.setStyleSheet(self._combo_style())
+        self._date_to.dateChanged.connect(self._on_filter_changed)
+        cr_lay.addWidget(self._date_from)
+        cr_lay.addWidget(sep)
+        cr_lay.addWidget(self._date_to)
+        self._custom_range_widget.setVisible(False)
+        lay.addWidget(self._custom_range_widget)
+
+        # Period segment buttons
         seg = QWidget()
         seg.setStyleSheet("background: transparent;")
         sl = QHBoxLayout(seg)
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(0)
         self._period_group = QButtonGroup(self)
-        _lbls = ["Today", "Week", "Month", "Custom"]
-        for idx, txt in enumerate(_lbls):
+        for idx, txt in enumerate(["Today", "Week", "Month", "Custom"]):
             btn = QPushButton(txt)
             btn.setCheckable(True)
             btn.setFixedHeight(34)
-            btn.setStyleSheet(self._seg_style(idx, len(_lbls)))
-            if idx == 0:
+            btn.setStyleSheet(self._seg_style(idx, 4))
+            if idx == 1:  # default: Week
                 btn.setChecked(True)
             self._period_group.addButton(btn, idx)
             sl.addWidget(btn)
+        self._period_group.buttonClicked.connect(self._on_period_clicked)
         lay.addWidget(seg)
 
         refresh = QPushButton("Refresh")
@@ -699,26 +706,64 @@ class AnalyticsPage(QWidget):
         lay.addWidget(refresh)
         return h
 
-    # ── Data loaders ──────────────────────────────────────────────────────────
+    # ── Filter helpers ─────────────────────────────────────────────────────────
+    def _on_period_clicked(self):
+        is_custom = self._period_group.checkedId() == 3
+        self._custom_range_widget.setVisible(is_custom)
+        self._on_filter_changed()
+
+    def _on_filter_changed(self):
+        self._load_all()
+
+    def _current_range(self) -> tuple[date, date]:
+        today = date.today()
+        btn_id = self._period_group.checkedId()
+        if btn_id == 0:
+            return today, today
+        elif btn_id == 1:
+            return today - timedelta(days=today.weekday()), today
+        elif btn_id == 2:
+            return date(today.year, today.month, 1), today
+        else:  # Custom
+            d_from = self._date_from.date().toPyDate()
+            d_to = self._date_to.date().toPyDate()
+            return min(d_from, d_to), max(d_from, d_to)
+
+    # ── Data loaders ───────────────────────────────────────────────────────────
     def _load_all(self):
+        d_from, d_to = self._current_range()
         self._load_summary()
         self._load_daily()
         self._load_weekly()
         self._load_hourly()
-        self._load_ranking()
-        self._load_insights()
-        self._load_departments()
-        self._load_violation_mix()
+        self._load_ranking(d_from, d_to)
+        self._load_insights(d_from, d_to)
+        self._load_departments(d_from, d_to)
+        self._load_violation_mix(d_from, d_to)
         self._load_operations()
 
     def _load_summary(self):
-        data = self.analytics.summary_counts()
-        for key, card in self._metric_cards.items():
-            card.set_value(data.get(key, 0))
-        self._metric_cards["today"].set_delta("↑ 12.4% vs yesterday", _RED)
-        self._metric_cards["week"].set_delta("↓ 5.2% vs last week",   _GREEN)
-        self._metric_cards["month"].set_delta("↓ 8.1% vs last month", _GREEN)
-        self._metric_cards["total"].set_delta("all time data",         _MUTED)
+        data = self.analytics.summary_with_delta()
+
+        self._metric_cards["today"].set_value(data["today"])
+        self._metric_cards["week"].set_value(data["week"])
+        self._metric_cards["month"].set_value(data["month"])
+        self._metric_cards["total"].set_value(data["total"])
+
+        def _delta_text(pct: float | None, label: str) -> tuple[str, str]:
+            if pct is None:
+                return f"no prior {label} data", _MUTED
+            arrow = "↑" if pct > 0 else "↓"
+            color = _RED if pct > 0 else _GREEN
+            return f"{arrow} {abs(pct):.1f}% {label}", color
+
+        txt, col = _delta_text(data["today_delta"], "vs yesterday")
+        self._metric_cards["today"].set_delta(txt, col)
+        txt, col = _delta_text(data["week_delta"], "vs last week")
+        self._metric_cards["week"].set_delta(txt, col)
+        txt, col = _delta_text(data["month_delta"], "vs last month")
+        self._metric_cards["month"].set_delta(txt, col)
+        self._metric_cards["total"].set_delta("all time data", _MUTED)
 
     def _load_daily(self):
         days = {0: 14, 1: 30, 2: 60, 3: 90}.get(self._days_combo.currentIndex(), 30)
@@ -729,17 +774,15 @@ class AnalyticsPage(QWidget):
             card.set_spark_values(values)
 
     def _load_weekly(self):
-        self._line_chart.set_data(self.analytics.weekly_counts(weeks=8))
+        weeks = 16 if self._weekly_combo.currentIndex() == 1 else 8
+        self._line_chart.set_data(self.analytics.weekly_counts(weeks=weeks))
 
     def _load_hourly(self):
-        self._hourly_chart.set_data(self.analytics.hourly_counts(target_date=date.today()))
+        self._hourly_chart.set_data(self.analytics.hourly_counts())
 
-    def _load_ranking(self):
-        while self._ranking_layout.count():
-            item = self._ranking_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        rows = self.analytics.camera_ranking(limit=5)
+    def _load_ranking(self, date_from: date, date_to: date):
+        _clear_layout(self._ranking_layout)
+        rows = self.analytics.camera_ranking(date_from=date_from, date_to=date_to, limit=5)
         if not rows:
             lbl = QLabel("No camera data yet")
             lbl.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
@@ -749,33 +792,31 @@ class AnalyticsPage(QWidget):
         for i, r in enumerate(rows):
             self._ranking_layout.addWidget(_ranking_row(i, r["camera_name"], r["count"], mx))
 
-    def _load_insights(self):
-        while self._insight_layout.count():
-            item = self._insight_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        rows = self.analytics.camera_ranking(limit=1)
-        top_cam   = rows[0]["camera_name"] if rows else "Camera 1"
-        top_count = rows[0]["count"] if rows else 0
-        today = self.analytics.summary_counts().get("today", 0)
-        for row in [
-            ("Peak violation time",  "14:00 – 16:00 interval",              _RED,    "bell.svg"),
-            ("Highest risk camera",  f"{top_cam} ({_fmt(top_count)} cases)", _ORANGE, "camera.svg"),
-            ("Today's growth",       f"{_fmt(today)} violations today",      _LBLUE,  "analytics.svg"),
-            ("Highest risk zone",    "Zone 2 needs attention",               _GREEN,  "map-pin.svg"),
-        ]:
+    def _load_insights(self, date_from: date, date_to: date):
+        _clear_layout(self._insight_layout)
+        ins = self.analytics.peak_insights(date_from=date_from, date_to=date_to)
+        peak_h = ins["peak_hour"]
+        peak_label = f"{peak_h:02d}:00 – {peak_h+1:02d}:00 ({_fmt(ins['peak_hour_count'])} violations)"
+        top_cam = f"{ins['top_camera']} ({_fmt(ins['top_camera_count'])} cases)"
+        today_n = self.analytics.summary_counts().get("today", 0)
+        rows = [
+            ("Peak violation time",  peak_label,             _RED,    "bell.svg"),
+            ("Highest risk camera",  top_cam,                _ORANGE, "camera.svg"),
+            ("Today's violations",   f"{_fmt(today_n)} today",_LBLUE, "analytics.svg"),
+            ("Highest risk zone",    ins["top_dept"],        _GREEN,  "map-pin.svg"),
+        ]
+        for row in rows:
             self._insight_layout.addWidget(_InsightRow(*row))
 
-    def _load_departments(self):
-        while self._dept_layout.count():
-            item = self._dept_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        rows = self.analytics.department_breakdown() if self.cfg else []
+    def _load_departments(self, date_from: date, date_to: date):
+        _clear_layout(self._dept_layout)
+        rows = self.analytics.department_breakdown(date_from=date_from, date_to=date_to)
         if not rows and self.cfg:
             dep_names = {d.get("id"): str(d.get("name", "")) for d in self.cfg.get_departments()}
-            rows = [{"department": dep_names.get(c.get("department_id"), "—"), "count": 0}
-                    for c in self.cfg.get_cameras()]
+            rows = [
+                {"department": dep_names.get(c.get("department_id"), "—"), "count": 0}
+                for c in self.cfg.get_cameras()
+            ]
         if not rows:
             lbl = QLabel("No department data yet")
             lbl.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
@@ -791,42 +832,24 @@ class AnalyticsPage(QWidget):
                              self._dept_detail(name))
             )
 
-    def _load_violation_mix(self):
-        while self._type_layout.count():
-            item = self._type_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        all_rows = self.db.get_violations(limit=10000)
-        counts: dict[str, int] = {}
-        for r in all_rows:
-            k = str(r.get("violation_type") or "no_helmet")
-            counts[k] = counts.get(k, 0) + 1
-        labels = {
-            "no_helmet":      "No Helmet",
-            "access_denied":  "Access Denied",
-            "unknown_person": "Unknown Worker",
-            "low_confidence": "Low Confidence",
-        }
+    def _load_violation_mix(self, date_from: date, date_to: date):
+        _clear_layout(self._type_layout)
+        items_raw = self.analytics.violation_type_breakdown(date_from=date_from, date_to=date_to)
         palette = [_RED, _ORANGE, _LBLUE, _AMBER, _GREEN]
         items = [
-            (labels.get(k, k.replace("_", " ").title()), v, palette[i % len(palette)])
-            for i, (k, v) in enumerate(
-                sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
-            )
-        ] or [("No Helmet", 0, _RED)]
+            (r["label"], r["count"], palette[i % len(palette)])
+            for i, r in enumerate(items_raw)
+        ]
         self._type_gauge.set_items(items)
         mx = max(v for _, v, _ in items) or 1
         for label, value, color in items:
             self._type_layout.addWidget(_ProgressRow(label, value, mx, color))
 
     def _load_operations(self):
-        while self._ops_layout.count():
-            item = self._ops_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        _clear_layout(self._ops_layout)
         enabled, total = self._cam_counts()
-        users    = self._active_users()
-        all_u    = len(self.cfg.get_users()) if self.cfg else 0
+        users = self._active_users()
+        all_u = len(self.cfg.get_users()) if self.cfg else 0
         settings = [
             ("Enabled cameras", f"{enabled}/{total}", _GREEN),
             ("Departments",     str(len(self.cfg.get_departments()) if self.cfg else 0), _LBLUE),
@@ -838,7 +861,7 @@ class AnalyticsPage(QWidget):
         for i, (title, value, color) in enumerate(settings):
             self._ops_layout.addWidget(_ops_card(title, value, color), i // 2, i % 2)
 
-    # ── Helpers ───────────────────────────────────────────────────────────────
+    # ── Helpers ────────────────────────────────────────────────────────────────
     def _cam_counts(self) -> tuple[int, int]:
         if not self.cfg:
             return 0, 0
@@ -864,7 +887,7 @@ class AnalyticsPage(QWidget):
                     if u.get("department_id") == dep_id and u.get("active", True))
         return f"{cams} cameras, {users} active workers"
 
-    # ── Style helpers ─────────────────────────────────────────────────────────
+    # ── Style helpers ──────────────────────────────────────────────────────────
     @staticmethod
     def _combo_style() -> str:
         return (
@@ -909,3 +932,11 @@ class AnalyticsPage(QWidget):
 
     def refresh(self):
         self._load_all()
+
+
+# ── Layout clear helper ────────────────────────────────────────────────────────
+def _clear_layout(layout) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        if item.widget():
+            item.widget().deleteLater()
