@@ -165,9 +165,9 @@ class DashboardPage(
         self._recent_violations.insert(0, data)
         if len(self._recent_violations) > self._max_recent:
             self._recent_violations.pop()
-        self._rebuild_recent_events()
-        self._rebuild_detected_people()
-        self._rebuild_no_helmet()
+        QTimer.singleShot(0, self._rebuild_recent_events)
+        QTimer.singleShot(0, self._rebuild_detected_people)
+        QTimer.singleShot(0, self._rebuild_no_helmet)
         today = data.get("today_count")
         if today is not None:
             if hasattr(self, "_detections_today_lbl"):

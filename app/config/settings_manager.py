@@ -101,6 +101,13 @@ DEFAULT_SETTINGS = {
 
     # Tracker
     "tracker_config": "",
+    "tracking_strictness": "balanced",
+    "tracker_iou_threshold": 0.15,
+    "tracker_center_threshold": 1.25,
+    "tracker_max_age": 150,
+    "tracker_min_hits": 3,
+    "helmet_status_window": 8,
+    "helmet_status_threshold": 5,
 }
 
 

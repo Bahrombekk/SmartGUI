@@ -70,7 +70,18 @@ class DetectionWorker(QThread):
         self._cam_id: int = id(self)   # unique per worker
 
         # Tracker
-        self._tracker = IoUTracker(iou_thresh=0.15, max_age=150)
+        preset = str(self.cfg.get("tracking_strictness", "balanced")).lower()
+        preset_defaults = {
+            "stable":   {"iou": 0.12, "center": 1.55, "age": 220, "hits": 4},
+            "balanced": {"iou": 0.15, "center": 1.25, "age": 150, "hits": 3},
+            "fast":     {"iou": 0.20, "center": 0.95, "age": 80,  "hits": 2},
+        }.get(preset, {"iou": 0.15, "center": 1.25, "age": 150, "hits": 3})
+        self._tracker = IoUTracker(
+            iou_thresh=float(self.cfg.get("tracker_iou_threshold", preset_defaults["iou"])),
+            center_thresh=float(self.cfg.get("tracker_center_threshold", preset_defaults["center"])),
+            max_age=int(self.cfg.get("tracker_max_age", preset_defaults["age"])),
+            min_hits=int(self.cfg.get("tracker_min_hits", preset_defaults["hits"])),
+        )
         self._last_persons: list[dict] = []
         self._last_result_ts: float | None = None  # oxirgi qayta ishlangan result
 
@@ -79,7 +90,9 @@ class DetectionWorker(QThread):
         self._green_class_ids = set(int(x) for x in self.cfg.get("helmet_class_ids", [1]))
         self._red_class_ids   = set(int(x) for x in self.cfg.get("no_helmet_class_ids", [2]))
         self._box_pad         = int(self.cfg.get("class0_box_pad", 50))
-        self._track_statuses: dict[int, str] = {}  # track_id -> "green"|"red"|"yellow"
+        self._helmet_status_window = max(3, int(self.cfg.get("helmet_status_window", 50)))
+        self._helmet_status_threshold = max(1, int(self.cfg.get("helmet_status_threshold", 30)))
+        self._track_statuses: dict[int, deque[str]] = {}
 
         # FPS
         self._frame_count   = 0
@@ -90,6 +103,7 @@ class DetectionWorker(QThread):
         # Violations
         self._today_count         = 0
         self._saved_violations:   set[tuple[int, str]] = set()
+        self._spatial_violations: deque[dict] = deque(maxlen=256)
         self._no_helmet_frames:   dict[int, int] = {}
         self._access_frames:      dict[int, int] = {}
         self._save_queue: Queue[dict | None] = Queue(
@@ -184,16 +198,26 @@ class DetectionWorker(QThread):
         }
 
         for p in tracked:
-            tid    = p["track_id"]
-            cached = self._track_statuses.get(tid)
-            if cached in ("green", "red"):
-                p["has_helmet"] = (cached == "green")
+            tid = p["track_id"]
+            padded = self._pad_box(p["box"], self._box_pad)
+            status = self._inner_status(padded, green_boxes, red_boxes)
+            history = self._track_statuses.setdefault(
+                tid, deque(maxlen=self._helmet_status_window)
+            )
+            if status in ("green", "red"):
+                history.append(status)
+
+            green = sum(1 for item in history if item == "green")
+            red = sum(1 for item in history if item == "red")
+            total = green + red
+            # Class 1 ishonchli: agar 5%+ green bo'lsa — shlem bor (class 2 adashsa ham)
+            if total > 0 and (green / total) > 0.05:
+                p["has_helmet"] = True
+            elif red >= self._helmet_status_threshold and red > green:
+                p["has_helmet"] = False
             else:
-                padded = self._pad_box(p["box"], self._box_pad)
-                status = self._inner_status(padded, green_boxes, red_boxes)
-                if status != "yellow":
-                    self._track_statuses[tid] = status
-                p["has_helmet"] = True if status == "green" else (False if status == "red" else None)
+                p["has_helmet"] = None
+            p["helmet_status_votes"] = {"green": green, "red": red, "raw": status}
 
         return tracked
 
@@ -202,6 +226,8 @@ class DetectionWorker(QThread):
         return [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad]
 
     def _inner_status(self, person_box: list, green_boxes: list, red_boxes: list) -> str:
+        # Class 1 (helmet/yashil) ustun: agar class 1 va class 2 bir vaqtda aniqlansa,
+        # class 1 g'olib — shlemsiz xulosa chiqarmaydi.
         for box in green_boxes:
             if self._box_overlaps(person_box, box):
                 return "green"
@@ -229,11 +255,16 @@ class DetectionWorker(QThread):
         }
         for p in persons:
             tid = p["track_id"]
+            if not p.get("track_confirmed", True):
+                self._no_helmet_frames[tid] = 0
+                p["is_new_violation"] = False
+                continue
             if p.get("has_helmet") is False:
                 self._no_helmet_frames[tid] = self._no_helmet_frames.get(tid, 0) + 1
                 p["is_new_violation"] = (
                     self._no_helmet_frames[tid] == threshold
                     and (tid, "no_helmet") not in self._saved_violations
+                    and not self._is_spatial_duplicate(p, "no_helmet")
                 )
             else:
                 self._no_helmet_frames[tid] = 0
@@ -244,6 +275,9 @@ class DetectionWorker(QThread):
         if self.faceid_service is None:
             return None
         tid = person.get("track_id", -1)
+        if not person.get("track_confirmed", True):
+            self._access_frames[tid] = 0
+            return None
         if (tid, "unknown_person") in self._saved_violations or (tid, "unauthorized_area") in self._saved_violations:
             return None
 
@@ -383,9 +417,10 @@ class DetectionWorker(QThread):
     def _handle_violation(self, frame: np.ndarray, person: dict, violation_type: str = "no_helmet"):
         tid = person.get("track_id", -1)
         key = (tid, violation_type)
-        if key in self._saved_violations:
+        if key in self._saved_violations or self._is_spatial_duplicate(person, violation_type):
             return
         self._saved_violations.add(key)
+        self._remember_spatial_violation(person, violation_type)
         try:
             self._save_queue.put_nowait({
                 "track_id": tid,
@@ -402,6 +437,44 @@ class DetectionWorker(QThread):
         except Full:
             self._saved_violations.discard(key)
             self.error_occurred.emit("Buzilish saqlash navbati to'lib qoldi")
+
+    @staticmethod
+    def _box_center_size(person: dict) -> tuple[float, float, float]:
+        box = person.get("box", person.get("bbox_xyxy", []))
+        if len(box) != 4:
+            return 0.0, 0.0, 1.0
+        cx = (float(box[0]) + float(box[2])) * 0.5
+        cy = (float(box[1]) + float(box[3])) * 0.5
+        w = max(1.0, float(box[2]) - float(box[0]))
+        h = max(1.0, float(box[3]) - float(box[1]))
+        return cx, cy, max(w, h)
+
+    def _prune_spatial_violations(self, now: float):
+        cooldown = float(self.cfg.get("violation_cooldown", 10))
+        while self._spatial_violations and now - float(self._spatial_violations[0]["ts"]) > cooldown:
+            self._spatial_violations.popleft()
+
+    def _is_spatial_duplicate(self, person: dict, violation_type: str) -> bool:
+        now = time.time()
+        self._prune_spatial_violations(now)
+        cx, cy, size = self._box_center_size(person)
+        max_dist = max(48.0, size * 0.65)
+        for item in self._spatial_violations:
+            if item["type"] != violation_type:
+                continue
+            dist = ((cx - item["cx"]) ** 2 + (cy - item["cy"]) ** 2) ** 0.5
+            if dist <= max_dist:
+                return True
+        return False
+
+    def _remember_spatial_violation(self, person: dict, violation_type: str):
+        cx, cy, _ = self._box_center_size(person)
+        self._spatial_violations.append({
+            "ts": time.time(),
+            "type": violation_type,
+            "cx": cx,
+            "cy": cy,
+        })
 
     # ── Yordamchi metodlar ────────────────────────────────────────────────
 
@@ -620,6 +693,7 @@ class DetectionWorker(QThread):
 
         self._tracker.reset()
         self._track_statuses.clear()
+        self._spatial_violations.clear()
         self._stop_violation_writer()
         self.status_changed.emit("To'xtatildi")
 

@@ -1891,6 +1891,45 @@ class SettingsPage(QWidget):
         self._queue_size_spin.setFixedWidth(90)
         g.addWidget(self._queue_size_spin)
 
+        g.addWidget(self._hsep())
+        tracking_title = QLabel("Tracking stability")
+        tracking_title.setStyleSheet(f"color: {C('accent_light')}; font-size: 13px; font-weight: 900;")
+        g.addWidget(tracking_title)
+
+        g.addWidget(self._form_label("Tracking strictness:"))
+        self._tracking_preset_combo = QComboBox()
+        self._tracking_preset_combo.addItems(["Stable", "Balanced", "Fast"])
+        self._tracking_preset_combo.setFixedWidth(130)
+        g.addWidget(self._tracking_preset_combo)
+
+        g.addWidget(self._form_label("ID hold frames:"))
+        self._tracker_age_spin = QSpinBox()
+        self._tracker_age_spin.setRange(30, 400)
+        self._tracker_age_spin.setFixedWidth(90)
+        g.addWidget(self._tracker_age_spin)
+
+        g.addWidget(self._form_label("Minimum hits for stable ID:"))
+        self._tracker_hits_spin = QSpinBox()
+        self._tracker_hits_spin.setRange(1, 10)
+        self._tracker_hits_spin.setFixedWidth(90)
+        g.addWidget(self._tracker_hits_spin)
+
+        g.addWidget(self._form_label("Helmet vote window / threshold:"))
+        helmet_row = QHBoxLayout()
+        self._helmet_window_spin = QSpinBox()
+        self._helmet_window_spin.setRange(3, 20)
+        self._helmet_window_spin.setFixedWidth(80)
+        helmet_row.addWidget(self._helmet_window_spin)
+        self._helmet_threshold_spin = QSpinBox()
+        self._helmet_threshold_spin.setRange(1, 20)
+        self._helmet_threshold_spin.setFixedWidth(80)
+        helmet_row.addWidget(self._helmet_threshold_spin)
+        note = QLabel("ko'pchilik vote = kamroq adashish")
+        note.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
+        helmet_row.addWidget(note)
+        helmet_row.addStretch()
+        g.addLayout(helmet_row)
+
         lay.addWidget(card)
         lay.addStretch()
         return page
@@ -1972,6 +2011,13 @@ class SettingsPage(QWidget):
         self._batch_spin.setValue(int(c.get("inference_batch_size", 3)))
         self._cams_per_model_spin.setValue(int(c.get("cameras_per_model", 3)))
         self._queue_size_spin.setValue(int(c.get("violation_save_queue_size", 64)))
+        preset = str(c.get("tracking_strictness", "balanced")).title()
+        idx = self._tracking_preset_combo.findText(preset)
+        self._tracking_preset_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        self._tracker_age_spin.setValue(int(c.get("tracker_max_age", 150)))
+        self._tracker_hits_spin.setValue(int(c.get("tracker_min_hits", 3)))
+        self._helmet_window_spin.setValue(int(c.get("helmet_status_window", 8)))
+        self._helmet_threshold_spin.setValue(int(c.get("helmet_status_threshold", 5)))
         self._refresh_diagnostics()
 
     def _save(self):
@@ -2005,6 +2051,11 @@ class SettingsPage(QWidget):
             "inference_batch_size": self._batch_spin.value(),
             "cameras_per_model": self._cams_per_model_spin.value(),
             "violation_save_queue_size": self._queue_size_spin.value(),
+            "tracking_strictness": self._tracking_preset_combo.currentText().lower(),
+            "tracker_max_age": self._tracker_age_spin.value(),
+            "tracker_min_hits": self._tracker_hits_spin.value(),
+            "helmet_status_window": self._helmet_window_spin.value(),
+            "helmet_status_threshold": min(self._helmet_threshold_spin.value(), self._helmet_window_spin.value()),
         })
         self.cfg.save()
         if hasattr(self, "_restart_indicator"):

@@ -9,10 +9,11 @@ on-demand preview for the selected camera.
 from __future__ import annotations
 
 import datetime
+import threading
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal, QSize
+from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
@@ -400,6 +401,8 @@ class CameraGridArea(QWidget):
 class CameraDetailPanel(QFrame):
     close_requested = pyqtSignal()
     edit_requested = pyqtSignal()
+    _stats_loaded  = pyqtSignal(int, int)   # today_count, total_count
+    _events_loaded = pyqtSignal(list)        # events list
 
     def __init__(self, db, cfg, parent=None):
         super().__init__(parent)
@@ -411,6 +414,10 @@ class CameraDetailPanel(QFrame):
         self._preview_active = False
         self._events_ts = 0.0
         self._expanded = False
+        self._stats_loading  = False
+        self._events_loading = False
+        self._stats_loaded.connect(self._on_stats_loaded)
+        self._events_loaded.connect(self._on_events_loaded)
         self._normal_width = 520
         self._expanded_width = 1120
         self._normal_preview_height = 320
@@ -740,34 +747,55 @@ class CameraDetailPanel(QFrame):
         self._set_info(self._row_last, "Now" if ok else "No signal")
 
     def _rebuild_stats(self):
+        if self._stats_loading:
+            return
+        self._stats_loading = True
         cam = next((c for c in self._cameras if c.get("id") == self._cam_id), None)
-        today_count = 0
-        total_count = 0
-        try:
-            events = self.db.get_violations(limit=200, camera_name=cam.get("name") if cam else None)
-            today_str = datetime.date.today().isoformat()
-            today_count = sum(1 for e in events if str(e.get("created_at", "")).startswith(today_str))
-            total_count = len(events)
-        except Exception:
-            pass
+        cam_name = cam.get("name") if cam else None
+
+        def _fetch():
+            try:
+                events = self.db.get_violations(limit=200, camera_name=cam_name)
+                today_str = datetime.date.today().isoformat()
+                today_count = sum(1 for e in events if str(e.get("created_at", "")).startswith(today_str))
+                total_count = len(events)
+            except Exception:
+                today_count, total_count = 0, 0
+            finally:
+                self._stats_loading = False
+            self._stats_loaded.emit(today_count, total_count)
+
+        threading.Thread(target=_fetch, daemon=True, name="DetailStatsLoad").start()
+
+    def _on_stats_loaded(self, today_count: int, total_count: int):
         self._chip_value(self._today_chip, str(today_count), ACCENT if today_count else MUTED)
         self._chip_value(self._total_chip, str(total_count), TEXT_2)
 
     def _rebuild_events(self):
         now = time.monotonic()
-        if now - self._events_ts < 1.0:
+        if now - self._events_ts < 1.0 or self._events_loading:
             return
         self._events_ts = now
+        self._events_loading = True
+        cam = next((c for c in self._cameras if c.get("id") == self._cam_id), None)
+        cam_name = cam.get("name") if cam else None
+
+        def _fetch():
+            try:
+                events = self.db.get_violations(limit=6, camera_name=cam_name)
+            except Exception:
+                events = []
+            finally:
+                self._events_loading = False
+            self._events_loaded.emit(events)
+
+        threading.Thread(target=_fetch, daemon=True, name="DetailEventsLoad").start()
+
+    def _on_events_loaded(self, events: list):
         while self._ev_lay.count():
             item = self._ev_lay.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-
-        try:
-            cam = next((c for c in self._cameras if c.get("id") == self._cam_id), None)
-            events = self.db.get_violations(limit=6, camera_name=cam.get("name") if cam else None)
-        except Exception:
-            events = []
 
         if not events:
             empty = QLabel("No recent events for this camera")
@@ -1388,8 +1416,8 @@ class CamerasPage(QWidget):
 
     def on_violation(self, data: dict):
         if self._selected is not None and self._detail.isVisible():
-            self._detail._rebuild_events()
-            self._detail._rebuild_stats()
+            QTimer.singleShot(100, self._detail._rebuild_events)
+            QTimer.singleShot(200, self._detail._rebuild_stats)
         cam_name = data.get("camera_name", "")
         crop_path = data.get("crop_path") or data.get("violation_image") or data.get("image_path") or ""
         if cam_name and crop_path:

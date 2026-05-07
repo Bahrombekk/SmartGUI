@@ -50,3 +50,13 @@ Thumbs.db
 dist/
 build/
 *.spec
+
+# Training / runs
+runs/
+tests/
+train.py
+yolov8*.pt
+
+# SQLite WAL/SHM
+*.db-wal
+*.db-shm
