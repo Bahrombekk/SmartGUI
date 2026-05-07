@@ -414,61 +414,63 @@ class ViolationsDB:
         row = conn.execute("SELECT COUNT(*) as cnt FROM violations").fetchone()
         return row["cnt"] if row else 0
 
-    def get_daily_counts(self, days: int = 30) -> list[dict]:
-        """Oxirgi N kun uchun kunlik buzilishlar soni."""
-        result = []
-        today = date.today()
+    def get_count_between(self, ts_from: int, ts_to: int) -> int:
+        """Berilgan timestamp oralig'idagi buzilishlar soni."""
         conn = self._conn()
-        for i in range(days - 1, -1, -1):
-            d = today - timedelta(days=i)
-            ts_from = int(datetime.combine(d, datetime.min.time()).timestamp())
-            ts_to   = int(datetime.combine(d, datetime.max.time()).timestamp())
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM violations WHERE timestamp BETWEEN ? AND ?",
-                (ts_from, ts_to)
-            ).fetchone()
-            result.append({
-                "date":  d.strftime("%m/%d"),
-                "count": row["cnt"] if row else 0
-            })
-        return result
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM violations WHERE timestamp BETWEEN ? AND ?",
+            (ts_from, ts_to)
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+    def get_daily_counts(self, days: int = 30) -> list[dict]:
+        """Oxirgi N kun uchun kunlik buzilishlar soni. 1 ta GROUP BY query."""
+        today = date.today()
+        cutoff = today - timedelta(days=days - 1)
+        ts_from = int(datetime.combine(cutoff, datetime.min.time()).timestamp())
+        ts_to   = int(datetime.combine(today, datetime.max.time()).timestamp())
+        conn = self._conn()
+        rows = conn.execute("""
+            SELECT date(timestamp, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
+            FROM violations
+            WHERE timestamp BETWEEN ? AND ?
+            GROUP BY day
+        """, (ts_from, ts_to)).fetchall()
+        raw = {row["day"]: row["cnt"] for row in rows}
+        return [
+            {"date": (today - timedelta(days=i)).strftime("%m/%d"),
+             "count": raw.get((today - timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
+            for i in range(days - 1, -1, -1)
+        ]
 
     def get_hourly_counts(self, target_date: date = None) -> list[dict]:
-        """Berilgan kun uchun soatlik taqsimot."""
+        """Berilgan kun uchun soatlik taqsimot. 1 ta GROUP BY query."""
         if target_date is None:
             target_date = date.today()
-
         ts_from = int(datetime.combine(target_date, datetime.min.time()).timestamp())
         ts_to   = int(datetime.combine(target_date, datetime.max.time()).timestamp())
-
-        result = []
         conn = self._conn()
-        for hour in range(24):
-            h_from = ts_from + hour * 3600
-            h_to   = min(h_from + 3599, ts_to)
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM violations WHERE timestamp BETWEEN ? AND ?",
-                (h_from, h_to)
-            ).fetchone()
-            result.append({"hour": hour, "count": row["cnt"] if row else 0})
-        return result
+        rows = conn.execute("""
+            SELECT CAST(strftime('%H', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
+                   COUNT(*) AS cnt
+            FROM violations
+            WHERE timestamp BETWEEN ? AND ?
+            GROUP BY hour
+        """, (ts_from, ts_to)).fetchall()
+        raw = {row["hour"]: row["cnt"] for row in rows}
+        return [{"hour": h, "count": raw.get(h, 0)} for h in range(24)]
 
     def get_weekly_counts(self, weeks: int = 8) -> list[dict]:
         """Oxirgi N hafta uchun haftalik buzilishlar soni."""
-        result = []
         today = date.today()
-        conn = self._conn()
+        result = []
         for i in range(weeks - 1, -1, -1):
             week_end   = today - timedelta(weeks=i)
             week_start = week_end - timedelta(days=6)
             ts_from = int(datetime.combine(week_start, datetime.min.time()).timestamp())
             ts_to   = int(datetime.combine(week_end,   datetime.max.time()).timestamp())
-            row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM violations WHERE timestamp BETWEEN ? AND ?",
-                (ts_from, ts_to)
-            ).fetchone()
             result.append({
                 "week":  f"W{week_end.isocalendar()[1]}",
-                "count": row["cnt"] if row else 0
+                "count": self.get_count_between(ts_from, ts_to),
             })
         return result

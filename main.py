@@ -147,7 +147,9 @@ def main():
         try:
             window = MainWindow()
             window.show()
+            splash.finish(window)
         except Exception as e:
+            splash.close()
             import traceback, datetime
             tb = traceback.format_exc()
             log_path = BASE_DIR / "logs" / f"crash_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -164,8 +166,6 @@ def main():
                 "Sozlamalarni tekshiring va qayta urinib ko'ring."
             )
             sys.exit(1)
-        finally:
-            splash.finish(window)
 
     QTimer.singleShot(800, _open_main)
 

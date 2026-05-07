@@ -723,19 +723,21 @@ class DashboardBottomPanelsMixin:
             "border-radius: 8px;"
             "color: #60a5fa; font-size: 9px; font-weight: 800;"
         )
-        crop_path = str(v.get("crop_path", "") or "")
-        if crop_path and os.path.exists(crop_path):
-            pix = QPixmap(crop_path)
-            if not pix.isNull():
-                crop.setPixmap(
-                    pix.scaled(
-                        crop.size(),
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
+        pix = v.get("_crop_pixmap")
+        if pix is None:
+            crop_path = str(v.get("crop_path", "") or "")
+            if crop_path and os.path.exists(crop_path):
+                pix = QPixmap(crop_path) or None
+                if pix and pix.isNull():
+                    pix = None
+        if pix is not None:
+            crop.setPixmap(
+                pix.scaled(
+                    crop.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
-            else:
-                crop.setText("NO\nIMG")
+            )
         else:
             crop.setText("NO\nIMG")
         lay.addWidget(crop)
@@ -802,17 +804,21 @@ class DashboardBottomPanelsMixin:
             "background: rgba(249,115,22,0.14); border-radius: 8px; font-size: 10px;"
             "font-weight: 900; color: #fb923c; border: 1px solid rgba(249,115,22,0.50);"
         )
-        crop_path = str(v.get("crop_path", "") or "")
-        if crop_path and os.path.exists(crop_path):
-            pix = QPixmap(crop_path)
-            if not pix.isNull():
-                avatar.setPixmap(
-                    pix.scaled(
-                        avatar.size(),
-                        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                        Qt.TransformationMode.SmoothTransformation,
-                    )
+        pix = v.get("_crop_pixmap")
+        if pix is None:
+            crop_path = str(v.get("crop_path", "") or "")
+            if crop_path and os.path.exists(crop_path):
+                pix = QPixmap(crop_path)
+                if pix and pix.isNull():
+                    pix = None
+        if pix is not None:
+            avatar.setPixmap(
+                pix.scaled(
+                    avatar.size(),
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
+            )
         lay.addWidget(avatar)
 
         info = QVBoxLayout()

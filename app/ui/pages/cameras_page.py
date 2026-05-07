@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal, QSize
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -142,6 +142,15 @@ class BannerWithOverlay(QWidget):
         self._reconnect_btn.clicked.connect(self.reconnect_clicked)
         self._reconnect_btn.hide()
 
+        self._offline_badge = QLabel("OFFLINE", self)
+        self._offline_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._offline_badge.setStyleSheet(
+            "background: rgba(239,68,68,0.88); color: #fff;"
+            "border: 1px solid rgba(255,255,255,0.18); border-radius: 8px;"
+            "font-size: 12px; font-weight: 900; padding: 4px 16px;"
+        )
+        self._offline_badge.hide()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._banner.resize(self.size())
@@ -155,9 +164,22 @@ class BannerWithOverlay(QWidget):
         bw = max(self._reconnect_btn.sizeHint().width(), 110)
         self._reconnect_btn.resize(bw, 32)
         self._reconnect_btn.move((w - bw) // 2, (h - 32) // 2)
+        self._offline_badge.adjustSize()
+        ow = max(self._offline_badge.width(), 104)
+        self._offline_badge.resize(ow, 30)
+        self._offline_badge.move((w - ow) // 2, max(8, (h - 30) // 2 - 22))
 
     def set_image(self, pixmap: QPixmap):
         self._banner.set_image(pixmap)
+
+    def set_offline_visible(self, visible: bool, text: str = "OFFLINE"):
+        self._offline_badge.setText(text)
+        if visible:
+            self._offline_badge.show()
+            self._offline_badge.raise_()
+            self._reposition_overlays()
+        else:
+            self._offline_badge.hide()
 
     def set_count(self, count: int):
         if count > 0:
@@ -173,16 +195,22 @@ class BannerWithOverlay(QWidget):
         if path:
             pix = QPixmap(path)
             if not pix.isNull():
-                pix = pix.scaled(
-                    58, 44,
-                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                self._viol_thumb.setPixmap(pix)
-                self._viol_thumb.show()
-                self._viol_thumb.raise_()
+                self.set_last_violation_pixmap(pix)
                 return
         self._viol_thumb.hide()
+
+    def set_last_violation_pixmap(self, pix: QPixmap):
+        if pix and not pix.isNull():
+            pix = pix.scaled(
+                58, 44,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._viol_thumb.setPixmap(pix)
+            self._viol_thumb.show()
+            self._viol_thumb.raise_()
+        else:
+            self._viol_thumb.hide()
 
     def set_reconnect_visible(self, visible: bool):
         if visible:
@@ -282,21 +310,46 @@ class CameraGridCard(QFrame):
     def set_selected(self, selected: bool):
         self._selected = selected
         status_color = STATUS_COLORS.get(self._status, WARN)
-        selected_color = ACCENT if self._status not in {"offline", "error"} else OFFLINE
+        palette = {
+            "live": {
+                "border": "rgba(34,197,94,0.92)",
+                "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #092516,stop:1 #04140d)",
+                "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d351f,stop:1 #06190f)",
+            },
+            "offline": {
+                "border": "rgba(128,0,32,0.96)",
+                "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #24000a,stop:1 #0d0004)",
+                "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #360010,stop:1 #140006)",
+            },
+            "error": {
+                "border": "rgba(128,0,32,0.96)",
+                "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #24000a,stop:1 #0d0004)",
+                "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #360010,stop:1 #140006)",
+            },
+            "connecting": {
+                "border": "rgba(245,158,11,0.92)",
+                "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #281a07,stop:1 #100b04)",
+                "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #362309,stop:1 #160f05)",
+            },
+        }.get(self._status, {
+            "border": "rgba(30,95,168,0.85)",
+            "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0a1520,stop:1 #060e16)",
+            "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0e1d2e,stop:1 #07101a)",
+        })
         if selected:
-            border = f"2px solid {selected_color}"
-            bg = "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0f1e2e,stop:1 #07101a)"
+            border = f"2px solid {palette['border']}"
+            bg = palette["hover"]
         else:
-            border = "1px solid #1e5fa8"
-            bg = "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0a1520,stop:1 #060e16)"
+            border = f"1px solid {palette['border']}"
+            bg = palette["bg"]
         self.setStyleSheet(
             "QFrame#cameraOpsCard {"
             f"background: {bg}; border: {border}; border-radius: 10px;"
             f"border-top: 3px solid {status_color};"
             "}"
             "QFrame#cameraOpsCard:hover {"
-            "border-color: rgba(30,95,168,0.85);"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0e1d2e,stop:1 #07101a);"
+            f"border-color: {palette['border']};"
+            f"background: {palette['hover']};"
             "}"
         )
 
@@ -310,10 +363,24 @@ class CameraGridCard(QFrame):
         self._metric_value(self._today, str(detections or 0), ACCENT if detections else TEXT_2)
         self._metric_value(self._ai, "Run" if status == "live" else _status_label(status), LIVE if status == "live" else STATUS_COLORS.get(status, MUTED))
         self._banner.set_count(detections or 0)
+        offline_like = status in {"offline", "error", "connecting"}
+        self._banner.set_offline_visible(offline_like, "OFFLINE" if status in {"offline", "error"} else "NO SIGNAL")
         self._banner.set_reconnect_visible(status in {"offline", "error"})
+
+    def set_preview_frame(self, frame):
+        pix = QPixmap()
+        if isinstance(frame, QImage):
+            pix = QPixmap.fromImage(frame)
+        elif isinstance(frame, QPixmap):
+            pix = frame
+        if not pix.isNull():
+            self._banner.set_image(pix)
 
     def set_last_violation(self, path: str):
         self._banner.set_last_violation(path)
+
+    def set_last_violation_pixmap(self, pix: QPixmap):
+        self._banner.set_last_violation_pixmap(pix)
 
     def mousePressEvent(self, event):
         self.clicked.emit(self.cam_id)
@@ -330,6 +397,11 @@ class CameraGridCard(QFrame):
 
     def _banner_pixmap(self) -> QPixmap:
         root = Path(__file__).resolve().parents[3]
+        requested = root / "images" / "image.png"
+        if requested.exists():
+            pix = QPixmap(str(requested))
+            if not pix.isNull():
+                return pix
         snapshots = sorted((root / "screenshots" / "camera_snapshots").glob("*.jpg"))
         if snapshots:
             index = max(0, self.cam_id - 1) % len(snapshots)
@@ -412,6 +484,7 @@ class CameraDetailPanel(QFrame):
         self._cam_id: int | None = None
         self._cameras: list[dict] = []
         self._preview_active = False
+        self._last_frame: QImage | None = None
         self._events_ts = 0.0
         self._expanded = False
         self._stats_loading  = False
@@ -598,6 +671,7 @@ class CameraDetailPanel(QFrame):
                 border-color: rgba(249,115,22,0.80);
             }
         """)
+        self._shot_btn.clicked.connect(self._save_snapshot)
         c.addWidget(self._prev_btn)
         c.addWidget(self._shot_btn)
         c.addStretch()
@@ -698,6 +772,7 @@ class CameraDetailPanel(QFrame):
         self._video._has_frame = False
         self._video.clear()
         self._video.setText("Preview")
+        self._last_frame = None
         self._events_ts = 0.0
         self._rebuild_stats()
         self._rebuild_events()
@@ -721,6 +796,8 @@ class CameraDetailPanel(QFrame):
             self._video.show_error()
 
     def set_frame(self, frame):
+        if isinstance(frame, QImage):
+            self._last_frame = frame.copy()
         if self._preview_active:
             self._video.set_frame(frame)
 
@@ -736,6 +813,20 @@ class CameraDetailPanel(QFrame):
             self._video._has_frame = False
             self._video.clear()
             self._video.setText("Preview")
+
+    def _save_snapshot(self):
+        if self._cam_id is None or self._last_frame is None or self._last_frame.isNull():
+            self._shot_btn.setText("No frame")
+            QTimer.singleShot(1200, lambda: self._shot_btn.setText("Snapshot"))
+            return
+
+        root = Path(__file__).resolve().parents[3]
+        shot_dir = root / "screenshots" / "camera_snapshots"
+        shot_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = shot_dir / f"camera_{self._cam_id}_{ts}.jpg"
+        self._shot_btn.setText("Saved" if self._last_frame.save(str(path), "JPEG", 95) else "Save failed")
+        QTimer.singleShot(1400, lambda: self._shot_btn.setText("Snapshot"))
 
     def _update_health(self, stats: dict):
         fps = float(stats.get("fps") or 0)
@@ -1049,6 +1140,7 @@ class CamerasPage(QWidget):
         self._cards: dict[int, CameraGridCard] = {}
         self._status: dict[int, str] = {}
         self._stats: dict[int, dict] = {}
+        self._latest_frames: dict[int, QImage] = {}
         self._selected: int | None = None
         self._filter = "all"
         self._grid_columns = max(3, self.cfg.get("cameras_grid_columns", 4) if self.cfg else 4)
@@ -1361,6 +1453,7 @@ class CamerasPage(QWidget):
         self._cameras = list(cameras)
         self._status = {c.get("id"): "connecting" for c in cameras}
         self._stats.clear()
+        self._latest_frames.clear()
         self._cards.clear()
         self._selected = None
         self._detail.hide()
@@ -1377,6 +1470,9 @@ class CamerasPage(QWidget):
         self._render_grid()
 
     def update_frame(self, cam_id: int, frame):
+        if isinstance(frame, QImage):
+            if cam_id not in self._latest_frames:
+                self._latest_frames[cam_id] = frame.copy()
         if cam_id == self._selected:
             self._detail.set_frame(frame)
 
@@ -1396,8 +1492,22 @@ class CamerasPage(QWidget):
             self._detail.update_status(new_status, stats)
 
     def on_status(self, cam_id: int, text: str):
-        if "ulan" in (text or "").lower():
-            self._status[cam_id] = "connecting"
+        text_l = (text or "").lower()
+        if "ulangan" in text_l:
+            status = "live"
+        elif "ulanmoqda" in text_l or "qayta" in text_l or "yuklanmoqda" in text_l:
+            status = "connecting"
+        else:
+            return
+
+        self._status[cam_id] = status
+        card = self._cards.get(cam_id)
+        if card:
+            stats = self._stats.get(cam_id, {})
+            card.set_status(status, stats.get("fps", 0.0), stats.get("today_count", 0), stats.get("ping_ms"))
+        if cam_id == self._selected:
+            self._detail.update_status(status, self._stats.get(cam_id, {}))
+        self._update_counts()
 
     def on_error(self, cam_id: int, _msg: str):
         self._status[cam_id] = "error"
@@ -1419,13 +1529,22 @@ class CamerasPage(QWidget):
             QTimer.singleShot(100, self._detail._rebuild_events)
             QTimer.singleShot(200, self._detail._rebuild_stats)
         cam_name = data.get("camera_name", "")
-        crop_path = data.get("crop_path") or data.get("violation_image") or data.get("image_path") or ""
-        if cam_name and crop_path:
-            cam = next((c for c in self._cameras if c.get("name") == cam_name), None)
-            if cam:
-                card = self._cards.get(cam.get("id"))
-                if card:
-                    card.set_last_violation(str(crop_path))
+        if not cam_name:
+            return
+        cam = next((c for c in self._cameras if c.get("name") == cam_name), None)
+        if not cam:
+            return
+        card = self._cards.get(cam.get("id"))
+        if not card:
+            return
+        # _crop_pixmap mavjud bo'lsa diskdan o'qimaydi (main thread bloklanmaydi)
+        pix = data.get("_crop_pixmap")
+        if pix is not None and not pix.isNull():
+            card.set_last_violation_pixmap(pix)
+        else:
+            crop_path = data.get("crop_path") or data.get("violation_image") or data.get("image_path") or ""
+            if crop_path:
+                card.set_last_violation(str(crop_path))
 
     def _set_filter(self, key: str):
         self._filter = key
@@ -1457,7 +1576,7 @@ class CamerasPage(QWidget):
         if self._filter == "live":
             return status == "live"
         if self._filter == "offline":
-            return status in {"offline", "error"}
+            return status in {"offline", "error", "connecting"}
         if self._filter.startswith("dep:"):
             return str(cam.get("department_id")) == self._filter.split(":", 1)[1]
         return True
@@ -1484,6 +1603,9 @@ class CamerasPage(QWidget):
             card = CameraGridCard(cam, self._dept_name(cam.get("department_id")))
             card.clicked.connect(self._select_camera)
             card.reconnect_requested.connect(self._on_reconnect_requested)
+            latest = self._latest_frames.get(cid)
+            if latest is not None and not (self._icon_dir / "image.png").exists():
+                card.set_preview_frame(latest)
             stats = self._stats.get(cid, {})
             card.set_status(
                 self._status.get(cid, "connecting"),

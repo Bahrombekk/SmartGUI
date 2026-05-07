@@ -15,12 +15,15 @@ class AnalyticsService:
 
     def summary_counts(self) -> dict:
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())
+        week_start  = today - timedelta(days=today.weekday())
         month_start = date(today.year, today.month, 1)
+        def _ts(d: date, end: bool = False):
+            t = datetime.max.time() if end else datetime.min.time()
+            return int(datetime.combine(d, t).timestamp())
         return {
-            "today": len(self.db.get_violations(date_from=today, date_to=today, limit=10000)),
-            "week":  len(self.db.get_violations(date_from=week_start, date_to=today, limit=10000)),
-            "month": len(self.db.get_violations(date_from=month_start, date_to=today, limit=10000)),
+            "today": self.db.get_today_count(),
+            "week":  self.db.get_count_between(_ts(week_start),  _ts(today, end=True)),
+            "month": self.db.get_count_between(_ts(month_start), _ts(today, end=True)),
             "total": self.db.get_total_count(),
         }
 
@@ -139,17 +142,28 @@ class AnalyticsService:
         rows = self.db.get_violations(date_from=date_from, date_to=date_to, limit=10000)
 
         hour_counts: Counter = Counter()
+        cam_counts:  Counter = Counter()
         for r in rows:
             ts = r.get("timestamp") or 0
             if ts:
                 hour_counts[datetime.fromtimestamp(ts).hour] += 1
+            cam_counts[str(r.get("camera_name") or "Unknown")] += 1
 
-        cam_counts = Counter(str(r.get("camera_name") or "Unknown") for r in rows)
-        dept_data = self.department_breakdown(date_from=date_from, date_to=date_to)
+        # Bo'lim statistikasi — mavjud rows dan hisoblash (qayta query yo'q)
+        departments = self.cfg.get_departments() if self.cfg else []
+        cameras     = self.cfg.get_cameras()     if self.cfg else []
+        dep_names   = {dep.get("id"): dep.get("name", "Bo'lim") for dep in departments}
+        cam_to_dep  = {
+            str(cam.get("name") or ""): dep_names.get(cam.get("department_id"), "Bo'limsiz")
+            for cam in cameras
+        }
+        dep_counts: Counter = Counter()
+        for cam_name, cnt in cam_counts.items():
+            dep_counts[cam_to_dep.get(cam_name, "Bo'limsiz")] += cnt
 
-        peak_h, peak_h_cnt = hour_counts.most_common(1)[0] if hour_counts else (14, 0)
-        top_cam, top_cam_cnt = cam_counts.most_common(1)[0] if cam_counts else ("—", 0)
-        top_dept = dept_data[0]["department"] if dept_data else "—"
+        peak_h,   peak_h_cnt  = hour_counts.most_common(1)[0] if hour_counts else (14, 0)
+        top_cam,  top_cam_cnt = cam_counts.most_common(1)[0]  if cam_counts  else ("—", 0)
+        top_dept  = dep_counts.most_common(1)[0][0]           if dep_counts  else "—"
 
         return {
             "peak_hour":        peak_h,

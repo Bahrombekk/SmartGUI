@@ -61,6 +61,11 @@ class DashboardPage(
         self._refresh_timer.timeout.connect(self._refresh_stats)
         self._refresh_timer.start(30_000)
 
+        # 2 ta kamera bir vaqtda violation yuborsa rebuild faqat bir marta bajariladi
+        self._viol_rebuild_timer = QTimer(self)
+        self._viol_rebuild_timer.setSingleShot(True)
+        self._viol_rebuild_timer.timeout.connect(self._do_violation_rebuild)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, "_visible_cameras"):
@@ -165,15 +170,20 @@ class DashboardPage(
         self._recent_violations.insert(0, data)
         if len(self._recent_violations) > self._max_recent:
             self._recent_violations.pop()
-        QTimer.singleShot(0, self._rebuild_recent_events)
-        QTimer.singleShot(0, self._rebuild_detected_people)
-        QTimer.singleShot(0, self._rebuild_no_helmet)
+        # 2 ta kamera bir vaqtda yuborsayam rebuild faqat bir marta (30ms debounce)
+        if not self._viol_rebuild_timer.isActive():
+            self._viol_rebuild_timer.start(30)
         today = data.get("today_count")
         if today is not None:
             if hasattr(self, "_detections_today_lbl"):
                 self._detections_today_lbl.setText(str(today))
             if hasattr(self, "_no_helmet_today_lbl"):
                 self._no_helmet_today_lbl.setText(str(today))
+
+    def _do_violation_rebuild(self):
+        self._rebuild_recent_events()
+        self._rebuild_detected_people()
+        self._rebuild_no_helmet()
 
     def on_stats(self, cam_id: int, stats: dict):
         p = self._panels.get(cam_id)

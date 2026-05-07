@@ -172,8 +172,9 @@ class DetectionWorker(QThread):
         if not bool(self.cfg.get("faceid_enabled", False) or self.cfg.get("access_roster_enabled", False)):
             return
         try:
-            self.faceid_service = FaceIdService(self.db, self.cfg)
-            self.faceid_service.enroll_from_settings_users()
+            svc = FaceIdService(self.db, self.cfg)
+            svc.enroll_from_settings_users()
+            self.faceid_service = svc
         except Exception as e:
             self.faceid_service = None
             self.error_occurred.emit(f"FaceID tayyorlanmadi: {e}")
@@ -217,7 +218,6 @@ class DetectionWorker(QThread):
                 p["has_helmet"] = False
             else:
                 p["has_helmet"] = None
-            p["helmet_status_votes"] = {"green": green, "red": red, "raw": status}
 
         return tracked
 
@@ -405,7 +405,8 @@ class DetectionWorker(QThread):
                 self._today_count = self.db.get_today_count()
                 payload = event.to_payload()
                 payload["today_count"] = self._today_count
-                self.violation_detected.emit(payload)
+                if self._running:
+                    self.violation_detected.emit(payload)
             except Exception as e:
                 tid = int(item.get("track_id", -1))
                 if tid >= 0:

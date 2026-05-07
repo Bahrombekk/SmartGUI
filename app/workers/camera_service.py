@@ -106,8 +106,8 @@ class DetectorGroup(threading.Thread):
             self.model.to(device)
             try:
                 self.model.fuse()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[DetectorGroup-{group_id}] model.fuse() bajarilmadi: {e}")
 
         # Cache
         self._results: dict[int, DetectionResult] = {

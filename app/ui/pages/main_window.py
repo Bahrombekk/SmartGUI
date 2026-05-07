@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QApplication, QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QPainter, QBrush, QShortcut
+from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QImage, QPainter, QBrush, QShortcut
 
 from app.config.settings_manager import ConfigManager, CameraConfigProxy
 from app.bootstrap.startup_checks import run_startup_checks
@@ -467,6 +467,7 @@ class MainWindow(QMainWindow):
         self._dashboard.add_camera_requested.connect(self._open_settings)
         self._cameras.add_camera_requested.connect(self._open_settings)
         self._cameras.departments_changed.connect(self._on_departments_changed)
+        self._cameras.reconnect_requested.connect(self._restart_camera)
         self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
         self._settings.settings_saved.connect(self._on_settings_saved)
 
@@ -559,6 +560,41 @@ class MainWindow(QMainWindow):
 
     # ── Ko'p kamera worker boshqaruvi ─────────────────────────────────────
 
+    def _start_camera_worker(self, cam: dict) -> bool:
+        cam_id = cam.get("id")
+        if cam_id in self._workers and self._workers[cam_id].isRunning():
+            return False
+
+        proxy = CameraConfigProxy(self.cfg, cam)
+        worker = DetectionWorker(proxy, self.db)
+
+        worker.frame_ready.connect(
+            lambda frame, cid=cam_id: self._dashboard.update_frame(cid, frame)
+        )
+        worker.frame_ready.connect(
+            lambda frame, cid=cam_id: self._cameras.update_frame(cid, frame)
+        )
+        worker.violation_detected.connect(self._on_violation)
+        worker.stats_updated.connect(
+            lambda stats, cid=cam_id: self._on_stats(cid, stats)
+        )
+        worker.status_changed.connect(
+            lambda text, cid=cam_id: self._on_status(cid, text)
+        )
+        worker.error_occurred.connect(
+            lambda msg, cid=cam_id: self._on_error(cid, msg)
+        )
+        worker.model_loaded.connect(
+            lambda cid=cam_id: self._dashboard.on_model_loaded(cid)
+        )
+        worker.model_loaded.connect(
+            lambda cid=cam_id: self._cameras.on_model_loaded(cid)
+        )
+
+        worker.start()
+        self._workers[cam_id] = worker
+        return True
+
     def _start_all_cameras(self):
         cameras = self.cfg.get_enabled_cameras()
         if not cameras:
@@ -571,49 +607,18 @@ class MainWindow(QMainWindow):
             self._sb_status.setText(f"{len(cameras)} ta kameraga ulanmoqda...")
 
         for cam in cameras:
-            cam_id = cam.get("id")
-            if cam_id in self._workers and self._workers[cam_id].isRunning():
-                continue
-
-            proxy  = CameraConfigProxy(self.cfg, cam)
-            worker = DetectionWorker(proxy, self.db)
-
-            worker.frame_ready.connect(
-                lambda frame, cid=cam_id: self._dashboard.update_frame(cid, frame)
-            )
-            worker.frame_ready.connect(
-                lambda frame, cid=cam_id: self._cameras.update_frame(cid, frame)  # faqat detail panel uchun
-            )
-            worker.violation_detected.connect(self._on_violation)
-            worker.stats_updated.connect(
-                lambda stats, cid=cam_id: self._on_stats(cid, stats)
-            )
-            worker.status_changed.connect(
-                lambda text, cid=cam_id: self._on_status(cid, text)
-            )
-            worker.error_occurred.connect(
-                lambda msg, cid=cam_id: self._on_error(cid, msg)
-            )
-            worker.model_loaded.connect(
-                lambda cid=cam_id: self._dashboard.on_model_loaded(cid)
-            )
-            worker.model_loaded.connect(
-                lambda cid=cam_id: self._cameras.on_model_loaded(cid)
-            )
-
-            worker.start()
-            self._workers[cam_id] = worker
+            self._start_camera_worker(cam)
 
         self._navbar.set_pause_enabled(True)
         self._update_cam_badge()
 
     def _stop_all_cameras(self):
         running = [w for w in self._workers.values() if w and w.isRunning()]
+        # Hammani bir vaqtda to'xtatish: avval bayroqni o'chiramiz, keyin parallel kutamiz
         for w in running:
-            w.stop()
-        # Qisqa kutish: UI ni bloklamaslik uchun (avval 1500ms edi)
+            w._running = False
         for w in running:
-            w.wait(300)
+            w.wait(600)
         self._workers.clear()
         self._persons_per_cam.clear()
         self._navbar.set_pause_enabled(False)
@@ -645,6 +650,20 @@ class MainWindow(QMainWindow):
         self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
         QTimer.singleShot(500, self._start_all_cameras)
+
+    def _restart_camera(self, cam_id: int):
+        worker = self._workers.pop(cam_id, None)
+        if worker and worker.isRunning():
+            worker.stop()
+
+        cam = self.cfg.get_camera_by_id(cam_id)
+        if not cam or not cam.get("enabled", True):
+            self._sb_status.setText(f"CAM {cam_id:02d}: kamera faol emas")
+            return
+
+        self._sb_status.setText(f"CAM {cam_id:02d}: qayta ulanmoqda...")
+        self._cameras.on_status(cam_id, "Kameraga ulanmoqda...")
+        QTimer.singleShot(250, lambda c=cam: self._start_camera_worker(c))
 
     def _toggle_pause_all(self):
         if not self._workers:
@@ -678,6 +697,18 @@ class MainWindow(QMainWindow):
         self._sb_status.setText("AI pauza" if paused else "AI davom etmoqda")
 
     def _on_violation(self, data: dict):
+        # crop_frame (numpy) → QPixmap bir marta main thread da — diskdan o'qimaydi
+        crop_frame = data.get("crop_frame")
+        if crop_frame is not None and hasattr(crop_frame, "size") and crop_frame.size > 0:
+            try:
+                rgb = cv2.cvtColor(crop_frame, cv2.COLOR_BGR2RGB)
+                h, w = rgb.shape[:2]
+                img = QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888)
+                data["_crop_pixmap"] = QPixmap.fromImage(img)
+            except Exception:
+                pass
+            data["crop_frame"] = None  # numpy xotirani bo'shatish
+
         self._dashboard.on_violation(data)
         self._cameras.on_violation(data)
         self._violations.add_new_violation(data)

@@ -46,7 +46,8 @@ DEFAULT_SETTINGS = {
     "ai_model_enabled": False,
     "model_path": r"app\models\best.pt",
     "confidence": 0.25,
-    "yolo_imgsz": 640,
+    "yolo_imgsz": 1024,
+    "person_class_id": 0,
     "use_gpu": True,
     "half_precision": False,
     "process_every_n": 1,
@@ -106,8 +107,8 @@ DEFAULT_SETTINGS = {
     "tracker_center_threshold": 1.25,
     "tracker_max_age": 150,
     "tracker_min_hits": 3,
-    "helmet_status_window": 8,
-    "helmet_status_threshold": 5,
+    "helmet_status_window": 50,
+    "helmet_status_threshold": 30,
 }
 
 

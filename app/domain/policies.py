@@ -3,8 +3,8 @@ from __future__ import annotations
 from app.domain.entities import AccessViolation, FaceIdentity
 
 
-NO_HELMET_CLASS_IDS = {1}
-HELMET_CLASS_IDS = {0}
+NO_HELMET_CLASS_IDS = {2}
+HELMET_CLASS_IDS = {1}
 
 _NO_HELMET_KEYS = ("no_helmet", "no-helmet", "without", "bare", "nohel")
 _HELMET_KEYS = ("helmet", "with_helmet", "safe", "hardhat", "hard_hat")
