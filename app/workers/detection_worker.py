@@ -11,20 +11,23 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
-from queue import Empty, Full, Queue
 
 import cv2
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
-from PyQt6.QtGui import QImage
 
-from app.application.services.violation_service import ViolationService
+from app.application.services.detection_analysis import PersonDetectionAnalyzer
 from app.application.services.faceid_service import FaceIdService
+from app.application.services.violation_runtime import ViolationRuntime
 from app.domain.policies import AccessPolicy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.infrastructure.camera.cv2_rtsp_reader import CV2RTSPReader
 from app.workers.camera_service import svc_acquire, svc_register, svc_unregister
-from app.workers.inference_engine import IoUTracker
+from app.shared.utils.frame_display import (
+    draw_helmet_overlay,
+    frame_to_qimage,
+    resize_for_display,
+)
 
 
 class DetectionWorker(QThread):
@@ -57,9 +60,14 @@ class DetectionWorker(QThread):
         super().__init__(parent)
         self.cfg = config_manager
         self.db  = db
-        self.violation_service = ViolationService(db)
         self.access_policy = AccessPolicy()
         self.faceid_service: FaceIdService | None = None
+        self._violation_runtime = ViolationRuntime(
+            self.cfg,
+            self.db,
+            emit_payload=self.violation_detected.emit,
+            emit_error=self.error_occurred.emit,
+        )
 
         self._running = False
         self._paused  = False
@@ -69,30 +77,12 @@ class DetectionWorker(QThread):
         self._svc = None          # CameraService singleton
         self._cam_id: int = id(self)   # unique per worker
 
-        # Tracker
-        preset = str(self.cfg.get("tracking_strictness", "balanced")).lower()
-        preset_defaults = {
-            "stable":   {"iou": 0.12, "center": 1.55, "age": 220, "hits": 4},
-            "balanced": {"iou": 0.15, "center": 1.25, "age": 150, "hits": 3},
-            "fast":     {"iou": 0.20, "center": 0.95, "age": 80,  "hits": 2},
-        }.get(preset, {"iou": 0.15, "center": 1.25, "age": 150, "hits": 3})
-        self._tracker = IoUTracker(
-            iou_thresh=float(self.cfg.get("tracker_iou_threshold", preset_defaults["iou"])),
-            center_thresh=float(self.cfg.get("tracker_center_threshold", preset_defaults["center"])),
-            max_age=int(self.cfg.get("tracker_max_age", preset_defaults["age"])),
-            min_hits=int(self.cfg.get("tracker_min_hits", preset_defaults["hits"])),
-        )
+        # Detection tahlili alohida servisda; worker faqat loop va signal oqimini yuritadi.
+        self._detection_analyzer = PersonDetectionAnalyzer(self.cfg)
+        self._tracker = self._detection_analyzer.tracker
+        self._track_statuses = self._detection_analyzer.track_statuses
         self._last_persons: list[dict] = []
         self._last_result_ts: float | None = None  # oxirgi qayta ishlangan result
-
-        # Class separation config (class 0 = person, 1 = green inner, 2 = red inner)
-        self._person_class_id = int(self.cfg.get("person_class_id", 0))
-        self._green_class_ids = set(int(x) for x in self.cfg.get("helmet_class_ids", [1]))
-        self._red_class_ids   = set(int(x) for x in self.cfg.get("no_helmet_class_ids", [2]))
-        self._box_pad         = int(self.cfg.get("class0_box_pad", 50))
-        self._helmet_status_window = max(3, int(self.cfg.get("helmet_status_window", 50)))
-        self._helmet_status_threshold = max(1, int(self.cfg.get("helmet_status_threshold", 30)))
-        self._track_statuses: dict[int, deque[str]] = {}
 
         # FPS
         self._frame_count   = 0
@@ -100,16 +90,12 @@ class DetectionWorker(QThread):
         self._fps_samples: deque[float] = deque(maxlen=30)
         self._last_fps_ts: float | None = None
 
-        # Violations
-        self._today_count         = 0
-        self._saved_violations:   set[tuple[int, str]] = set()
-        self._spatial_violations: deque[dict] = deque(maxlen=256)
-        self._no_helmet_frames:   dict[int, int] = {}
-        self._access_frames:      dict[int, int] = {}
-        self._save_queue: Queue[dict | None] = Queue(
-            maxsize=max(1, int(self.cfg.get("violation_save_queue_size", 64)))
-        )
-        self._save_thread: threading.Thread | None = None
+        # Eski testlar/private chaqiruvlar sinmasligi uchun aliaslar qoldiriladi.
+        self._today_count = 0
+        self._saved_violations = self._violation_runtime.saved_violations
+        self._spatial_violations = self._violation_runtime.spatial_violations
+        self._no_helmet_frames = self._violation_runtime.no_helmet_frames
+        self._access_frames = self._violation_runtime.access_frames
 
         # Notifiers
         self._notifier = None
@@ -154,6 +140,7 @@ class DetectionWorker(QThread):
                 self._notifier = TelegramNotifier(
                     self.cfg.telegram_token, self.cfg.telegram_chat_ids
                 )
+                self._violation_runtime.notifier = self._notifier
             except Exception as e:
                 print(f"[Worker] Telegram yuklanmadi: {e}")
 
@@ -165,6 +152,7 @@ class DetectionWorker(QThread):
                     login    = self.cfg.get("backend_login",    ""),
                     password = self.cfg.get("backend_password", ""),
                 )
+                self._violation_runtime.backend = self._backend
             except Exception as e:
                 print(f"[Worker] Backend yuklanmadi: {e}")
 
@@ -182,93 +170,22 @@ class DetectionWorker(QThread):
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 
     def _process_detections(self, detections: list[dict]) -> list[dict]:
-        """
-        Faqat class 0 ni track qiladi.
-        Har bir class 0 box ichida class 1 (yashil) yoki class 2 (qizil) borligini
-        bir marta tekshiradi va natijani cache'da saqlaydi.
-        """
-        persons    = [d for d in detections if d.get("class_id") == self._person_class_id]
-        green_boxes = [d["box"] for d in detections if d.get("class_id") in self._green_class_ids]
-        red_boxes   = [d["box"] for d in detections if d.get("class_id") in self._red_class_ids]
-
-        tracked = self._tracker.update(persons)
-
-        active_ids = {p["track_id"] for p in tracked}
-        self._track_statuses = {
-            tid: s for tid, s in self._track_statuses.items() if tid in active_ids
-        }
-
-        for p in tracked:
-            tid = p["track_id"]
-            padded = self._pad_box(p["box"], self._box_pad)
-            status = self._inner_status(padded, green_boxes, red_boxes)
-            history = self._track_statuses.setdefault(
-                tid, deque(maxlen=self._helmet_status_window)
-            )
-            if status in ("green", "red"):
-                history.append(status)
-
-            green = sum(1 for item in history if item == "green")
-            red = sum(1 for item in history if item == "red")
-            total = green + red
-            # Class 1 ishonchli: agar 5%+ green bo'lsa — shlem bor (class 2 adashsa ham)
-            if total > 0 and (green / total) > 0.05:
-                p["has_helmet"] = True
-            elif red >= self._helmet_status_threshold and red > green:
-                p["has_helmet"] = False
-            else:
-                p["has_helmet"] = None
-
-        return tracked
+        return self._detection_analyzer.process(detections)
 
     @staticmethod
     def _pad_box(box: list, pad: int) -> list:
-        return [box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad]
+        return PersonDetectionAnalyzer.pad_box(box, pad)
 
     def _inner_status(self, person_box: list, green_boxes: list, red_boxes: list) -> str:
-        # Class 1 (helmet/yashil) ustun: agar class 1 va class 2 bir vaqtda aniqlansa,
-        # class 1 g'olib — shlemsiz xulosa chiqarmaydi.
-        for box in green_boxes:
-            if self._box_overlaps(person_box, box):
-                return "green"
-        for box in red_boxes:
-            if self._box_overlaps(person_box, box):
-                return "red"
-        return "yellow"
+        return self._detection_analyzer.inner_status(person_box, green_boxes, red_boxes)
 
     @staticmethod
     def _box_overlaps(outer: list, inner: list, threshold: float = 0.3) -> bool:
-        """inner box ning kamida threshold qismi outer ichida bo'lsa True."""
-        x1 = max(outer[0], inner[0]); y1 = max(outer[1], inner[1])
-        x2 = min(outer[2], inner[2]); y2 = min(outer[3], inner[3])
-        if x2 <= x1 or y2 <= y1:
-            return False
-        inter = (x2 - x1) * (y2 - y1)
-        inner_area = max(1.0, (inner[2] - inner[0]) * (inner[3] - inner[1]))
-        return (inter / inner_area) >= threshold
+        return PersonDetectionAnalyzer.box_overlaps(outer, inner, threshold)
 
     def _check_violations(self, persons: list[dict]) -> list[dict]:
-        threshold  = int(self.cfg.get("confirmation_threshold", 10))
-        active_ids = {p["track_id"] for p in persons}
-        self._no_helmet_frames = {
-            k: v for k, v in self._no_helmet_frames.items() if k in active_ids
-        }
-        for p in persons:
-            tid = p["track_id"]
-            if not p.get("track_confirmed", True):
-                self._no_helmet_frames[tid] = 0
-                p["is_new_violation"] = False
-                continue
-            if p.get("has_helmet") is False:
-                self._no_helmet_frames[tid] = self._no_helmet_frames.get(tid, 0) + 1
-                p["is_new_violation"] = (
-                    self._no_helmet_frames[tid] == threshold
-                    and (tid, "no_helmet") not in self._saved_violations
-                    and not self._is_spatial_duplicate(p, "no_helmet")
-                )
-            else:
-                self._no_helmet_frames[tid] = 0
-                p["is_new_violation"] = False
+        persons = self._violation_runtime.mark_no_helmet_candidates(persons)
+        self._no_helmet_frames = self._violation_runtime.no_helmet_frames
         return persons
 
     def _check_access_violation(self, frame: np.ndarray, person: dict):
@@ -332,172 +249,44 @@ class DetectionWorker(QThread):
 
     @staticmethod
     def _draw_overlay(frame: np.ndarray, persons: list[dict]) -> np.ndarray:
-        h, w = frame.shape[:2]
-
-        for p in persons:
-            box = p.get("box", p.get("bbox_xyxy", []))
-            if len(box) < 4:
-                continue
-            x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-            has_hel = p.get("has_helmet")
-            if has_hel is True:
-                color = (0, 200, 0)    # yashil  — class 1 aniqlandi
-            elif has_hel is False:
-                color = (0, 0, 220)    # qizil   — class 2 aniqlandi
-            else:
-                color = (0, 255, 255)  # sariq   — hech narsa aniqlanmadi
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-        cv2.rectangle(frame, (0, 0), (w, 36), (10, 14, 20), -1)
-        cv2.rectangle(frame, (0, h - 32), (w, h), (10, 14, 20), -1)
-        return frame
+        return draw_helmet_overlay(frame, persons)
 
     # ── Buzilish saqlash ──────────────────────────────────────────────────
 
     def _start_violation_writer(self):
-        if self._save_thread and self._save_thread.is_alive():
-            return
-        self._save_thread = threading.Thread(
-            target=self._violation_writer_loop,
-            daemon=True,
-            name=f"ViolationWriter-{self._cam_id}",
-        )
-        self._save_thread.start()
+        self._violation_runtime.start_writer(self._cam_id)
 
     def _stop_violation_writer(self):
-        if not self._save_thread or not self._save_thread.is_alive():
-            return
-        try:
-            self._save_queue.put(None, timeout=0.3)
-        except Full:
-            return
-        # Daemon thread — ilova yopilganda o'zi to'xtaydi
-        self._save_thread.join(timeout=1.0)
+        self._violation_runtime.stop_writer()
 
     def _violation_writer_loop(self):
-        while True:
-            try:
-                item = self._save_queue.get(timeout=0.2)
-            except Empty:
-                continue
-
-            if item is None:
-                self._save_queue.task_done()
-                break
-
-            try:
-                event = self.violation_service.register_violation(
-                    frame          = item["frame"],
-                    person         = item["person"],
-                    camera_name    = item["camera_name"],
-                    company_id     = item["company_id"],
-                    violations_dir = item["violations_dir"],
-                    save_files     = item["save_files"],
-                    violation_type = item.get("violation_type", "no_helmet"),
-                    camera_id      = item.get("camera_id"),
-                    department_id  = item.get("department_id"),
-                    employee_id    = item["person"].get("employee_id"),
-                    employee_name  = item["person"].get("employee_name", ""),
-                    identity_confidence = float(item["person"].get("identity_confidence", 0.0) or 0.0),
-                    notifier       = self._notifier,
-                    backend        = self._backend,
-                )
-                self._today_count = self.db.get_today_count()
-                payload = event.to_payload()
-                payload["today_count"] = self._today_count
-                if self._running:
-                    self.violation_detected.emit(payload)
-            except Exception as e:
-                tid = int(item.get("track_id", -1))
-                if tid >= 0:
-                    self._saved_violations.discard((tid, item.get("violation_type", "no_helmet")))
-                self.error_occurred.emit(f"Buzilishni saqlashda xatolik: {e}")
-            finally:
-                self._save_queue.task_done()
+        self._violation_runtime._writer_loop()
 
     def _handle_violation(self, frame: np.ndarray, person: dict, violation_type: str = "no_helmet"):
-        tid = person.get("track_id", -1)
-        key = (tid, violation_type)
-        if key in self._saved_violations or self._is_spatial_duplicate(person, violation_type):
-            return
-        self._saved_violations.add(key)
-        self._remember_spatial_violation(person, violation_type)
-        try:
-            self._save_queue.put_nowait({
-                "track_id": tid,
-                "violation_type": violation_type,
-                "frame": frame.copy(),
-                "person": dict(person),
-                "camera_name": self.cfg.camera_name,
-                "camera_id": getattr(self.cfg, "camera_id", None),
-                "department_id": getattr(self.cfg, "department_id", None),
-                "company_id": self.cfg.company_id,
-                "violations_dir": self.cfg.violations_dir,
-                "save_files": self.cfg.save_violations,
-            })
-        except Full:
-            self._saved_violations.discard(key)
-            self.error_occurred.emit("Buzilish saqlash navbati to'lib qoldi")
+        self._violation_runtime.handle_violation(frame, person, violation_type)
+        self._today_count = self._violation_runtime.today_count
 
     @staticmethod
     def _box_center_size(person: dict) -> tuple[float, float, float]:
-        box = person.get("box", person.get("bbox_xyxy", []))
-        if len(box) != 4:
-            return 0.0, 0.0, 1.0
-        cx = (float(box[0]) + float(box[2])) * 0.5
-        cy = (float(box[1]) + float(box[3])) * 0.5
-        w = max(1.0, float(box[2]) - float(box[0]))
-        h = max(1.0, float(box[3]) - float(box[1]))
-        return cx, cy, max(w, h)
+        return ViolationRuntime.box_center_size(person)
 
     def _prune_spatial_violations(self, now: float):
-        cooldown = float(self.cfg.get("violation_cooldown", 10))
-        while self._spatial_violations and now - float(self._spatial_violations[0]["ts"]) > cooldown:
-            self._spatial_violations.popleft()
+        self._violation_runtime.prune_spatial_violations(now)
 
     def _is_spatial_duplicate(self, person: dict, violation_type: str) -> bool:
-        now = time.time()
-        self._prune_spatial_violations(now)
-        cx, cy, size = self._box_center_size(person)
-        max_dist = max(48.0, size * 0.65)
-        for item in self._spatial_violations:
-            if item["type"] != violation_type:
-                continue
-            dist = ((cx - item["cx"]) ** 2 + (cy - item["cy"]) ** 2) ** 0.5
-            if dist <= max_dist:
-                return True
-        return False
+        return self._violation_runtime.is_spatial_duplicate(person, violation_type)
 
     def _remember_spatial_violation(self, person: dict, violation_type: str):
-        cx, cy, _ = self._box_center_size(person)
-        self._spatial_violations.append({
-            "ts": time.time(),
-            "type": violation_type,
-            "cx": cx,
-            "cy": cy,
-        })
+        self._violation_runtime.remember_spatial_violation(person, violation_type)
 
     # ── Yordamchi metodlar ────────────────────────────────────────────────
 
     def _resize_for_display(self, frame: np.ndarray) -> np.ndarray:
-        max_w = int(self.cfg.get("display_max_width", 640))
-        if max_w <= 0:
-            return frame
-        h, w = frame.shape[:2]
-        if w <= max_w:
-            return frame
-        new_h = max(1, int(h * (max_w / w)))
-        return cv2.resize(frame, (max_w, new_h), interpolation=cv2.INTER_AREA)
+        return resize_for_display(frame, int(self.cfg.get("display_max_width", 640)))
 
     @staticmethod
-    def _to_qimage(frame: np.ndarray) -> QImage:
-        h, w = frame.shape[:2]
-        # Format_BGR888 (Qt 6): cvtColor dan qochadi, CPU yukini kamaytiradi
-        if hasattr(QImage.Format, "Format_BGR888"):
-            img = QImage(frame.data, w, h, 3 * w, QImage.Format.Format_BGR888)
-            return img.copy()
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888)
+    def _to_qimage(frame: np.ndarray):
+        return frame_to_qimage(frame)
 
     def _emit_frame(self, frame: np.ndarray):
         display = self._resize_for_display(frame)
@@ -520,6 +309,8 @@ class DetectionWorker(QThread):
     def run(self):
         self._running     = True
         self._today_count = self.db.get_today_count()
+        self._violation_runtime.today_count = self._today_count
+        self._violation_runtime.set_running(True)
 
         self.status_changed.emit("Yuklanmoqda...")
         has_ai = self._init_service()
@@ -540,9 +331,11 @@ class DetectionWorker(QThread):
         if is_stream:
             self._reader = CV2RTSPReader(
                 rtsp_url,
-                reconnect_delay = int(self.cfg.get("reconnect_delay", 3)),
-                max_reconnects  = int(self.cfg.get("max_reconnects", 999)),
-                target_fps      = int(self.cfg.get("video_fps_limit", 25)),
+                reconnect_delay      = int(self.cfg.get("reconnect_delay", 3)),
+                max_reconnects       = int(self.cfg.get("max_reconnects", 10)),
+                target_fps           = int(self.cfg.get("video_fps_limit", 25)),
+                on_reconnect_attempt = self._on_reconnect_attempt,
+                on_max_retries       = self._on_max_retries,
             )
             self._reader.cam_id = self._cam_id
             self._reader.start()  # Video darhol boshlanadi
@@ -592,7 +385,7 @@ class DetectionWorker(QThread):
                     no_frame_count += 1
                     if no_frame_count % 40 == 0:
                         self.stats_updated.emit({
-                            "fps": 0.0, "today_count": self._today_count,
+                            "fps": 0.0, "today_count": self._violation_runtime.today_count,
                             "active_persons": 0, "connected": False, "ping_ms": None,
                         })
                         self.status_changed.emit("Qayta ulanmoqda...")
@@ -650,13 +443,13 @@ class DetectionWorker(QThread):
                 if self._frame_count % 30 == 0:
                     self.stats_updated.emit({
                         "fps":            self._fps,
-                        "today_count":    self._today_count,
+                        "today_count":    self._violation_runtime.today_count,
                         "active_persons": len(persons),
                         "connected":      connected,
                         "ping_ms":        self._ping_ms() if connected else None,
                     })
                     self.status_changed.emit(
-                        f"Ulangan | FPS: {self._fps:.1f} | Bugun: {self._today_count}"
+                        f"Ulangan | FPS: {self._fps:.1f} | Bugun: {self._violation_runtime.today_count}"
                         if connected else "Qayta ulanmoqda..."
                     )
 
@@ -667,7 +460,7 @@ class DetectionWorker(QThread):
                 if self._frame_count % max(1, video_fps) == 0:
                     self.stats_updated.emit({
                         "fps":            self._fps,
-                        "today_count":    self._today_count,
+                        "today_count":    self._violation_runtime.today_count,
                         "active_persons": 0,
                         "connected":      connected,
                         "ping_ms":        self._ping_ms() if connected else None,
@@ -695,7 +488,9 @@ class DetectionWorker(QThread):
         self._tracker.reset()
         self._track_statuses.clear()
         self._spatial_violations.clear()
+        self._violation_runtime.set_running(False)
         self._stop_violation_writer()
+        self._violation_runtime.clear()
         self.status_changed.emit("To'xtatildi")
 
     # ── Tashqi boshqaruv ──────────────────────────────────────────────────
@@ -703,6 +498,15 @@ class DetectionWorker(QThread):
     def stop(self):
         self._running = False
         self.wait(400)
+
+    def reconnect(self):
+        """Qayta ulash tugmasidan chaqiriladi — backoff ni reset qilib darhol qayta urinadi."""
+        if self._reader and hasattr(self._reader, "reset_backoff"):
+            self._reader.reset_backoff()
+            self._reader._running = True  # max_retries dan keyin to'xtagan bo'lishi mumkin
+            if not self._reader.is_alive():
+                self._reader.start()
+        self._running = True
 
     def pause(self):
         self._paused = True
@@ -712,3 +516,17 @@ class DetectionWorker(QThread):
 
     def is_paused(self) -> bool:
         return self._paused
+
+    # ── Reconnect callbacklar (CV2RTSPReader dan) ─────────────────────────
+
+    def _on_reconnect_attempt(self, attempt: int, wait_sec: float):
+        self.status_changed.emit(
+            f"Qayta ulanmoqda... ({attempt}-urinish, {int(wait_sec)}s dan keyin)"
+        )
+
+    def _on_max_retries(self):
+        self.error_occurred.emit(
+            "Kameraga ulanib bo'lmadi (10 urinish). "
+            "\"↻ Reconnect\" tugmasini bosing."
+        )
+        self._running = False

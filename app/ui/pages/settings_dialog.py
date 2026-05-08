@@ -1,5 +1,5 @@
-"""
-SettingsDialog — sozlamalar sahifasi.
+﻿"""
+SettingsDialog тАФ sozlamalar sahifasi.
 Chap sidebar navigatsiyasi bilan: Kameralar, Model, Telegram, Backend, Saqlash.
 """
 
@@ -22,7 +22,7 @@ from PyQt6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor
 from app.ui.theme import C
 
 
-# ── Test Thread ────────────────────────────────────────────────────────────
+# тФАтФА Test Thread тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
 class _TestThread(QThread):
     result = pyqtSignal(bool, str)
@@ -78,7 +78,7 @@ class _TestThread(QThread):
                 self.result.emit(False, f"Model yuklanmadi: {e}")
 
 
-# ── Kamera tahrirlash dialogi ──────────────────────────────────────────────
+# тФАтФА Kamera tahrirlash dialogi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
 class _ClickableRow(QWidget):
     clicked = pyqtSignal()
@@ -148,7 +148,7 @@ class CameraEditDialog(QDialog):
 
         root.addWidget(self._lbl("Kamera nomi:"))
         self._name_edit = QLineEdit()
-        self._name_edit.setPlaceholderText("Masalan: Sex № 1, Kirish kamerasi…")
+        self._name_edit.setPlaceholderText("Masalan: Sex 1, Kirish kamerasi")
         root.addWidget(self._name_edit)
 
         root.addWidget(self._lbl("RTSP URL:"))
@@ -226,7 +226,7 @@ class CameraEditDialog(QDialog):
         return dict(self._camera)
 
 
-# ── Sozlamalar Sahifasi ────────────────────────────────────────────────────
+# тФАтФА Sozlamalar Sahifasi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
 class SettingsPage(QWidget):
     settings_saved = pyqtSignal()
@@ -260,7 +260,7 @@ class SettingsPage(QWidget):
         self._setup_ui()
         self._load_values()
 
-    # ── Root layout ───────────────────────────────────────────────────────
+    # тФАтФА Root layout тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _setup_ui(self):
         self.setObjectName("settingsPage")
@@ -360,7 +360,7 @@ class SettingsPage(QWidget):
 
         self._switch_nav(self.NAV_CAMERAS)
 
-    # ── Sidebar ───────────────────────────────────────────────────────────
+    # тФАтФА Sidebar тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
@@ -456,7 +456,7 @@ class SettingsPage(QWidget):
                 if pix:
                     btn.setIcon(QIcon(pix))
 
-    # ── Footer ────────────────────────────────────────────────────────────
+    # тФАтФА Footer тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _build_footer(self) -> QWidget:
         footer = QFrame()
@@ -496,7 +496,7 @@ class SettingsPage(QWidget):
         lay.addWidget(save_btn)
         return footer
 
-    # ── Style helpers ─────────────────────────────────────────────────────
+    # тФАтФА Style helpers тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     @staticmethod
     def _nav_style(active: bool) -> str:
@@ -566,7 +566,7 @@ class SettingsPage(QWidget):
         )
         return f
 
-    # ── Scroll page wrapper ───────────────────────────────────────────────
+    # тФАтФА Scroll page wrapper тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _scroll_page(self) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
@@ -622,7 +622,7 @@ class SettingsPage(QWidget):
         hdr.addLayout(col, 1)
         return hdr
 
-    # ── Cameras page ──────────────────────────────────────────────────────
+    # тФАтФА Cameras page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_cameras_page(self) -> QWidget:
         page, lay = self._scroll_page()
@@ -795,7 +795,7 @@ class SettingsPage(QWidget):
             "border-radius: 8px; padding: 3px 10px; font-size: 11px; font-weight: 800;"
         )
         det_hdr.addWidget(self._detail_status)
-        more_btn = QPushButton("⋮")
+        more_btn = QPushButton("тЛо")
         more_btn.setFixedSize(28, 28)
         more_btn.setStyleSheet(self._secondary_btn_style())
         more_btn.setText("")
@@ -875,7 +875,7 @@ class SettingsPage(QWidget):
         hb = QHBoxLayout(hint_box)
         hb.setContentsMargins(12, 10, 12, 10)
         hb.setSpacing(8)
-        hi = QLabel("ℹ")
+        hi = QLabel("тД╣")
         hi.setStyleSheet("color: #22d3ee; font-size: 14px; background: transparent; border: none;")
         hi.setText("")
         hi.setFixedSize(18, 18)
@@ -1082,7 +1082,7 @@ class SettingsPage(QWidget):
         name_lbl.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 700;")
         lay.addWidget(name_lbl, 1)
 
-        status = QLabel(("● Online") if enabled else ("● Offline"))
+        status = QLabel("Online" if enabled else "Offline")
         status.setStyleSheet(
             f"color: {'#22c55e' if enabled else '#ef4444'};"
             f"background: {'rgba(34,197,94,0.08)' if enabled else 'rgba(239,68,68,0.08)'};"
@@ -1577,7 +1577,7 @@ class SettingsPage(QWidget):
             else:
                 self._refresh_cam_list()
 
-    # ── Model page ────────────────────────────────────────────────────────
+    # тФАтФА Model page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_model_page(self) -> QWidget:
         page, lay = self._scroll_page()
@@ -1673,7 +1673,7 @@ class SettingsPage(QWidget):
         lay.addStretch()
         return page
 
-    # ── Telegram page ─────────────────────────────────────────────────────
+    # тФАтФА Telegram page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_faceid_page(self) -> QWidget:
         page, lay = self._scroll_page()
@@ -1763,7 +1763,7 @@ class SettingsPage(QWidget):
         lay.addStretch()
         return page
 
-    # ── Backend page ──────────────────────────────────────────────────────
+    # тФАтФА Backend page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_backend_page(self) -> QWidget:
         page, lay = self._scroll_page()
@@ -1794,7 +1794,7 @@ class SettingsPage(QWidget):
         g.addWidget(self._hsep())
 
         note = QLabel(
-            "ℹ️  Company ID har bir kamera uchun alohida "
+            "Company ID har bir kamera uchun alohida "
             "Kameralar bo'limida sozlanadi."
         )
         note.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
@@ -1805,7 +1805,7 @@ class SettingsPage(QWidget):
         lay.addStretch()
         return page
 
-    # ── Storage page ──────────────────────────────────────────────────────
+    # тФАтФА Storage page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_storage_page(self) -> QWidget:
         page, lay = self._scroll_page()
@@ -1958,7 +1958,7 @@ class SettingsPage(QWidget):
         lay.addStretch()
         return page
 
-    # ── Form helpers ──────────────────────────────────────────────────────
+    # тФАтФА Form helpers тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     @staticmethod
     def _form_label(text: str) -> QLabel:
@@ -1973,7 +1973,7 @@ class SettingsPage(QWidget):
         f.setStyleSheet("background: #1e293b; border: none; max-height: 1px;")
         return f
 
-    # ── Load / Save ───────────────────────────────────────────────────────
+    # тФАтФА Load / Save тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _load_values(self):
         self._refresh_cam_list()
@@ -2067,7 +2067,7 @@ class SettingsPage(QWidget):
             "O'zgarishlar kuchga kirishi uchun kameralar qayta ishga tushiriladi."
         )
 
-    # ── Utility actions ───────────────────────────────────────────────────
+    # тФАтФА Utility actions тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _browse_model(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -2091,7 +2091,7 @@ class SettingsPage(QWidget):
 
     def _on_model_test_result(self, ok: bool, msg: str):
         color = C("success") if ok else C("danger")
-        self._test_model_result.setText(("✓ " if ok else "✗ ") + msg)
+        self._test_model_result.setText(("OK: " if ok else "ERROR: ") + msg)
         self._test_model_result.setStyleSheet(f"color: {color}; font-size: 12px;")
 
     def _test_telegram(self):
@@ -2109,7 +2109,7 @@ class SettingsPage(QWidget):
 
     def _on_tg_test_result(self, ok: bool, msg: str):
         color = C("success") if ok else C("danger")
-        self._tg_result.setText(("✓ " if ok else "✗ ") + msg)
+        self._tg_result.setText(("OK: " if ok else "ERROR: ") + msg)
         self._tg_result.setStyleSheet(f"color: {color}; font-size: 12px;")
 
 
@@ -2135,3 +2135,4 @@ class SettingsPage(QWidget):
 
 # Backwards-compat alias
 SettingsDialog = SettingsPage
+

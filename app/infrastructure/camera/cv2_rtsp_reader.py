@@ -115,15 +115,22 @@ class CV2RTSPReader(threading.Thread):
     OPEN_TIMEOUT   = 12.0   # VideoCapture ochish uchun maksimal vaqt
     FIRST_FRAME_N  = 10     # Birinchi valid frameni topish uchun urinishlar
 
+    # Eksponentsial backoff: 2→4→8→16→32→60s (keyin 60s da qoladi)
+    _BACKOFF = [2, 4, 8, 16, 32, 60]
+
     def __init__(self, rtsp_url: str,
                  reconnect_delay: int = 3,
-                 max_reconnects: int  = 999,
-                 target_fps: int      = 12):
+                 max_reconnects: int  = 10,
+                 target_fps: int      = 12,
+                 on_reconnect_attempt=None,
+                 on_max_retries=None):
         super().__init__(daemon=True, name="RTSPReader")
         self.rtsp_url        = rtsp_url
         self.reconnect_delay = reconnect_delay
         self.max_reconnects  = max_reconnects
         self._target_fps     = max(1, target_fps)
+        self._on_reconnect_attempt = on_reconnect_attempt  # (attempt: int, wait_sec: float) -> None
+        self._on_max_retries       = on_max_retries        # () -> None
 
         self._slot       = _FrameSlot()
         self._running    = True
@@ -259,8 +266,15 @@ class CV2RTSPReader(threading.Thread):
 
             if cap is None or not cap.isOpened():
                 self._connected = False
-                wait = min(self.reconnect_delay * (1 + self._fail_count // 5), 15.0)
                 self._fail_count += 1
+                if 0 < self.max_reconnects < self._fail_count:
+                    if callable(self._on_max_retries):
+                        self._on_max_retries()
+                    self._running = False
+                    break
+                wait = float(self._BACKOFF[min(self._fail_count - 1, len(self._BACKOFF) - 1)])
+                if callable(self._on_reconnect_attempt):
+                    self._on_reconnect_attempt(self._fail_count, wait)
                 self._interruptible_sleep(wait)
                 continue
 
@@ -319,10 +333,17 @@ class CV2RTSPReader(threading.Thread):
                 pass
 
             if self._running:
-                self._interruptible_sleep(
-                    0.5 if self._fail_count == 0 else
-                    min(self.reconnect_delay, 5.0)
-                )
+                # Muvaffaqiyatli ulanish uzilib ketdi — darhol qayta urinish
+                self._fail_count += 1
+                if 0 < self.max_reconnects < self._fail_count:
+                    if callable(self._on_max_retries):
+                        self._on_max_retries()
+                    self._running = False
+                    break
+                wait = float(self._BACKOFF[min(self._fail_count - 1, len(self._BACKOFF) - 1)])
+                if callable(self._on_reconnect_attempt):
+                    self._on_reconnect_attempt(self._fail_count, wait)
+                self._interruptible_sleep(wait)
 
     def _interruptible_sleep(self, seconds: float):
         end = time.time() + seconds
@@ -371,6 +392,10 @@ class CV2RTSPReader(threading.Thread):
     @property
     def is_connected(self) -> bool:
         return self._connected
+
+    def reset_backoff(self):
+        """Qayta ulanish tugmasidan chaqiriladi — backoff hisoblagichini nolga tushiradi."""
+        self._fail_count = 0
 
     def stop(self):
         self._running = False

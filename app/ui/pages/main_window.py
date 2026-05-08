@@ -1,5 +1,5 @@
-"""
-MainWindow — asosiy oyna.
+﻿"""
+MainWindow тАФ asosiy oyna.
 SmartHelmet dizayni: maxsus top navbar + dashboard + violations + analytics.
 """
 
@@ -33,9 +33,9 @@ from app.ui.pages.settings_dialog import SettingsPage
 from app.ui.theme import C
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 #  Top Navbar
-# ─────────────────────────────────────────────────────────────────────────────
+# тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
 class TopNavBar(QWidget):
     """SmartHelmet dizaynidagi gorizontal top navbar."""
@@ -66,7 +66,7 @@ class TopNavBar(QWidget):
         lay.setContentsMargins(0, 0, 12, 0)
         lay.setSpacing(0)
 
-        # ── Logo ──────────────────────────────────────────────────────────
+        # тФАтФА Logo тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         logo_w = QWidget()
         logo_w.setStyleSheet("background: transparent;")
         logo_w.setFixedWidth(245)
@@ -100,7 +100,7 @@ class TopNavBar(QWidget):
         logo_sep.setStyleSheet("background: #1e293b;")
         lay.addWidget(logo_sep)
 
-        # ── Nav tugmalari ─────────────────────────────────────────────────
+        # тФАтФА Nav tugmalari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         nav_items = [
             (self.PAGE_DASHBOARD, "Dashboard", "dashboard.svg"),
             (1,                   "Cameras",   "camera.svg"),
@@ -134,7 +134,7 @@ class TopNavBar(QWidget):
 
         lay.addStretch()
 
-        # ── O'ng tomon: qidiruv + bell + controls ────────────────────────
+        # тФАтФА O'ng tomon: qidiruv + bell + controls тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search...")
         self._search.setFixedWidth(190)
@@ -227,7 +227,7 @@ class TopNavBar(QWidget):
         self._pause_btn.hide()
 
         # Restart
-        self._restart_btn = QPushButton("↻ Qayta")
+        self._restart_btn = QPushButton("Qayta")
         self._restart_btn.setFixedHeight(32)
         self._restart_btn.setStyleSheet(self._action_btn_style())
         lay.addWidget(self._restart_btn)
@@ -271,7 +271,7 @@ class TopNavBar(QWidget):
         # Dashboard boshlang'ich holat
         self._set_active(self.PAGE_DASHBOARD)
 
-    # ── Uslublar ─────────────────────────────────────────────────────────
+    # тФАтФА Uslublar тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     @staticmethod
     def _nav_style() -> str:
@@ -332,16 +332,16 @@ class TopNavBar(QWidget):
         }}
         """
 
-    # ── Ichki metodlar ────────────────────────────────────────────────────
+    # тФАтФА Ichki metodlar тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _nav_click(self, page_id: int):
         real_page = {
             0: 0,  # Dashboard
             1: 1,  # Cameras
             2: 3,  # Analytics
-            3: 2,  # Reports → Violations
-            5: 4,  # Users → stack 4
-            6: 5,  # Settings → stack 5
+            3: 2,  # Reports тЖТ Violations
+            5: 4,  # Users тЖТ stack 4
+            6: 5,  # Settings тЖТ stack 5
         }.get(page_id, 0)
         self._set_active(page_id)
         if page_id == self.PAGE_SETTINGS:
@@ -376,12 +376,12 @@ class TopNavBar(QWidget):
             self._notif_badge.hide()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 #  MainWindow
-# ─────────────────────────────────────────────────────────────────────────────
+# тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
 class MainWindow(QMainWindow):
-    """Asosiy ilova oynasi — SmartHelmet dizayni."""
+    """Asosiy ilova oynasi тАФ SmartHelmet dizayni."""
 
     PAGE_DASHBOARD  = 0
     PAGE_CAMERAS    = 1
@@ -406,7 +406,7 @@ class MainWindow(QMainWindow):
         self._violations_dirty = False
         self._users_loaded = False
 
-        self.setWindowTitle("SmartHelmet — Live Monitoring System")
+        self.setWindowTitle("SmartHelmet - Live Monitoring System")
         self.setMinimumSize(1280, 760)
 
         self._setup_ui()
@@ -421,7 +421,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(600, self._start_all_cameras)
         QTimer.singleShot(1200, self._start_cleanup)
 
-    # ── UI ────────────────────────────────────────────────────────────────
+    # тФАтФА UI тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _setup_ui(self):
         # Markaziy widget
@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
         self._navbar._ss_btn.clicked.connect(self._save_screenshot)
         v_lay.addWidget(self._navbar)
 
-        # Orange separator line — full width
+        # Orange separator line тАФ full width
         _sep = QWidget()
         _sep.setFixedHeight(2)
         _sep.setStyleSheet("background: #f97316;")
@@ -536,7 +536,7 @@ class MainWindow(QMainWindow):
             self._toggle_pause_all
         )
 
-    # ── Sahifa almashtirish ───────────────────────────────────────────────
+    # тФАтФА Sahifa almashtirish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _switch_page(self, page: int, nav_page: int | None = None):
         self._stack.setCurrentIndex(page)
@@ -570,7 +570,7 @@ class MainWindow(QMainWindow):
         else:
             self._dashboard.set_search_text(text)
 
-    # ── Ko'p kamera worker boshqaruvi ─────────────────────────────────────
+    # тФАтФА Ko'p kamera worker boshqaruvi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _start_camera_worker(self, cam: dict) -> bool:
         cam_id = cam.get("id")
@@ -686,10 +686,10 @@ class MainWindow(QMainWindow):
         else:
             for w in self._workers.values():
                 w.pause()
-            self._navbar._pause_btn.setText("▶ Davom")
+            self._navbar._pause_btn.setText("Davom")
             self._sb_status.setText("Pauza")
 
-    # ── Worker signallari ─────────────────────────────────────────────────
+    # тФАтФА Worker signallari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _set_ai_paused(self, paused: bool):
         if not self._workers:
@@ -710,7 +710,7 @@ class MainWindow(QMainWindow):
             self._cameras.update_frame(cam_id, frame)
 
     def _on_violation(self, data: dict):
-        # crop_frame (numpy) → QPixmap bir marta main thread da — diskdan o'qimaydi
+        # crop_frame (numpy) тЖТ QPixmap bir marta main thread da тАФ diskdan o'qimaydi
         crop_frame = data.get("crop_frame")
         if crop_frame is not None and hasattr(crop_frame, "size") and crop_frame.size > 0:
             try:
@@ -735,7 +735,7 @@ class MainWindow(QMainWindow):
         self._violation_count += 1
         self._navbar.set_notif_count(self._violation_count)
 
-        # today_count worker payload dan keladi — main thread da DB so'rov yo'q
+        # today_count worker payload dan keladi тАФ main thread da DB so'rov yo'q
         today = data.get("today_count")
         if today is not None:
             self._sb_today.setText(f"Bugun: {today} buzilish")
@@ -804,7 +804,7 @@ class MainWindow(QMainWindow):
             for cam_id, msg in self._latest_errors.items():
                 self._cameras.on_error(cam_id, msg)
 
-    # ── Yordamchi ─────────────────────────────────────────────────────────
+    # тФАтФА Yordamchi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _update_cam_badge(self):
         cameras = self.cfg.get_enabled_cameras()
@@ -855,7 +855,7 @@ class MainWindow(QMainWindow):
         elif page == self.PAGE_ANALYTICS:
             self._analytics.refresh()
 
-    # ── Yopish ────────────────────────────────────────────────────────────
+    # тФАтФА Yopish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def closeEvent(self, event):
         cam_count = len(self._workers)
@@ -871,3 +871,4 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+

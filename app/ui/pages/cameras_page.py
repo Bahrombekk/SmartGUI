@@ -35,13 +35,13 @@ from app.ui.widgets.video_label import VideoLabel
 
 
 SURFACE = "#071016"
-SIDEBAR_BG = "#061827"
-SIDEBAR_INSET = "#0b2438"
-SURFACE_2 = "#0a111a"
-SURFACE_3 = "#0d1621"
-BORDER = "#1d3248"
-BORDER_STRONG = "#2f4965"
-BORDER_SOFT = "#102033"
+SIDEBAR_BG = "#04111c"
+SIDEBAR_INSET = "#071b2b"
+SURFACE_2 = "#07131f"
+SURFACE_3 = "#0a1a2a"
+BORDER = "#1e5fa8"
+BORDER_STRONG = "#2d80c8"
+BORDER_SOFT = "#12314f"
 TEXT = "#f8fafc"
 TEXT_2 = "#cbd5e1"
 MUTED = "#64748b"
@@ -130,7 +130,7 @@ class BannerWithOverlay(QWidget):
         )
         self._viol_thumb.hide()
 
-        self._reconnect_btn = QPushButton("↻  Reconnect", self)
+        self._reconnect_btn = QPushButton("Reconnect", self)
         self._reconnect_btn.setFixedHeight(32)
         self._reconnect_btn.setMinimumWidth(110)
         self._reconnect_btn.setStyleSheet(
@@ -183,7 +183,7 @@ class BannerWithOverlay(QWidget):
 
     def set_count(self, count: int):
         if count > 0:
-            self._count_badge.setText(f"⚠ {count}")
+            self._count_badge.setText(str(count))
             self._count_badge.adjustSize()
             self._count_badge.move(8, 8)
             self._count_badge.show()
@@ -512,8 +512,8 @@ class CameraDetailPanel(QFrame):
         self.setObjectName("cameraInspector")
         self.setStyleSheet(
             "QFrame#cameraInspector {"
-            "background: #07101a;"
-            "border-left: 2px solid #1e5fa8;"
+            "background: #050c14;"
+            "border-left: 2px solid #f97316;"
             "border-top: 1px solid #1e5fa8;"
             "border-bottom: 1px solid #1e5fa8;"
             "}"
@@ -529,7 +529,7 @@ class CameraDetailPanel(QFrame):
         header.setFixedHeight(68)
         header.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #0d1e30, stop:1 #07101a);"
+            "stop:0 #0d263d, stop:0.52 #071827, stop:1 #050c14);"
             "border-bottom: 1px solid #1e5fa8;"
         )
         h = QHBoxLayout(header)
@@ -639,14 +639,14 @@ class CameraDetailPanel(QFrame):
         controls.setFixedHeight(54)
         controls.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #0d1e30, stop:1 #071016);"
+            "stop:0 #0d263d, stop:1 #050c14);"
             "border-bottom: 1px solid #1e5fa8;"
         )
         c = QHBoxLayout(controls)
         c.setContentsMargins(14, 0, 14, 0)
         c.setSpacing(10)
         c.addStretch()
-        self._prev_btn = QPushButton("▶  Preview")
+        self._prev_btn = QPushButton("Preview")
         self._prev_btn.setFixedHeight(34)
         self._prev_btn.setMinimumWidth(110)
         self._prev_btn.setStyleSheet("""
@@ -666,7 +666,7 @@ class CameraDetailPanel(QFrame):
         """)
         self._prev_btn.clicked.connect(self._toggle_preview)
 
-        self._shot_btn = QPushButton("⊙  Snapshot")
+        self._shot_btn = QPushButton("Snapshot")
         self._shot_btn.setFixedHeight(34)
         self._shot_btn.setMinimumWidth(110)
         self._shot_btn.setStyleSheet("""
@@ -1216,20 +1216,24 @@ class CamerasPage(QWidget):
     def _make_header(self) -> QWidget:
         header = QFrame()
         header.setObjectName("cameraOpsHeader")
-        header.setFixedHeight(72)
+        header.setFixedHeight(78)
         header.setStyleSheet(
-            f"QFrame#cameraOpsHeader {{ background: {SURFACE}; border-bottom: 1px solid {BORDER_SOFT}; }}"
+            "QFrame#cameraOpsHeader {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "stop:0 #06121d, stop:0.55 #071016, stop:1 #05090d);"
+            f"border-bottom: 1px solid {BORDER};"
+            "}"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(header)
-        lay.setContentsMargins(20, 0, 20, 0)
+        lay.setContentsMargins(22, 0, 20, 0)
         lay.setSpacing(12)
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title = QLabel("Camera Operations")
         title.setStyleSheet(f"color: {TEXT}; font-size: 18px; font-weight: 900;")
         sub = QLabel("Fleet health, access roster status, and on-demand camera diagnostics")
-        sub.setStyleSheet(f"color: {MUTED}; font-size: 11px;")
+        sub.setStyleSheet("color: #5f86a8; font-size: 11px; font-weight: 600;")
         title_col.addWidget(title)
         title_col.addWidget(sub)
         lay.addLayout(title_col, 1)
@@ -1245,16 +1249,19 @@ class CamerasPage(QWidget):
     def _make_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("cameraOpsSidebar")
-        sidebar.setFixedWidth(244)
+        sidebar.setFixedWidth(254)
         sidebar.setStyleSheet(
-            f"QFrame#cameraOpsSidebar {{ background: {SIDEBAR_BG}; border-right: 1px solid {BORDER}; }}"
+            "QFrame#cameraOpsSidebar {"
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "stop:0 #061827, stop:0.58 #04111c, stop:1 #030b12);"
+            f"border-right: 1px solid {BORDER};"
+            "}"
             "QFrame#cameraOpsSidebar QLabel { background: transparent; border: none; }"
         )
         outer = QVBoxLayout(sidebar)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # ── Search ──────────────────────────────────────────────────
         search_wrap = QWidget()
         search_wrap.setStyleSheet("background: transparent;")
         sw = QVBoxLayout(search_wrap)
@@ -1264,9 +1271,10 @@ class CamerasPage(QWidget):
         self._search.setPlaceholderText("Search camera...")
         self._search.setFixedHeight(38)
         self._search.setStyleSheet(
-            f"QLineEdit {{ background: {SIDEBAR_INSET}; color: {TEXT_2};"
-            f"border: 1px solid {BORDER}; border-radius: 8px;"
-            "padding: 0 10px; font-size: 12px; }"
+            "QLineEdit { background: rgba(7,27,43,0.92); color: #dbeafe;"
+            "border: 1px solid rgba(30,95,168,0.76); border-radius: 8px;"
+            "padding: 0 10px; font-size: 12px; font-weight: 600; }"
+            "QLineEdit:hover { border-color: rgba(45,128,200,0.92); background: rgba(9,36,58,0.96); }"
             f"QLineEdit:focus {{ border-color: {ACCENT}; background: #0d2035; }}"
         )
         search_icon = self._icon_dir / "search.svg"
@@ -1276,7 +1284,6 @@ class CamerasPage(QWidget):
         sw.addWidget(self._search)
         outer.addWidget(search_wrap)
 
-        # ── View filters ────────────────────────────────────────────
         view_wrap = QWidget()
         view_wrap.setStyleSheet("background: transparent;")
         vw = QVBoxLayout(view_wrap)
@@ -1285,7 +1292,7 @@ class CamerasPage(QWidget):
         view_sec = QLabel("VIEW")
         view_sec.setFixedHeight(22)
         view_sec.setStyleSheet(
-            f"color: {DIM}; font-size: 9px; font-weight: 900; letter-spacing: 1px;"
+            "color: #3e6f9d; font-size: 9px; font-weight: 900; letter-spacing: 1px;"
         )
         vw.addWidget(view_sec)
 
@@ -1310,7 +1317,6 @@ class CamerasPage(QWidget):
         outer.addWidget(view_wrap)
         outer.addWidget(self._hsep())
 
-        # ── Departments ──────────────────────────────────────────────
         dept_wrap = QWidget()
         dept_wrap.setStyleSheet("background: transparent;")
         dw = QVBoxLayout(dept_wrap)
@@ -1321,15 +1327,15 @@ class CamerasPage(QWidget):
         dept_hdr.setSpacing(6)
         dep_lbl = QLabel("DEPARTMENTS")
         dep_lbl.setStyleSheet(
-            f"color: {DIM}; font-size: 9px; font-weight: 900; letter-spacing: 1px;"
+            "color: #3e6f9d; font-size: 9px; font-weight: 900; letter-spacing: 1px;"
         )
         dept_hdr.addWidget(dep_lbl, 1)
         add_dep = QPushButton()
         add_dep.setFixedSize(22, 22)
         add_dep.setToolTip("Add department")
         add_dep.setStyleSheet(
-            f"QPushButton {{ background: {SIDEBAR_INSET}; color: {TEXT_2};"
-            f"border: 1px solid {BORDER}; border-radius: 6px; font-size: 14px; font-weight: 900; }}"
+            "QPushButton { background: rgba(30,95,168,0.22); color: #93c5fd;"
+            "border: 1px solid rgba(30,95,168,0.70); border-radius: 6px; font-size: 14px; font-weight: 900; }"
             f"QPushButton:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}"
         )
         plus_icon = self._icon_dir / "plus.svg"
@@ -1348,17 +1354,18 @@ class CamerasPage(QWidget):
         outer.addWidget(dept_wrap)
         outer.addStretch()
 
-        # ── Fleet stats strip ────────────────────────────────────────
         fleet_bar = QWidget()
         fleet_bar.setStyleSheet(
-            f"background: {SIDEBAR_INSET}; border-top: 1px solid {BORDER};"
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "stop:0 rgba(7,27,43,0.96), stop:1 rgba(4,17,28,0.96));"
+            f"border-top: 1px solid {BORDER};"
         )
         fb = QVBoxLayout(fleet_bar)
         fb.setContentsMargins(12, 10, 12, 14)
         fb.setSpacing(8)
         fleet_hdr = QLabel("FLEET STATUS")
         fleet_hdr.setStyleSheet(
-            f"color: {DIM}; font-size: 9px; font-weight: 900;"
+            "color: #3e6f9d; font-size: 9px; font-weight: 900;"
             "letter-spacing: 1px; background: transparent; border: none;"
         )
         fb.addWidget(fleet_hdr)
@@ -1434,7 +1441,7 @@ class CamerasPage(QWidget):
         sort_lbl.setStyleSheet(f"color: {DIM}; font-size: 10px; font-weight: 900;")
         sort_row.addWidget(sort_lbl)
         self._sort_btns: dict[str, QPushButton] = {}
-        for key, label in [("default", "Default"), ("events", "Events ↓"), ("offline", "Offline first"), ("az", "A–Z")]:
+        for key, label in [("default", "Default"), ("events", "Events high"), ("offline", "Offline first"), ("az", "A-Z")]:
             btn = QPushButton(label)
             btn.setFixedHeight(26)
             btn.setCheckable(True)
@@ -1714,11 +1721,12 @@ class CamerasPage(QWidget):
             row.setFixedHeight(34)
             row.setCursor(Qt.CursorShape.PointingHandCursor)
             row.setObjectName("deptRow")
-            active_bg = "rgba(249,115,22,0.10)" if active else "transparent"
-            active_border = f"border: 1px solid rgba(249,115,22,0.35); border-radius: 8px;" if active else "border: 1px solid transparent; border-radius: 8px;"
+            active_bg = "rgba(249,115,22,0.14)" if active else "rgba(2,6,23,0.10)"
+            active_border = f"border: 1px solid rgba(249,115,22,0.55); border-left: 3px solid {ACCENT}; border-radius: 8px;" if active else "border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 8px;"
             row.setStyleSheet(
                 f"QWidget#deptRow {{ background: {active_bg}; {active_border} }}"
-                f"QWidget#deptRow:hover {{ background: {SIDEBAR_INSET}; border-color: {BORDER}; }}"
+                "QWidget#deptRow:hover { background: rgba(7,27,43,0.96);"
+                f"border-color: {BORDER}; border-left-color: {BORDER_STRONG}; }}"
                 "QLabel { background: transparent; border: none; }"
             )
             rl = QHBoxLayout(row)
@@ -1745,8 +1753,8 @@ class CamerasPage(QWidget):
             badge_color = LIVE if live else MUTED
             badge = QLabel(f"{live}/{total}")
             badge.setStyleSheet(
-                f"color: {badge_color}; background: rgba(2,6,23,0.60);"
-                f"border: 1px solid {BORDER}; border-radius: 5px;"
+                f"color: {badge_color}; background: rgba(2,6,23,0.72);"
+                "border: 1px solid rgba(30,95,168,0.58); border-radius: 5px;"
                 "font-size: 9px; font-weight: 900; padding: 1px 5px;"
             )
             rl.addWidget(badge)
@@ -1866,15 +1874,15 @@ class CamerasPage(QWidget):
         if active:
             return (
                 f"QPushButton {{ background: rgba(249,115,22,0.13); color: {ACCENT};"
-                f"border: 1px solid rgba(249,115,22,0.40);"
+                f"border: 1px solid rgba(249,115,22,0.50);"
                 f"border-left: 3px solid {ACCENT}; border-radius: 8px;"
                 "font-size: 12px; font-weight: 800; text-align: left; padding: 0 10px; }"
             )
         return (
-            f"QPushButton {{ background: transparent; color: {MUTED};"
-            "border: 1px solid transparent; border-radius: 8px;"
+            "QPushButton { background: rgba(2,6,23,0.08); color: #7aa5c7;"
+            "border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 8px;"
             "font-size: 12px; font-weight: 700; text-align: left; padding: 0 10px; }"
-            f"QPushButton:hover {{ color: {TEXT_2}; background: {SIDEBAR_INSET}; border-color: {BORDER}; }}"
+            f"QPushButton:hover {{ color: {TEXT_2}; background: rgba(7,27,43,0.94); border-color: {BORDER}; border-left-color: {BORDER_STRONG}; }}"
         )
 
     @staticmethod
@@ -1911,8 +1919,9 @@ class CamerasPage(QWidget):
     def _fleet_stat(value: str, label: str, color: str) -> QFrame:
         box = QFrame()
         box.setStyleSheet(
-            "QFrame { background: rgba(2,6,23,0.50);"
-            f"border: 1px solid {BORDER}; border-radius: 7px; }}"
+            "QFrame { background: rgba(2,6,23,0.62);"
+            "border: 1px solid rgba(30,95,168,0.62); border-radius: 7px; }"
+            "QFrame:hover { border-color: rgba(45,128,200,0.88); }"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QVBoxLayout(box)
@@ -1924,7 +1933,7 @@ class CamerasPage(QWidget):
         val.setStyleSheet(f"color: {color}; font-size: 15px; font-weight: 900;")
         lbl = QLabel(label)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet(f"color: {DIM}; font-size: 8px; font-weight: 900;")
+        lbl.setStyleSheet("color: #3e6f9d; font-size: 8px; font-weight: 900;")
         lay.addWidget(val)
         lay.addWidget(lbl)
         return box
@@ -1939,7 +1948,7 @@ class CamerasPage(QWidget):
     def _hsep() -> QWidget:
         sep = QWidget()
         sep.setFixedHeight(1)
-        sep.setStyleSheet(f"background: {BORDER}; border: none;")
+        sep.setStyleSheet("background: rgba(30,95,168,0.34); border: none;")
         return sep
 
     @staticmethod
@@ -1964,3 +1973,4 @@ class CamerasPage(QWidget):
         if path.exists():
             btn.setIcon(QIcon(str(path)))
             btn.setIconSize(QSize(14, 14))
+
