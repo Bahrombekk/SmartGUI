@@ -398,7 +398,13 @@ class MainWindow(QMainWindow):
         self._workers: dict[int, DetectionWorker] = {}
         self._cleanup_worker: CleanupWorker | None = None
         self._persons_per_cam: dict[int, int] = {}
+        self._latest_stats: dict[int, dict] = {}
+        self._latest_status: dict[int, str] = {}
+        self._latest_errors: dict[int, str] = {}
+        self._model_loaded_cameras: set[int] = set()
         self._violation_count = 0
+        self._violations_dirty = False
+        self._users_loaded = False
 
         self.setWindowTitle("SmartHelmet — Live Monitoring System")
         self.setMinimumSize(1280, 760)
@@ -547,8 +553,14 @@ class MainWindow(QMainWindow):
             self._navbar.set_active_page(nav_page)
         if page == self.PAGE_ANALYTICS:
             self._analytics.refresh()
-        elif page == self.PAGE_USERS:
+        elif page == self.PAGE_VIOLATIONS and self._violations_dirty:
+            self._violations_dirty = False
+            self._violations._load_violations()
+        elif page == self.PAGE_USERS and not self._users_loaded:
             self._users.refresh()
+            self._users_loaded = True
+        if page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
+            self._apply_cached_camera_state(page)
 
     def _on_global_search(self, text: str):
         if self._stack.currentIndex() == self.PAGE_USERS:
@@ -569,10 +581,7 @@ class MainWindow(QMainWindow):
         worker = DetectionWorker(proxy, self.db)
 
         worker.frame_ready.connect(
-            lambda frame, cid=cam_id: self._dashboard.update_frame(cid, frame)
-        )
-        worker.frame_ready.connect(
-            lambda frame, cid=cam_id: self._cameras.update_frame(cid, frame)
+            lambda frame, cid=cam_id: self._on_frame(cid, frame)
         )
         worker.violation_detected.connect(self._on_violation)
         worker.stats_updated.connect(
@@ -585,10 +594,7 @@ class MainWindow(QMainWindow):
             lambda msg, cid=cam_id: self._on_error(cid, msg)
         )
         worker.model_loaded.connect(
-            lambda cid=cam_id: self._dashboard.on_model_loaded(cid)
-        )
-        worker.model_loaded.connect(
-            lambda cid=cam_id: self._cameras.on_model_loaded(cid)
+            lambda cid=cam_id: self._on_model_loaded(cid)
         )
 
         worker.start()
@@ -696,6 +702,13 @@ class MainWindow(QMainWindow):
         self._navbar._pause_btn.setText("Davom" if paused else "|| Pauza")
         self._sb_status.setText("AI pauza" if paused else "AI davom etmoqda")
 
+    def _on_frame(self, cam_id: int, frame):
+        page = self._stack.currentIndex()
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.update_frame(cam_id, frame)
+        elif page == self.PAGE_CAMERAS:
+            self._cameras.update_frame(cam_id, frame)
+
     def _on_violation(self, data: dict):
         # crop_frame (numpy) → QPixmap bir marta main thread da — diskdan o'qimaydi
         crop_frame = data.get("crop_frame")
@@ -709,9 +722,15 @@ class MainWindow(QMainWindow):
                 pass
             data["crop_frame"] = None  # numpy xotirani bo'shatish
 
-        self._dashboard.on_violation(data)
-        self._cameras.on_violation(data)
-        self._violations.add_new_violation(data)
+        page = self._stack.currentIndex()
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.on_violation(data)
+        if page == self.PAGE_CAMERAS:
+            self._cameras.on_violation(data)
+        if page == self.PAGE_VIOLATIONS:
+            self._violations.add_new_violation(data)
+        else:
+            self._violations_dirty = True
 
         self._violation_count += 1
         self._navbar.set_notif_count(self._violation_count)
@@ -722,26 +741,68 @@ class MainWindow(QMainWindow):
             self._sb_today.setText(f"Bugun: {today} buzilish")
 
     def _on_stats(self, cam_id: int, stats: dict):
-        self._dashboard.on_stats(cam_id, stats)
-        self._cameras.on_stats(cam_id, stats)
+        self._latest_stats[cam_id] = dict(stats)
+        if stats.get("connected", False):
+            self._latest_errors.pop(cam_id, None)
+        page = self._stack.currentIndex()
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.on_stats(cam_id, stats)
+        elif page == self.PAGE_CAMERAS:
+            self._cameras.on_stats(cam_id, stats)
         persons = stats.get("active_persons", 0)
         self._persons_per_cam[cam_id] = persons
         total_persons = sum(self._persons_per_cam.values())
-        self._dashboard.set_total_persons(total_persons)
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.set_total_persons(total_persons)
 
     def _on_status(self, cam_id: int, text: str):
+        self._latest_status[cam_id] = text
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] {text}")
-        self._dashboard.on_status(cam_id, text)
-        self._cameras.on_status(cam_id, text)
+        page = self._stack.currentIndex()
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.on_status(cam_id, text)
+        elif page == self.PAGE_CAMERAS:
+            self._cameras.on_status(cam_id, text)
 
     def _on_error(self, cam_id: int, msg: str):
+        self._latest_errors[cam_id] = msg
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] XATOLIK: {msg[:50]}")
-        self._dashboard.on_error(cam_id, msg)
-        self._cameras.on_error(cam_id, msg)
+        page = self._stack.currentIndex()
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.on_error(cam_id, msg)
+        elif page == self.PAGE_CAMERAS:
+            self._cameras.on_error(cam_id, msg)
+
+    def _on_model_loaded(self, cam_id: int):
+        self._model_loaded_cameras.add(cam_id)
+        page = self._stack.currentIndex()
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.on_model_loaded(cam_id)
+        elif page == self.PAGE_CAMERAS:
+            self._cameras.on_model_loaded(cam_id)
+
+    def _apply_cached_camera_state(self, page: int):
+        if page == self.PAGE_DASHBOARD:
+            for cam_id in self._model_loaded_cameras:
+                self._dashboard.on_model_loaded(cam_id)
+            for cam_id, stats in self._latest_stats.items():
+                self._dashboard.on_stats(cam_id, stats)
+            for cam_id, msg in self._latest_errors.items():
+                self._dashboard.on_error(cam_id, msg)
+            self._dashboard.set_total_persons(sum(self._persons_per_cam.values()))
+        elif page == self.PAGE_CAMERAS:
+            for cam_id in self._model_loaded_cameras:
+                self._cameras.on_model_loaded(cam_id)
+            for cam_id, status in self._latest_status.items():
+                self._cameras.on_status(cam_id, status)
+            for cam_id, stats in self._latest_stats.items():
+                self._cameras.on_stats(cam_id, stats)
+            for cam_id, msg in self._latest_errors.items():
+                self._cameras.on_error(cam_id, msg)
 
     # ── Yordamchi ─────────────────────────────────────────────────────────
 
@@ -764,10 +825,12 @@ class MainWindow(QMainWindow):
 
     def _on_settings_saved(self):
         self._refresh_sb_cams()
+        self._users_loaded = False
         self._restart_all_cameras()
 
     def _on_departments_changed(self):
         self._settings._load_values()
+        self._users_loaded = False
         self._sb_status.setText("Bo'limlar yangilandi")
 
     def _save_screenshot(self):

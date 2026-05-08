@@ -53,6 +53,7 @@ class DashboardPage(
         self._model_loaded_cameras: set[int] = set()
         self._prev_net   = None
         self._prev_net_t = None
+        self._last_total_persons = None
 
         self._setup_ui()
         self._refresh_stats()
@@ -65,11 +66,14 @@ class DashboardPage(
         self._viol_rebuild_timer = QTimer(self)
         self._viol_rebuild_timer.setSingleShot(True)
         self._viol_rebuild_timer.timeout.connect(self._do_violation_rebuild)
+        self._relayout_timer = QTimer(self)
+        self._relayout_timer.setSingleShot(True)
+        self._relayout_timer.timeout.connect(self._relayout_grid)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, "_visible_cameras"):
-            QTimer.singleShot(0, self._relayout_grid)
+        if hasattr(self, "_visible_cameras") and not self._relayout_timer.isActive():
+            self._relayout_timer.start(80)
 
     # ── Ana UI ───────────────────────────────────────────────────────────
 
@@ -163,16 +167,16 @@ class DashboardPage(
 
     def update_frame(self, cam_id: int, frame):
         p = self._panels.get(cam_id)
-        if p:
+        if p and p.isVisible():
             p.set_frame(frame)
 
     def on_violation(self, data: dict):
         self._recent_violations.insert(0, data)
         if len(self._recent_violations) > self._max_recent:
             self._recent_violations.pop()
-        # 2 ta kamera bir vaqtda yuborsayam rebuild faqat bir marta (30ms debounce)
+        # Bir nechta event kelsa panel rebuild faqat bir marta bajariladi.
         if not self._viol_rebuild_timer.isActive():
-            self._viol_rebuild_timer.start(30)
+            self._viol_rebuild_timer.start(250)
         today = data.get("today_count")
         if today is not None:
             if hasattr(self, "_detections_today_lbl"):
@@ -193,20 +197,22 @@ class DashboardPage(
         persons = stats.get("active_persons", 0)
         today   = stats.get("today_count", 0)
         conn    = stats.get("connected", False)
+        old_status = self._cam_status.get(cam_id, "connecting")
+        new_status = "live" if conn else "offline"
         self._today_per_cam[cam_id] = today
         p.set_stats(fps, persons, today, conn)
 
         # Sidebar item statusini yangilash
-        self._cam_status[cam_id] = "live" if conn else "offline"
-        item = self._cam_items.get(cam_id)
-        if item:
-            item.set_status(self._cam_status[cam_id])
+        if old_status != new_status:
+            self._cam_status[cam_id] = new_status
+            item = self._cam_items.get(cam_id)
+            if item:
+                item.set_status(new_status)
 
-        # Online/offline hisoblagich
-        self._recalc_online()
-        self._rebuild_recent_events()
-        if "online" in self._stream_filter or "offline" in self._stream_filter:
-            self._apply_camera_view()
+            # Online/offline hisoblagich va filtrlangan grid faqat status o'zgarsa yangilanadi.
+            self._recalc_online()
+            if "online" in self._stream_filter or "offline" in self._stream_filter:
+                self._apply_camera_view()
 
     def on_status(self, cam_id: int, text: str):
         pass
@@ -233,6 +239,9 @@ class DashboardPage(
 
     def set_total_persons(self, count: int):
         self._total_persons = max(0, int(count or 0))
+        if self._last_total_persons == self._total_persons:
+            return
+        self._last_total_persons = self._total_persons
         if hasattr(self, "_update_ai_health"):
             self._update_ai_health()
 
@@ -240,6 +249,8 @@ class DashboardPage(
 
     def _recalc_online(self):
         online = sum(1 for status in self._cam_status.values() if status == "live")
+        if online == self._online_count:
+            return
         self._online_count = online
         self._ov_online.setText(str(online))
         self._ov_offline.setText(str(self._total_count - online))

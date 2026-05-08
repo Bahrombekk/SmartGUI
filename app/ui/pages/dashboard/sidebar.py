@@ -124,6 +124,8 @@ class CameraListItem(QWidget):
 
     def set_status(self, status: str):
         """status: 'live' | 'offline' | 'connecting' | 'error'"""
+        if self._status == status:
+            return
         self._status = status
         if status == "live":
             self._dot.setStyleSheet(
@@ -151,6 +153,8 @@ class CameraListItem(QWidget):
             )
 
     def set_selected(self, selected: bool):
+        if self._active == selected:
+            return
         self._active = selected
         self._menu_lbl.setVisible(selected)
         self._apply_active_style()

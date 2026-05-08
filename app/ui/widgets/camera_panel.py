@@ -26,6 +26,9 @@ class CameraPanel(QFrame):
         self._connected = False
         self._pulse_on  = True
         self._selected  = False
+        self._panel_style_key = None
+        self._stats_state = None
+        self._status_state = None
 
         self.setProperty("cam_panel", True)
         self.setMinimumSize(260, 180)
@@ -38,6 +41,9 @@ class CameraPanel(QFrame):
         self._setup_ui()
 
     def _apply_panel_style(self, selected: bool):
+        if self._panel_style_key == selected:
+            return
+        self._panel_style_key = selected
         border = C("accent") if selected else "#1e5fa8"
         bg     = "rgba(249,115,22,0.10)" if selected else "#060e18"
         self.setStyleSheet(
@@ -49,8 +55,20 @@ class CameraPanel(QFrame):
         )
 
     def set_selected(self, selected: bool):
+        if self._selected == selected:
+            return
         self._selected = selected
         self._apply_panel_style(selected)
+
+    @staticmethod
+    def _set_text(label: QLabel, text: str):
+        if label.text() != text:
+            label.setText(text)
+
+    @staticmethod
+    def _set_style(widget: QWidget, style: str):
+        if widget.styleSheet() != style:
+            widget.setStyleSheet(style)
 
     # ── UI ────────────────────────────────────────────────────────────────
 
@@ -169,9 +187,7 @@ class CameraPanel(QFrame):
         self._pulse_on = not self._pulse_on
         if self._connected:
             col = "#22c55e" if self._pulse_on else "#14532d"
-            self._dot.setStyleSheet(
-                f"color: {col}; font-size: 13px; background: transparent;"
-            )
+            self._set_style(self._dot, f"color: {col}; font-size: 13px; background: transparent;")
 
     # ── External updates ──────────────────────────────────────────────────
 
@@ -179,24 +195,21 @@ class CameraPanel(QFrame):
         self._video.set_frame(frame)
 
     def set_stats(self, fps: float, persons: int, today: int, connected: bool):
-        self._fps_lbl.setText(f"{fps:.0f} fps")
+        state = (round(float(fps or 0)), int(persons or 0), bool(connected))
+        if self._stats_state == state:
+            return
+        self._stats_state = state
+        self._status_state = None
+        self._set_text(self._fps_lbl, f"{fps:.0f} fps")
 
         if persons > 0:
-            self._persons_lbl.setText(f"{persons} kishi")
-            self._persons_lbl.setStyleSheet(
-                "color: #34d399; font-size: 10px; font-weight: 700; background: transparent;"
-            )
-            self._persons_dot.setStyleSheet(
-                "color: #34d399; font-size: 7px; background: transparent;"
-            )
+            self._set_text(self._persons_lbl, f"{persons} kishi")
+            self._set_style(self._persons_lbl, "color: #34d399; font-size: 10px; font-weight: 700; background: transparent;")
+            self._set_style(self._persons_dot, "color: #34d399; font-size: 7px; background: transparent;")
         else:
-            self._persons_lbl.setText("0 kishi")
-            self._persons_lbl.setStyleSheet(
-                "color: #475569; font-size: 10px; font-weight: 700; background: transparent;"
-            )
-            self._persons_dot.setStyleSheet(
-                "color: #334155; font-size: 7px; background: transparent;"
-            )
+            self._set_text(self._persons_lbl, "0 kishi")
+            self._set_style(self._persons_lbl, "color: #475569; font-size: 10px; font-weight: 700; background: transparent;")
+            self._set_style(self._persons_dot, "color: #334155; font-size: 7px; background: transparent;")
 
         self._connected = connected
         if connected:
@@ -232,6 +245,10 @@ class CameraPanel(QFrame):
                 self._video.show_error()
 
     def set_error(self, msg: str):
+        if self._status_state == ("error", msg):
+            return
+        self._status_state = ("error", msg)
+        self._stats_state = None
         self._video.show_error(msg)
         self._pulse_timer.stop()
         self._connected = False
@@ -244,6 +261,10 @@ class CameraPanel(QFrame):
         )
 
     def set_model_loading(self):
+        if self._status_state == ("loading", ""):
+            return
+        self._status_state = ("loading", "")
+        self._stats_state = None
         self._video.show_connecting()
         self._dot.setStyleSheet(
             "color: #fbbf24; font-size: 13px; background: transparent;"

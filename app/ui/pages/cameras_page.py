@@ -224,6 +224,7 @@ class BannerWithOverlay(QWidget):
 class CameraGridCard(QFrame):
     clicked = pyqtSignal(int)
     reconnect_requested = pyqtSignal(int)
+    _shared_banner_pixmap: QPixmap | None = None
 
     def __init__(self, camera: dict, department_name: str, parent=None, *, tall: bool = False):
         super().__init__(parent)
@@ -233,6 +234,8 @@ class CameraGridCard(QFrame):
         self._status = "connecting"
         self._selected = False
         self._tall = tall
+        self._style_key = None
+        self._status_key = None
         self.setObjectName("cameraOpsCard")
         self.setFixedHeight(320 if tall else 250)
         self.setMinimumWidth(260)
@@ -309,6 +312,10 @@ class CameraGridCard(QFrame):
 
     def set_selected(self, selected: bool):
         self._selected = selected
+        style_key = (self._status, selected)
+        if self._style_key == style_key:
+            return
+        self._style_key = style_key
         status_color = STATUS_COLORS.get(self._status, WARN)
         palette = {
             "live": {
@@ -354,7 +361,12 @@ class CameraGridCard(QFrame):
         )
 
     def set_status(self, status: str, fps: float = 0.0, detections: int = 0, ping_ms=None):
+        status_key = (status, round(float(fps or 0)), int(detections or 0), None if ping_ms is None else int(ping_ms))
+        if self._status_key == status_key:
+            return
+        self._status_key = status_key
         self._status = status
+        self._style_key = None
         self.set_selected(self._selected)
         self._badge.setText(_status_label(status))
         self._badge.setStyleSheet(self._badge_css(status))
@@ -399,9 +411,10 @@ class CameraGridCard(QFrame):
         root = Path(__file__).resolve().parents[3]
         requested = root / "images" / "image.png"
         if requested.exists():
-            pix = QPixmap(str(requested))
-            if not pix.isNull():
-                return pix
+            if CameraGridCard._shared_banner_pixmap is None:
+                CameraGridCard._shared_banner_pixmap = QPixmap(str(requested))
+            if not CameraGridCard._shared_banner_pixmap.isNull():
+                return CameraGridCard._shared_banner_pixmap
         snapshots = sorted((root / "screenshots" / "camera_snapshots").glob("*.jpg"))
         if snapshots:
             index = max(0, self.cam_id - 1) % len(snapshots)
@@ -1141,11 +1154,15 @@ class CamerasPage(QWidget):
         self._status: dict[int, str] = {}
         self._stats: dict[int, dict] = {}
         self._latest_frames: dict[int, QImage] = {}
+        self._dept_badges: dict[int, QLabel] = {}
         self._selected: int | None = None
         self._filter = "all"
         self._grid_columns = max(3, self.cfg.get("cameras_grid_columns", 4) if self.cfg else 4)
         self._search_text = ""
         self._sort_mode = "default"
+        self._grid_render_timer = QTimer(self)
+        self._grid_render_timer.setSingleShot(True)
+        self._grid_render_timer.timeout.connect(self._render_grid)
         self._build_ui()
 
     def resizeEvent(self, event):
@@ -1495,11 +1512,16 @@ class CamerasPage(QWidget):
         text_l = (text or "").lower()
         if "ulangan" in text_l:
             status = "live"
-        elif "ulanmoqda" in text_l or "qayta" in text_l or "yuklanmoqda" in text_l:
+        elif "qayta" in text_l:
+            status = "offline"
+        elif "ulanmoqda" in text_l or "yuklanmoqda" in text_l:
             status = "connecting"
         else:
             return
 
+        old_status = self._status.get(cam_id)
+        if old_status == status:
+            return
         self._status[cam_id] = status
         card = self._cards.get(cam_id)
         if card:
@@ -1510,6 +1532,8 @@ class CamerasPage(QWidget):
         self._update_counts()
 
     def on_error(self, cam_id: int, _msg: str):
+        if self._status.get(cam_id) == "error":
+            return
         self._status[cam_id] = "error"
         card = self._cards.get(cam_id)
         if card:
@@ -1559,6 +1583,7 @@ class CamerasPage(QWidget):
             self._grid_title.setText(dep.get("name", "Department") if dep else "Department")
         else:
             self._grid_title.setText(titles.get(key, "Cameras"))
+        self._rebuild_locations()
         self._render_grid()
 
     def _matches(self, cam: dict) -> bool:
@@ -1632,8 +1657,8 @@ class CamerasPage(QWidget):
         self._foot.setText(f"Showing {n} of {len(self._cameras)} cameras")
 
     def _rerender_grid_later(self):
-        if hasattr(self, "_grid_lay"):
-            self._render_grid()
+        if hasattr(self, "_grid_lay") and not self._grid_render_timer.isActive():
+            self._grid_render_timer.start(120)
 
     def _set_grid_columns(self, columns: int):
         self._grid_columns = max(3, min(6, int(columns)))
@@ -1673,6 +1698,7 @@ class CamerasPage(QWidget):
             card.set_selected(False)
 
     def _rebuild_locations(self):
+        self._dept_badges.clear()
         while self._loc_lay.count():
             item = self._loc_lay.takeAt(0)
             if item.widget():
@@ -1724,6 +1750,8 @@ class CamerasPage(QWidget):
                 "font-size: 9px; font-weight: 900; padding: 1px 5px;"
             )
             rl.addWidget(badge)
+            if dep_id is not None:
+                self._dept_badges[int(dep_id)] = badge
 
             row.mousePressEvent = lambda _, d=dep_id: self._set_filter(f"dep:{d}")
             self._loc_lay.addWidget(row)
@@ -1751,7 +1779,24 @@ class CamerasPage(QWidget):
             self._fleet_stat_set(self._fs_live, str(live))
             self._fleet_stat_set(self._fs_offline, str(offline))
             self._fleet_stat_set(self._fs_conn, str(warn))
-        self._rebuild_locations()
+        self._update_department_badges()
+
+    def _update_department_badges(self):
+        if not self._dept_badges:
+            return
+        for dep in (self.cfg.get_departments() if self.cfg else []):
+            dep_id = dep.get("id")
+            badge = self._dept_badges.get(int(dep_id)) if dep_id is not None else None
+            if not badge:
+                continue
+            total = sum(1 for c in self._cameras if c.get("department_id") == dep_id)
+            live = sum(
+                1 for c in self._cameras
+                if c.get("department_id") == dep_id and self._status.get(c.get("id")) == "live"
+            )
+            text = f"{live}/{total}"
+            if badge.text() != text:
+                badge.setText(text)
 
     def _card_sort_key(self, c):
         cid = c.get("id")
