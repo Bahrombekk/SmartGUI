@@ -10,7 +10,7 @@ import numpy as np
 from PyQt6.QtWidgets import QLabel, QSizePolicy
 from PyQt6.QtCore import Qt, QTimer, QRect, QRectF, QPointF
 from PyQt6.QtGui import (QPixmap, QImage, QPainter, QColor, QFont, QPen, QBrush,
-                          QRadialGradient)
+                          QRadialGradient, QPolygonF)
 
 from app.ui.theme import C
 
@@ -164,6 +164,36 @@ class VideoLabel(QLabel):
                        Qt.AlignmentFlag.AlignCenter, "Ulanish yo'q")
 
             p.end()
+        elif self._mode == "live" and not self._has_frame:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            w, h = self.width(), self.height()
+            cx, cy = w / 2, h / 2
+
+            p.fillRect(0, 0, w, h, QColor("#06101a"))
+            grad = QRadialGradient(cx, cy, min(w, h) * 0.55)
+            grad.setColorAt(0.0, QColor(30, 95, 168, 70))
+            grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+            p.fillRect(0, 0, w, h, QBrush(grad))
+
+            r = max(28, min(w, h) * 0.14)
+            p.setPen(QPen(QColor(30, 95, 168, 160), 2))
+            p.setBrush(QBrush(QColor(10, 28, 48, 210)))
+            p.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+
+            tri = QPolygonF([
+                QPointF(cx - r * 0.22, cy - r * 0.40),
+                QPointF(cx - r * 0.22, cy + r * 0.40),
+                QPointF(cx + r * 0.46, cy),
+            ])
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor("#e0f2fe")))
+            p.drawPolygon(tri)
+
+            p.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
+            p.setPen(QColor("#7fb3df"))
+            p.drawText(QRect(0, int(cy + r + 14), w, 28), Qt.AlignmentFlag.AlignCenter, self.text() or "Preview available")
+            p.end()
         else:
             super().paintEvent(event)
 
@@ -221,6 +251,16 @@ class VideoLabel(QLabel):
         self.clear()
         self._apply_base_style()
         self.update()  # paintEvent orqali kamera belgisi chiziladi
+
+    def show_idle(self, text: str = "Preview"):
+        """Kamera online, lekin preview hali yoqilmagan holat."""
+        self._has_frame = False
+        self._mode = "live"
+        self._anim_timer.stop()
+        self.clear()
+        self._apply_base_style()
+        self.setText(text)
+        self.update()
 
     def show_placeholder(self, text: str = ""):
         self.show_connecting()
