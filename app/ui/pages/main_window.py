@@ -405,6 +405,10 @@ class MainWindow(QMainWindow):
         self._violation_count = 0
         self._violations_dirty = False
         self._users_loaded = False
+        self._violations = None
+        self._analytics = None
+        self._users = None
+        self._settings = None
 
         self.setWindowTitle("SmartHelmet - Live Monitoring System")
         self.setMinimumSize(1280, 760)
@@ -414,7 +418,9 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._startup_checks = run_startup_checks(self.cfg, self.db)
         failed_checks = [check for check in self._startup_checks if not check.ok]
-        if failed_checks:
+        if getattr(self.db, "recovered_from_corruption", False):
+            self._sb_status.setText(f"DB tiklandi: {Path(str(self.db.db_path)).name}")
+        elif failed_checks:
             self._sb_status.setText(f"Startup checks: {len(failed_checks)} warning")
         self.showMaximized()
 
@@ -453,19 +459,15 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         v_lay.addWidget(self._stack, 1)
 
-        self._dashboard  = DashboardPage(self.db, self.cfg)
-        self._cameras    = CamerasPage(self.db, self.cfg)
-        self._violations = ViolationsPage(self.db)
-        self._analytics  = AnalyticsPage(self.db, self.cfg)
-        self._users      = UsersPage(self.cfg)
-        self._settings   = SettingsPage(self.cfg)
+        self._dashboard = DashboardPage(self.db, self.cfg)
+        self._cameras = CamerasPage(self.db, self.cfg)
 
         self._stack.addWidget(self._dashboard)   # 0
         self._stack.addWidget(self._cameras)     # 1
-        self._stack.addWidget(self._violations)  # 2
-        self._stack.addWidget(self._analytics)   # 3
-        self._stack.addWidget(self._users)       # 4
-        self._stack.addWidget(self._settings)    # 5
+        self._stack.addWidget(self._lazy_placeholder("Reports"))    # 2
+        self._stack.addWidget(self._lazy_placeholder("Analytics"))  # 3
+        self._stack.addWidget(self._lazy_placeholder("Users"))      # 4
+        self._stack.addWidget(self._lazy_placeholder("Settings"))   # 5
 
         self._dashboard.go_violations.connect(
             lambda: self._switch_page(self.PAGE_VIOLATIONS)
@@ -475,12 +477,53 @@ class MainWindow(QMainWindow):
         self._cameras.departments_changed.connect(self._on_departments_changed)
         self._cameras.reconnect_requested.connect(self._restart_camera)
         self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
-        self._settings.settings_saved.connect(self._on_settings_saved)
 
         cameras = self.cfg.get_enabled_cameras()
         self._dashboard.setup_cameras(cameras)
         self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
+
+    def _lazy_placeholder(self, title: str) -> QWidget:
+        w = QWidget()
+        w.setStyleSheet("background: #03070b;")
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lbl = QLabel(f"{title} yuklanmoqda...")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 14px;")
+        lay.addWidget(lbl, 1)
+        return w
+
+    def _replace_stack_page(self, index: int, widget: QWidget) -> None:
+        old = self._stack.widget(index)
+        self._stack.removeWidget(old)
+        old.deleteLater()
+        self._stack.insertWidget(index, widget)
+
+    def _ensure_page(self, page: int) -> QWidget:
+        if page == self.PAGE_VIOLATIONS:
+            if self._violations is None:
+                self._violations = ViolationsPage(self.db)
+                self._replace_stack_page(page, self._violations)
+            return self._violations
+        if page == self.PAGE_ANALYTICS:
+            if self._analytics is None:
+                self._analytics = AnalyticsPage(self.db, self.cfg)
+                self._analytics.go_cameras.connect(lambda: self._switch_page(self.PAGE_CAMERAS))
+                self._replace_stack_page(page, self._analytics)
+            return self._analytics
+        if page == self.PAGE_USERS:
+            if self._users is None:
+                self._users = UsersPage(self.cfg)
+                self._replace_stack_page(page, self._users)
+            return self._users
+        if page == self.PAGE_SETTINGS:
+            if self._settings is None:
+                self._settings = SettingsPage(self.cfg)
+                self._settings.settings_saved.connect(self._on_settings_saved)
+                self._replace_stack_page(page, self._settings)
+            return self._settings
+        return self._stack.widget(page)
 
     def _setup_statusbar(self):
         self._sb = QStatusBar()
@@ -539,6 +582,7 @@ class MainWindow(QMainWindow):
     # тФАтФА Sahifa almashtirish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _switch_page(self, page: int, nav_page: int | None = None):
+        self._ensure_page(page)
         self._stack.setCurrentIndex(page)
         if nav_page is None:
             nav_page = {
@@ -563,7 +607,7 @@ class MainWindow(QMainWindow):
             self._apply_cached_camera_state(page)
 
     def _on_global_search(self, text: str):
-        if self._stack.currentIndex() == self.PAGE_USERS:
+        if self._stack.currentIndex() == self.PAGE_USERS and self._users is not None:
             self._users.set_search_text(text)
         elif self._stack.currentIndex() == self.PAGE_CAMERAS:
             self._cameras.set_search_text(text)
@@ -727,7 +771,7 @@ class MainWindow(QMainWindow):
             self._dashboard.on_violation(data)
         if page == self.PAGE_CAMERAS:
             self._cameras.on_violation(data)
-        if page == self.PAGE_VIOLATIONS:
+        if page == self.PAGE_VIOLATIONS and self._violations is not None:
             self._violations.add_new_violation(data)
         else:
             self._violations_dirty = True
@@ -820,6 +864,7 @@ class MainWindow(QMainWindow):
         self._sb_cams.setText(f"Kameralar: {names}" if names else "Kamera yo'q")
 
     def _open_settings(self):
+        self._ensure_page(self.PAGE_SETTINGS)
         self._settings._load_values()
         self._switch_page(self.PAGE_SETTINGS)
 
@@ -829,7 +874,8 @@ class MainWindow(QMainWindow):
         self._restart_all_cameras()
 
     def _on_departments_changed(self):
-        self._settings._load_values()
+        if self._settings is not None:
+            self._settings._load_values()
         self._users_loaded = False
         self._sb_status.setText("Bo'limlar yangilandi")
 
@@ -851,8 +897,10 @@ class MainWindow(QMainWindow):
     def _refresh_current(self):
         page = self._stack.currentIndex()
         if page == self.PAGE_VIOLATIONS:
+            self._ensure_page(self.PAGE_VIOLATIONS)
             self._violations._load_violations()
         elif page == self.PAGE_ANALYTICS:
+            self._ensure_page(self.PAGE_ANALYTICS)
             self._analytics.refresh()
 
     # тФАтФА Yopish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА

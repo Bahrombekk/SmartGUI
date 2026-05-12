@@ -12,7 +12,7 @@ class DashboardStylesMixin:
             f"QFrame#{name} {{"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
             "stop:0 #0c1520, stop:1 #07101a);"
-            "border: 1px solid #1e5fa8;"
+            "border: 1px solid rgba(30,95,168,0.34);"
             "border-radius: 8px;"
             "}"
         )

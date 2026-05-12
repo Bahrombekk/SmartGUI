@@ -10,6 +10,7 @@ import threading
 from datetime import datetime, date, timedelta
 from pathlib import Path
 import json
+import time
 
 
 DB_FILE = "smartgui.db"
@@ -22,7 +23,14 @@ class ViolationsDB:
         self.db_path = db_path
         self._write_lock = threading.Lock()   # Faqat yozish uchun
         self._local = threading.local()        # Thread-local ulanishlar
-        self._init_db()
+        self.recovered_from_corruption = False
+        self.recovery_backup_paths: list[str] = []
+        try:
+            self._init_db()
+            self._ensure_healthy()
+        except sqlite3.DatabaseError:
+            self._quarantine_corrupt_db()
+            self._init_db()
 
     # ── Ulanish ────────────────────────────────────────────────────────────
 
@@ -49,6 +57,35 @@ class ViolationsDB:
         if conn is not None:
             conn.close()
             self._local.conn = None
+
+    def _ensure_healthy(self) -> None:
+        conn = self._conn()
+        row = conn.execute("PRAGMA integrity_check").fetchone()
+        result = row[0] if row else "integrity_check_failed"
+        if result != "ok":
+            raise sqlite3.DatabaseError(str(result))
+
+    def _quarantine_corrupt_db(self) -> None:
+        self.close_current_thread()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        main_moved = False
+        for suffix in ("", "-wal", "-shm"):
+            path = Path(f"{self.db_path}{suffix}")
+            if not path.exists():
+                continue
+            backup = path.with_name(f"{path.name}.corrupt.{stamp}")
+            try:
+                path.replace(backup)
+                self.recovery_backup_paths.append(str(backup))
+                if suffix == "":
+                    main_moved = True
+            except OSError:
+                pass
+        if Path(str(self.db_path)).exists() and not main_moved:
+            original = Path(str(self.db_path))
+            self.db_path = str(original.with_name(f"{original.stem}_recovered{original.suffix}"))
+        self.recovered_from_corruption = True
+        time.sleep(0.05)
 
     def _init_db(self):
         """Jadvallarni yaratish (mavjud bo'lmasa)."""
@@ -358,6 +395,7 @@ class ViolationsDB:
         offset: int = 0,
         camera_name: str | None = None,
         violation_type: str | None = None,
+        department_id: int | None = None,
     ) -> list[dict]:
         """
         Buzilishlarni filtrlangan holda olish.
@@ -384,6 +422,10 @@ class ViolationsDB:
             conditions.append("violation_type = ?")
             params.append(violation_type)
 
+        if department_id is not None:
+            conditions.append("department_id = ?")
+            params.append(department_id)
+
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         params += [limit, offset]
 
@@ -396,17 +438,35 @@ class ViolationsDB:
         """, params).fetchall()
         return [dict(r) for r in rows]
 
-    def get_today_count(self) -> int:
+    def get_today_count(self, violation_type: str | None = None) -> int:
         """Bugungi buzilishlar soni. Lock kutilmaydi."""
         today = date.today()
         ts_from = int(datetime.combine(today, datetime.min.time()).timestamp())
         ts_to   = int(datetime.combine(today, datetime.max.time()).timestamp())
+        conditions = ["timestamp BETWEEN ? AND ?"]
+        params: list = [ts_from, ts_to]
+        if violation_type:
+            conditions.append("violation_type = ?")
+            params.append(violation_type)
         conn = self._conn()
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM violations WHERE timestamp BETWEEN ? AND ?",
-            (ts_from, ts_to)
+            "SELECT COUNT(*) as cnt FROM violations WHERE " + " AND ".join(conditions),
+            params,
         ).fetchone()
         return row["cnt"] if row else 0
+
+    def get_today_counts_by_camera(self) -> dict[int, int]:
+        today = date.today()
+        ts_from = int(datetime.combine(today, datetime.min.time()).timestamp())
+        ts_to = int(datetime.combine(today, datetime.max.time()).timestamp())
+        conn = self._conn()
+        rows = conn.execute("""
+            SELECT camera_id, COUNT(*) AS cnt
+            FROM violations
+            WHERE timestamp BETWEEN ? AND ? AND camera_id IS NOT NULL
+            GROUP BY camera_id
+        """, (ts_from, ts_to)).fetchall()
+        return {int(row["camera_id"]): int(row["cnt"]) for row in rows}
 
     def get_total_count(self) -> int:
         """Jami buzilishlar soni."""
@@ -414,28 +474,166 @@ class ViolationsDB:
         row = conn.execute("SELECT COUNT(*) as cnt FROM violations").fetchone()
         return row["cnt"] if row else 0
 
-    def get_count_between(self, ts_from: int, ts_to: int) -> int:
+    def get_count_between(
+        self,
+        ts_from: int,
+        ts_to: int,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> int:
         """Berilgan timestamp oralig'idagi buzilishlar soni."""
+        conditions = ["timestamp BETWEEN ? AND ?"]
+        params: list = [ts_from, ts_to]
+        if camera_name:
+            conditions.append("camera_name = ?")
+            params.append(camera_name)
+        if department_id is not None:
+            conditions.append("department_id = ?")
+            params.append(department_id)
         conn = self._conn()
         row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM violations WHERE timestamp BETWEEN ? AND ?",
-            (ts_from, ts_to)
+            "SELECT COUNT(*) as cnt FROM violations WHERE " + " AND ".join(conditions),
+            params,
         ).fetchone()
         return row["cnt"] if row else 0
 
-    def get_daily_counts(self, days: int = 30) -> list[dict]:
+    @staticmethod
+    def _date_range_ts(date_from: date = None, date_to: date = None) -> tuple[int | None, int | None]:
+        ts_from = int(datetime.combine(date_from, datetime.min.time()).timestamp()) if date_from else None
+        ts_to = int(datetime.combine(date_to, datetime.max.time()).timestamp()) if date_to else None
+        return ts_from, ts_to
+
+    @staticmethod
+    def _filter_sql(
+        *,
+        ts_from: int | None = None,
+        ts_to: int | None = None,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> tuple[str, list]:
+        conditions = []
+        params: list = []
+        if ts_from is not None:
+            conditions.append("timestamp >= ?")
+            params.append(ts_from)
+        if ts_to is not None:
+            conditions.append("timestamp <= ?")
+            params.append(ts_to)
+        if camera_name:
+            conditions.append("camera_name = ?")
+            params.append(camera_name)
+        if department_id is not None:
+            conditions.append("department_id = ?")
+            params.append(department_id)
+        return ("WHERE " + " AND ".join(conditions)) if conditions else "", params
+
+    def get_violations_count(
+        self,
+        date_from: date = None,
+        date_to: date = None,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> int:
+        ts_from, ts_to = self._date_range_ts(date_from, date_to)
+        where, params = self._filter_sql(
+            ts_from=ts_from,
+            ts_to=ts_to,
+            camera_name=camera_name,
+            department_id=department_id,
+        )
+        conn = self._conn()
+        row = conn.execute(f"SELECT COUNT(*) AS cnt FROM violations {where}", params).fetchone()
+        return row["cnt"] if row else 0
+
+    def get_group_counts(
+        self,
+        field: str,
+        *,
+        date_from: date = None,
+        date_to: date = None,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+        limit: int = 10,
+    ) -> list[dict]:
+        allowed = {"camera_name", "department_id", "violation_type"}
+        if field not in allowed:
+            raise ValueError(f"Unsupported group field: {field}")
+        ts_from, ts_to = self._date_range_ts(date_from, date_to)
+        where, params = self._filter_sql(
+            ts_from=ts_from,
+            ts_to=ts_to,
+            camera_name=camera_name,
+            department_id=department_id,
+        )
+        conn = self._conn()
+        rows = conn.execute(
+            f"""
+            SELECT {field} AS key, COUNT(*) AS cnt
+            FROM violations
+            {where}
+            GROUP BY {field}
+            ORDER BY cnt DESC
+            LIMIT ?
+            """,
+            params + [limit],
+        ).fetchall()
+        return [{"key": row["key"], "count": row["cnt"]} for row in rows]
+
+    def get_peak_hour(
+        self,
+        *,
+        date_from: date = None,
+        date_to: date = None,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> dict:
+        ts_from, ts_to = self._date_range_ts(date_from, date_to)
+        where, params = self._filter_sql(
+            ts_from=ts_from,
+            ts_to=ts_to,
+            camera_name=camera_name,
+            department_id=department_id,
+        )
+        conn = self._conn()
+        row = conn.execute(
+            f"""
+            SELECT CAST(strftime('%H', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
+                   COUNT(*) AS cnt
+            FROM violations
+            {where}
+            GROUP BY hour
+            ORDER BY cnt DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        return {"hour": row["hour"], "count": row["cnt"]} if row else {"hour": 14, "count": 0}
+
+    def get_daily_counts(
+        self,
+        days: int = 30,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> list[dict]:
         """Oxirgi N kun uchun kunlik buzilishlar soni. 1 ta GROUP BY query."""
         today = date.today()
         cutoff = today - timedelta(days=days - 1)
         ts_from = int(datetime.combine(cutoff, datetime.min.time()).timestamp())
         ts_to   = int(datetime.combine(today, datetime.max.time()).timestamp())
+        extra_cond = ""
+        extra_params: list = []
+        if camera_name:
+            extra_cond += " AND camera_name = ?"
+            extra_params.append(camera_name)
+        if department_id is not None:
+            extra_cond += " AND department_id = ?"
+            extra_params.append(department_id)
         conn = self._conn()
-        rows = conn.execute("""
-            SELECT date(timestamp, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
-            FROM violations
-            WHERE timestamp BETWEEN ? AND ?
-            GROUP BY day
-        """, (ts_from, ts_to)).fetchall()
+        rows = conn.execute(
+            f"SELECT date(timestamp,'unixepoch','localtime') AS day, COUNT(*) AS cnt"
+            f" FROM violations WHERE timestamp BETWEEN ? AND ?{extra_cond} GROUP BY day",
+            [ts_from, ts_to] + extra_params,
+        ).fetchall()
         raw = {row["day"]: row["cnt"] for row in rows}
         return [
             {"date": (today - timedelta(days=i)).strftime("%m/%d"),
@@ -460,17 +658,85 @@ class ViolationsDB:
         raw = {row["hour"]: row["cnt"] for row in rows}
         return [{"hour": h, "count": raw.get(h, 0)} for h in range(24)]
 
-    def get_weekly_counts(self, weeks: int = 8) -> list[dict]:
-        """Oxirgi N hafta uchun haftalik buzilishlar soni."""
+    def get_hourly_counts_filtered(
+        self,
+        target_date: date = None,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> list[dict]:
+        if target_date is None:
+            target_date = date.today()
+        ts_from = int(datetime.combine(target_date, datetime.min.time()).timestamp())
+        ts_to = int(datetime.combine(target_date, datetime.max.time()).timestamp())
+        where, params = self._filter_sql(
+            ts_from=ts_from,
+            ts_to=ts_to,
+            camera_name=camera_name,
+            department_id=department_id,
+        )
+        conn = self._conn()
+        rows = conn.execute(
+            f"""
+            SELECT CAST(strftime('%H', datetime(timestamp, 'unixepoch', 'localtime')) AS INTEGER) AS hour,
+                   COUNT(*) AS cnt
+            FROM violations
+            {where}
+            GROUP BY hour
+            """,
+            params,
+        ).fetchall()
+        raw = {row["hour"]: row["cnt"] for row in rows}
+        return [{"hour": h, "count": raw.get(h, 0)} for h in range(24)]
+
+    def get_weekly_counts(
+        self,
+        weeks: int = 8,
+        camera_name: str | None = None,
+        department_id: int | None = None,
+    ) -> list[dict]:
+        """Oxirgi N hafta uchun haftalik buzilishlar soni. Bitta aggregate query."""
         today = date.today()
-        result = []
-        for i in range(weeks - 1, -1, -1):
-            week_end   = today - timedelta(weeks=i)
+        ranges = []
+        for idx in range(weeks):
+            i = weeks - 1 - idx
+            week_end = today - timedelta(weeks=i)
             week_start = week_end - timedelta(days=6)
-            ts_from = int(datetime.combine(week_start, datetime.min.time()).timestamp())
-            ts_to   = int(datetime.combine(week_end,   datetime.max.time()).timestamp())
-            result.append({
-                "week":  f"W{week_end.isocalendar()[1]}",
-                "count": self.get_count_between(ts_from, ts_to),
-            })
-        return result
+            ranges.append((week_start, week_end, f"W{week_end.isocalendar()[1]}"))
+        ts_from = int(datetime.combine(ranges[0][0], datetime.min.time()).timestamp())
+        ts_to = int(datetime.combine(ranges[-1][1], datetime.max.time()).timestamp())
+        where, params = self._filter_sql(
+            ts_from=ts_from,
+            ts_to=ts_to,
+            camera_name=camera_name,
+            department_id=department_id,
+        )
+        conn = self._conn()
+        rows = conn.execute(
+            f"""
+            SELECT timestamp
+            FROM violations
+            {where}
+            """,
+            params,
+        ).fetchall()
+        counts = [0] * len(ranges)
+        for row in rows:
+            dt = datetime.fromtimestamp(row["timestamp"]).date()
+            for idx, (week_start, week_end, _label) in enumerate(ranges):
+                if week_start <= dt <= week_end:
+                    counts[idx] += 1
+                    break
+        return [
+            {"week": label, "count": counts[idx]}
+            for idx, (_start, _end, label) in enumerate(ranges)
+        ]
+
+    def get_distinct_camera_names(self) -> list[str]:
+        """Violations jadvalidagi barcha unikal kamera nomlarini qaytaradi."""
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT DISTINCT camera_name FROM violations"
+            " WHERE camera_name IS NOT NULL AND camera_name != ''"
+            " ORDER BY camera_name"
+        ).fetchall()
+        return [r["camera_name"] for r in rows]

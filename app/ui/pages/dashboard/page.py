@@ -174,15 +174,22 @@ class DashboardPage(
         self._recent_violations.insert(0, data)
         if len(self._recent_violations) > self._max_recent:
             self._recent_violations.pop()
+        cam_id = data.get("camera_id")
+        if cam_id is not None:
+            try:
+                cam_id = int(cam_id)
+                self._today_per_cam[cam_id] = self._today_per_cam.get(cam_id, 0) + 1
+            except (TypeError, ValueError):
+                pass
         # Bir nechta event kelsa panel rebuild faqat bir marta bajariladi.
         if not self._viol_rebuild_timer.isActive():
             self._viol_rebuild_timer.start(250)
         today = data.get("today_count")
-        if today is not None:
-            if hasattr(self, "_detections_today_lbl"):
-                self._detections_today_lbl.setText(str(today))
-            if hasattr(self, "_no_helmet_today_lbl"):
-                self._no_helmet_today_lbl.setText(str(today))
+        no_helmet = data.get("no_helmet_count")
+        if today is not None and hasattr(self, "_detections_today_lbl"):
+            self._detections_today_lbl.setText(str(today))
+        if no_helmet is not None and hasattr(self, "_no_helmet_today_lbl"):
+            self._no_helmet_today_lbl.setText(str(no_helmet))
 
     def _do_violation_rebuild(self):
         self._rebuild_recent_events()
@@ -199,7 +206,6 @@ class DashboardPage(
         conn    = stats.get("connected", False)
         old_status = self._cam_status.get(cam_id, "connecting")
         new_status = "live" if conn else "offline"
-        self._today_per_cam[cam_id] = today
         p.set_stats(fps, persons, today, conn)
 
         # Sidebar item statusini yangilash
@@ -260,11 +266,14 @@ class DashboardPage(
     def _refresh_stats(self):
         try:
             today = self.db.get_today_count()
+            no_helmet = self.db.get_today_count("no_helmet")
+            self._today_per_cam.update(self.db.get_today_counts_by_camera())
             self._ov_total.setText(str(self._total_count))
             if hasattr(self, "_detections_today_lbl"):
                 self._detections_today_lbl.setText(str(today))
             if hasattr(self, "_no_helmet_today_lbl"):
-                self._no_helmet_today_lbl.setText(str(today))
+                self._no_helmet_today_lbl.setText(str(no_helmet))
+            self._rebuild_recent_events()
         except Exception:
             pass
 

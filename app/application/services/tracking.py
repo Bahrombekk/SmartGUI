@@ -99,8 +99,24 @@ class IoUTracker:
         conf = max(0.0, min(1.0, float(det.get("score", det.get("confidence", 0.5)) or 0.0)))
         age = int(track.get("age", 0))
         age_penalty = max(0.70, 1.0 - min(age, self._max_age) / max(1, self._max_age) * 0.30)
-        score = (0.46 * iou) + (0.34 * dist_score) + (0.15 * shape) + (0.05 * conf)
-        return score * age_penalty
+        hits = int(track.get("hits", 1))
+        confirmed_bonus = 0.08 if hits >= self._min_hits else 0.0
+        score = (0.48 * iou) + (0.34 * dist_score) + (0.13 * shape) + (0.05 * conf)
+        return min(1.0, score * age_penalty + confirmed_bonus)
+
+    def _match_threshold(self, track: dict) -> float:
+        hits = int(track.get("hits", 1))
+        age = int(track.get("age", 0))
+        if hits >= self._min_hits:
+            return 0.12 if age <= 12 else 0.10
+        return 0.20
+
+    @staticmethod
+    def _smooth_box(old: list, new: list, alpha: float = 0.72) -> list:
+        return [
+            old[i] * (1.0 - alpha) + new[i] * alpha
+            for i in range(4)
+        ]
 
     def update(self, detections: list[dict]) -> list[dict]:
         for track in self._tracks.values():
@@ -123,7 +139,7 @@ class IoUTracker:
                     continue
                 det = {**det, "box": box}
                 score = self._score(track, det)
-                if score >= 0.18:
+                if score >= self._match_threshold(track):
                     pairs.append((score, ti, di))
         pairs.sort(key=lambda item: item[0], reverse=True)
 
@@ -153,10 +169,12 @@ class IoUTracker:
                 old = self._tracks[tid]["box"]
                 cx_old, cy_old = self._center(old)
                 cx_new, cy_new = self._center(det["box"])
-                alpha = 0.45
+                alpha = 0.30
                 vx = (1 - alpha) * self._tracks[tid].get("vx", 0.0) + alpha * (cx_new - cx_old)
                 vy = (1 - alpha) * self._tracks[tid].get("vy", 0.0) + alpha * (cy_new - cy_old)
                 hits = int(self._tracks[tid].get("hits", 1)) + 1
+                det["box"] = self._smooth_box(old, det["box"])
+                det["bbox_xyxy"] = list(det["box"])
 
             self._tracks[tid] = {
                 "box": det["box"],

@@ -17,10 +17,10 @@ class PersonDetectionAnalyzer:
     def __init__(self, cfg):
         preset = str(cfg.get("tracking_strictness", "balanced")).lower()
         preset_defaults = {
-            "stable": {"iou": 0.12, "center": 1.55, "age": 220, "hits": 4},
-            "balanced": {"iou": 0.15, "center": 1.25, "age": 150, "hits": 3},
+            "stable": {"iou": 0.10, "center": 1.75, "age": 260, "hits": 4},
+            "balanced": {"iou": 0.12, "center": 1.45, "age": 180, "hits": 3},
             "fast": {"iou": 0.20, "center": 0.95, "age": 80, "hits": 2},
-        }.get(preset, {"iou": 0.15, "center": 1.25, "age": 150, "hits": 3})
+        }.get(preset, {"iou": 0.12, "center": 1.45, "age": 180, "hits": 3})
         self.tracker = IoUTracker(
             iou_thresh=float(cfg.get("tracker_iou_threshold", preset_defaults["iou"])),
             center_thresh=float(cfg.get("tracker_center_threshold", preset_defaults["center"])),
@@ -33,7 +33,9 @@ class PersonDetectionAnalyzer:
         self.box_pad = int(cfg.get("class0_box_pad", 50))
         self.helmet_status_window = max(3, int(cfg.get("helmet_status_window", 50)))
         self.helmet_status_threshold = max(1, int(cfg.get("helmet_status_threshold", 30)))
+        self.helmet_status_keep_age = max(1, int(cfg.get("helmet_status_keep_age", 120)))
         self.track_statuses: dict[int, deque[str]] = {}
+        self.track_status_missed: dict[int, int] = {}
 
     def process(self, detections: list[dict]) -> list[dict]:
         persons = [d for d in detections if d.get("class_id") == self.person_class_id]
@@ -44,7 +46,13 @@ class PersonDetectionAnalyzer:
         active_ids = {p["track_id"] for p in tracked}
         for track_id in list(self.track_statuses):
             if track_id not in active_ids:
-                self.track_statuses.pop(track_id, None)
+                missed = self.track_status_missed.get(track_id, 0) + 1
+                self.track_status_missed[track_id] = missed
+                if missed > self.helmet_status_keep_age:
+                    self.track_statuses.pop(track_id, None)
+                    self.track_status_missed.pop(track_id, None)
+            else:
+                self.track_status_missed[track_id] = 0
 
         for person in tracked:
             track_id = person["track_id"]
@@ -73,6 +81,7 @@ class PersonDetectionAnalyzer:
     def reset(self) -> None:
         self.tracker.reset()
         self.track_statuses.clear()
+        self.track_status_missed.clear()
 
     @staticmethod
     def pad_box(box: list, pad: int) -> list:

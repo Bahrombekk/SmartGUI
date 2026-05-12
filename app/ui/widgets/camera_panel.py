@@ -186,8 +186,22 @@ class CameraPanel(QFrame):
     def _pulse_dot(self):
         self._pulse_on = not self._pulse_on
         if self._connected:
-            col = "#22c55e" if self._pulse_on else "#14532d"
+            col = "#22c55e" if self._pulse_on else "#16a34a"
             self._set_style(self._dot, f"color: {col}; font-size: 13px; background: transparent;")
+            if self._pulse_on:
+                self._set_style(
+                    self._badge,
+                    "color: #22c55e; font-size: 10px; font-weight: 800; letter-spacing: 1px;"
+                    " background: rgba(34,197,94,0.22); border: 1px solid rgba(34,197,94,0.70);"
+                    " border-radius: 4px; padding: 1px 8px;",
+                )
+            else:
+                self._set_style(
+                    self._badge,
+                    "color: #22c55e; font-size: 10px; font-weight: 800; letter-spacing: 1px;"
+                    " background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.30);"
+                    " border-radius: 4px; padding: 1px 8px;",
+                )
 
     # ── External updates ──────────────────────────────────────────────────
 
@@ -218,12 +232,13 @@ class CameraPanel(QFrame):
             self._dot.setStyleSheet(
                 "color: #22c55e; font-size: 13px; background: transparent;"
             )
-            self._badge.setText("● LIVE")
+            self._badge.setText("LIVE")
             self._badge.setStyleSheet(
-                "color: #ef4444; font-size: 10px; font-weight: 900;"
-                " background: rgba(239,68,68,0.12);"
-                " border: 1px solid rgba(239,68,68,0.30);"
-                " border-radius: 5px; padding: 0 6px;"
+                "color: #22c55e; font-size: 10px; font-weight: 800;"
+                " letter-spacing: 1px;"
+                " background: rgba(34,197,94,0.14);"
+                " border: 1px solid rgba(34,197,94,0.45);"
+                " border-radius: 4px; padding: 1px 8px;"
             )
             self._fps_lbl.setStyleSheet(
                 "color: #60a5fa; font-size: 10px; font-weight: 700; background: transparent;"

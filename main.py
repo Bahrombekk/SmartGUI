@@ -13,6 +13,7 @@ Ishga tushirish:
 import sys
 import os
 import json
+import signal
 from pathlib import Path
 
 # ── Venv Python ni majburan ishlatish ────────────────────────────────────
@@ -123,6 +124,14 @@ def main():
     app.setApplicationName("SmartHelmet GUI")
     app.setOrganizationName("SmartHelmet")
     app.setApplicationVersion("1.0.0")
+
+    # Ctrl+C terminalni to'g'ri yopsin — lambda ichida crash bo'lmasin
+    signal.signal(signal.SIGINT, lambda *_: app.quit())
+    # Qt event loop C++ da bloklanganda Python signal handlerlar ishlamaydi,
+    # shuning uchun har 500ms da Python interpreter laqqa bo'sh aylanadi
+    _sigint_poll = QTimer()
+    _sigint_poll.start(500)
+    _sigint_poll.timeout.connect(lambda: None)
 
     # Font
     font = QFont("Segoe UI", 10)

@@ -174,6 +174,7 @@ class ViolationRuntime:
                 self.today_count = self.db.get_today_count()
                 payload = event.to_payload()
                 payload["today_count"] = self.today_count
+                payload["no_helmet_count"] = self.db.get_today_count("no_helmet")
                 if self._running:
                     self.emit_payload(payload)
             except Exception as exc:

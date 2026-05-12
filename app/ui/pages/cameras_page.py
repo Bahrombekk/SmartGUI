@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from PyQt6.QtCore import QRectF, Qt, QTimer, pyqtSignal, QSize
+from PyQt6.QtCore import QEvent, QRectF, Qt, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QFrame,
@@ -63,6 +63,86 @@ STATUS_COLORS = {
 def _status_label(status: str) -> str:
     return {"live": "Live", "connecting": "Connecting", "error": "Error"}.get(status, "Offline")
 
+
+class FleetStatusBar(QWidget):
+    """Thin horizontal bar: one colored segment per camera (live=green, error=red, connecting=amber)."""
+
+    _COLORS = {
+        "live":       (34, 197, 94, 210),
+        "offline":    (239, 68, 68, 200),
+        "error":      (239, 68, 68, 200),
+        "connecting": (245, 158, 11, 180),
+    }
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._segments: list[str] = []
+        self.setFixedHeight(5)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setToolTip("Fleet status — each segment = one camera")
+
+    def set_segments(self, segments: list[str]):
+        self._segments = segments
+        self.update()
+
+    def paintEvent(self, event):
+        if not self._segments:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        n = len(self._segments)
+        w, h = float(self.width()), float(self.height())
+        gap = 3.0
+        seg_w = max(1.0, (w - gap * (n - 1)) / n)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(0, 0, w, h), 3, 3)
+        painter.setClipPath(path)
+        for i, status in enumerate(self._segments):
+            x = i * (seg_w + gap)
+            r, g, b, a = self._COLORS.get(status, (100, 116, 139, 150))
+            painter.fillRect(QRectF(x, 0, seg_w, h), QColor(r, g, b, a))
+        painter.end()
+
+
+class DeptProgressBadge(QWidget):
+    """Department live/total badge with a mini colored progress bar."""
+
+    def __init__(self, live: int, total: int, parent=None):
+        super().__init__(parent)
+        self._live = live
+        self._total = total
+        self.setFixedSize(46, 30)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def update_counts(self, live: int, total: int):
+        self._live = live
+        self._total = total
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        live_c = QColor(34, 197, 94) if self._live > 0 else QColor(100, 116, 139)
+        painter.setPen(live_c)
+        font = painter.font()
+        font.setPixelSize(10)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            QRectF(0, 1, w, h - 6),
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            f"{self._live}/{self._total}",
+        )
+        bar_y = float(h - 4)
+        painter.fillRect(QRectF(0, bar_y, w, 3), QColor(30, 95, 168, 40))
+        fill_w = (w * self._live / self._total) if self._total > 0 else 0.0
+        if fill_w > 0:
+            painter.fillRect(
+                QRectF(0, bar_y, fill_w, 3),
+                QColor(34, 197, 94, 200) if self._live > 0 else QColor(100, 116, 139, 140),
+            )
+        painter.end()
 
 
 class CameraBanner(QLabel):
@@ -152,6 +232,22 @@ class BannerWithOverlay(QWidget):
         )
         self._offline_badge.hide()
 
+        # Hover overlay — shows on live cameras when mouse enters
+        self._hover_bar = QWidget(self)
+        self._hover_bar.setStyleSheet(
+            "background: rgba(0,0,0,0.48); border-radius: 6px;"
+        )
+        _hlbl = QLabel("INSPECT", self._hover_bar)
+        _hlbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        _hlbl.setStyleSheet(
+            "color: rgba(255,255,255,0.90); font-size: 11px; font-weight: 900;"
+            "letter-spacing: 3px; background: transparent;"
+        )
+        _hlay = QVBoxLayout(self._hover_bar)
+        _hlay.setContentsMargins(0, 0, 0, 0)
+        _hlay.addWidget(_hlbl)
+        self._hover_bar.hide()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._banner.resize(self.size())
@@ -169,6 +265,15 @@ class BannerWithOverlay(QWidget):
         ow = max(self._offline_badge.width(), 104)
         self._offline_badge.resize(ow, 30)
         self._offline_badge.move((w - ow) // 2, max(8, (h - 30) // 2 - 22))
+        self._hover_bar.setGeometry(0, 0, w, h)
+
+    def set_hover(self, hovered: bool):
+        live_mode = self._reconnect_btn.isHidden() and self._offline_badge.isHidden()
+        if hovered and live_mode:
+            self._hover_bar.show()
+            self._hover_bar.raise_()
+        else:
+            self._hover_bar.hide()
 
     def set_image(self, pixmap: QPixmap):
         self._banner.set_image(pixmap)
@@ -237,6 +342,10 @@ class CameraGridCard(QFrame):
         self._tall = tall
         self._style_key = None
         self._status_key = None
+        self._pulse_phase = 0
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(950)
+        self._pulse_timer.timeout.connect(self._pulse_badge)
         self.setObjectName("cameraOpsCard")
         self.setFixedHeight(290 if tall else 215)
         self.setMinimumWidth(260)
@@ -381,6 +490,37 @@ class CameraGridCard(QFrame):
         offline_like = status in {"offline", "error", "connecting"}
         self._banner.set_offline_visible(offline_like, "OFFLINE" if status in {"offline", "error"} else "NO SIGNAL")
         self._banner.set_reconnect_visible(status in {"offline", "error"})
+        if status == "live":
+            if not self._pulse_timer.isActive():
+                self._pulse_timer.start()
+        else:
+            if self._pulse_timer.isActive():
+                self._pulse_timer.stop()
+            self._pulse_phase = 0
+
+    def _pulse_badge(self):
+        self._pulse_phase ^= 1
+        if self._pulse_phase:
+            self._badge.setStyleSheet(
+                f"color: {LIVE}; background: rgba(34,197,94,0.22);"
+                "border: 1px solid rgba(34,197,94,0.95); border-radius: 6px;"
+                "padding: 2px 10px; font-size: 10px; font-weight: 900;"
+            )
+        else:
+            self._badge.setStyleSheet(
+                f"color: {LIVE}; background: rgba(34,197,94,0.07);"
+                "border: 1px solid rgba(34,197,94,0.55); border-radius: 6px;"
+                "padding: 2px 10px; font-size: 10px; font-weight: 900;"
+            )
+
+    def enterEvent(self, event):
+        if self._status == "live":
+            self._banner.set_hover(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._banner.set_hover(False)
+        super().leaveEvent(event)
 
     def set_preview_frame(self, frame):
         pix = QPixmap()
@@ -516,10 +656,10 @@ class CameraDetailPanel(QFrame):
         self.setObjectName("cameraInspector")
         self.setStyleSheet(
             "QFrame#cameraInspector {"
-            "background: #050c14;"
-            "border-left: 2px solid #f97316;"
-            "border-top: 1px solid #1e5fa8;"
-            "border-bottom: 1px solid #1e5fa8;"
+            "background: #05101c;"
+            "border-left: 3px solid #9b1b30;"
+            "border-top: 1px solid rgba(120,18,35,0.40);"
+            "border-bottom: 1px solid rgba(120,18,35,0.40);"
             "}"
         )
         self._build()
@@ -530,80 +670,84 @@ class CameraDetailPanel(QFrame):
         root.setSpacing(0)
 
         header = QWidget()
-        header.setFixedHeight(68)
+        header.setFixedHeight(64)
         header.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #0d263d, stop:0.52 #071827, stop:1 #050c14);"
-            "border-bottom: 1px solid #1e5fa8;"
+            "stop:0 #1e050b, stop:0.45 #120610, stop:1 #06101c);"
+            "border-bottom: 1px solid rgba(140,20,40,0.45);"
         )
         h = QHBoxLayout(header)
-        h.setContentsMargins(0, 0, 10, 0)
+        h.setContentsMargins(0, 0, 8, 0)
         h.setSpacing(0)
 
-        # Orange accent bar (left)
+        # Burgundy-crimson left accent bar
         accent_bar = QWidget()
-        accent_bar.setFixedSize(4, 68)
-        accent_bar.setStyleSheet("background: #f97316; border: none;")
+        accent_bar.setFixedSize(4, 64)
+        accent_bar.setStyleSheet(
+            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "stop:0 #e0203a, stop:0.5 #a81428, stop:1 #6b0f1a); border: none;"
+        )
         h.addWidget(accent_bar)
         h.addSpacing(12)
 
-        # CAM pill badge
+        # CAM pill — dark red tinted
         self._cam_pill = QLabel("CAM --")
         self._cam_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cam_pill.setFixedHeight(26)
+        self._cam_pill.setFixedHeight(24)
         self._cam_pill.setStyleSheet(
-            "background: rgba(30,95,168,0.35);"
-            "color: #60a5fa;"
-            "border: 1px solid rgba(30,95,168,0.70);"
-            "border-radius: 6px;"
-            "font-size: 11px; font-weight: 900;"
-            "padding: 0 10px;"
+            "background: rgba(140,20,40,0.28);"
+            "color: #f87171;"
+            "border: 1px solid rgba(160,30,50,0.60);"
+            "border-radius: 5px;"
+            "font-size: 10px; font-weight: 900;"
+            "padding: 0 8px;"
         )
         h.addWidget(self._cam_pill)
         h.addSpacing(10)
 
-        # Title + sub
         title_col = QVBoxLayout()
-        title_col.setSpacing(2)
+        title_col.setSpacing(1)
         title_col.setContentsMargins(0, 0, 0, 0)
         self._title = QLabel("Camera")
         self._title.setStyleSheet(
-            f"color: {TEXT}; font-size: 15px; font-weight: 900; background: transparent;"
+            f"color: {TEXT}; font-size: 14px; font-weight: 900; background: transparent;"
         )
         self._sub = QLabel("--")
         self._sub.setStyleSheet(
-            "color: #4a80b0; font-size: 11px; font-weight: 600; background: transparent;"
+            "color: #7a4050; font-size: 10px; font-weight: 600; background: transparent;"
         )
         title_col.addWidget(self._title)
         title_col.addWidget(self._sub)
         h.addLayout(title_col, 1)
 
-        h.addSpacing(8)
-
-        # Status badge
-        self._badge = QLabel("Offline")
-        self._badge.setFixedHeight(28)
-        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        h.addWidget(self._badge)
         h.addSpacing(6)
 
-        # Expand button
+        self._badge = QLabel("Offline")
+        self._badge.setFixedHeight(26)
+        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        h.addWidget(self._badge)
+        h.addSpacing(4)
+
         self._expand_btn = QPushButton()
-        self._expand_btn.setFixedSize(30, 30)
+        self._expand_btn.setFixedSize(28, 28)
         self._expand_btn.setToolTip("Expand inspector")
-        self._expand_btn.setStyleSheet(self._icon_button_style())
+        self._expand_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #7a4050;"
+            "border: 1px solid transparent; border-radius: 6px; }"
+            "QPushButton:hover { background: rgba(140,20,40,0.20); color: #f87171;"
+            "border-color: rgba(160,30,50,0.50); }"
+        )
         self._set_button_icon(self._expand_btn, "expand.svg")
         self._expand_btn.clicked.connect(self.toggle_expanded)
         h.addWidget(self._expand_btn)
 
-        # Close button
         close = QPushButton()
-        close.setFixedSize(30, 30)
+        close.setFixedSize(28, 28)
         close.setStyleSheet(
-            "QPushButton { background: transparent; color: #64748b;"
-            "border: 1px solid transparent; border-radius: 7px; font-size: 14px; font-weight: 900; }"
-            "QPushButton:hover { background: rgba(239,68,68,0.15); color: #f87171;"
-            "border-color: rgba(239,68,68,0.40); }"
+            "QPushButton { background: transparent; color: #7a4050;"
+            "border: 1px solid transparent; border-radius: 6px; font-size: 13px; }"
+            "QPushButton:hover { background: rgba(200,30,50,0.18); color: #f87171;"
+            "border-color: rgba(200,30,50,0.45); }"
         )
         self._set_button_icon(close, "x.svg")
         close.clicked.connect(self.close_requested)
@@ -627,9 +771,8 @@ class CameraDetailPanel(QFrame):
         self._preview_box.setFixedHeight(self._normal_preview_height)
         self._preview_box.setStyleSheet(
             "QWidget#cameraPreviewBox {"
-            "background: #020509;"
-            "border-top: 1px solid #1e5fa8;"
-            "border-bottom: 1px solid #1e5fa8;"
+            "background: #030810;"
+            "border-bottom: 1px solid rgba(30,95,168,0.25);"
             "}"
         )
         pv = QVBoxLayout(self._preview_box)
@@ -640,61 +783,41 @@ class CameraDetailPanel(QFrame):
         lay.addWidget(self._preview_box)
 
         controls = QWidget()
-        controls.setFixedHeight(54)
+        controls.setFixedHeight(58)
         controls.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #0d263d, stop:1 #050c14);"
-            "border-bottom: 1px solid #1e5fa8;"
+            "background: rgba(4,11,19,0.96);"
+            "border-bottom: 1px solid rgba(30,95,168,0.20);"
         )
         c = QHBoxLayout(controls)
-        c.setContentsMargins(14, 0, 14, 0)
+        c.setContentsMargins(14, 11, 14, 11)
         c.setSpacing(10)
-        c.addStretch()
         self._prev_btn = QPushButton("Preview")
-        self._prev_btn.setFixedHeight(34)
-        self._prev_btn.setMinimumWidth(110)
-        self._prev_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(30,95,168,0.20);
-                color: #93c5fd;
-                border: 1px solid #1e5fa8;
-                border-radius: 7px;
-                font-size: 11px; font-weight: 800;
-                padding: 0 16px;
-            }
-            QPushButton:hover {
-                background: rgba(30,95,168,0.35);
-                color: #e0f0ff;
-                border-color: #2d80c8;
-            }
-        """)
+        self._prev_btn.setFixedHeight(36)
+        self._prev_btn.setStyleSheet(
+            "QPushButton { background: rgba(30,95,168,0.15); color: #7eb8f7;"
+            "border: 1px solid rgba(30,95,168,0.42); border-radius: 8px;"
+            "font-size: 11px; font-weight: 800; }"
+            "QPushButton:hover { background: rgba(30,95,168,0.28); color: #e0f0ff;"
+            "border-color: rgba(45,128,200,0.72); }"
+            "QPushButton:checked { background: rgba(30,95,168,0.38); color: #fff; }"
+        )
         self._prev_btn.clicked.connect(self._toggle_preview)
 
         self._shot_btn = QPushButton("Snapshot")
-        self._shot_btn.setFixedHeight(34)
-        self._shot_btn.setMinimumWidth(110)
-        self._shot_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(249,115,22,0.12);
-                color: #fb923c;
-                border: 1px solid rgba(249,115,22,0.50);
-                border-radius: 7px;
-                font-size: 11px; font-weight: 800;
-                padding: 0 16px;
-            }
-            QPushButton:hover {
-                background: rgba(249,115,22,0.22);
-                color: #ffffff;
-                border-color: rgba(249,115,22,0.80);
-            }
-        """)
+        self._shot_btn.setFixedHeight(36)
+        self._shot_btn.setStyleSheet(
+            "QPushButton { background: rgba(249,115,22,0.10); color: #fb923c;"
+            "border: 1px solid rgba(249,115,22,0.38); border-radius: 8px;"
+            "font-size: 11px; font-weight: 800; }"
+            "QPushButton:hover { background: rgba(249,115,22,0.20); color: #fff;"
+            "border-color: rgba(249,115,22,0.68); }"
+        )
         self._shot_btn.clicked.connect(self._save_snapshot)
-        c.addWidget(self._prev_btn)
-        c.addWidget(self._shot_btn)
-        c.addStretch()
+        c.addWidget(self._prev_btn, 1)
+        c.addWidget(self._shot_btn, 1)
         lay.addWidget(controls)
 
-        lay.addWidget(self._section_header("LIVE HEALTH"))
+        lay.addWidget(self._section_header("LIVE HEALTH", LIVE))
         health = QWidget()
         health.setStyleSheet("background: transparent;")
         hl = QHBoxLayout(health)
@@ -709,7 +832,7 @@ class CameraDetailPanel(QFrame):
         lay.addWidget(health)
         lay.addWidget(self._divider())
 
-        lay.addWidget(self._section_header("TODAY'S ACTIVITY"))
+        lay.addWidget(self._section_header("TODAY'S ACTIVITY", "#3b82f6"))
         activity = QWidget()
         activity.setStyleSheet("background: transparent;")
         al = QHBoxLayout(activity)
@@ -724,12 +847,12 @@ class CameraDetailPanel(QFrame):
         lay.addWidget(activity)
         lay.addWidget(self._divider())
 
-        lay.addWidget(self._section_header("CAMERA CONFIG"))
+        lay.addWidget(self._section_header("CAMERA CONFIG", ACCENT))
         config = QWidget()
         config.setStyleSheet("background: transparent;")
         cl = QVBoxLayout(config)
-        cl.setContentsMargins(14, 6, 14, 14)
-        cl.setSpacing(8)
+        cl.setContentsMargins(0, 0, 0, 0)
+        cl.setSpacing(0)
         self._row_name = self._info_row("Name", "--")
         self._row_loc = self._info_row("Department", "--")
         self._row_url = self._info_row("RTSP", "--")
@@ -741,6 +864,11 @@ class CameraDetailPanel(QFrame):
         cl.addWidget(self._row_access)
         cl.addWidget(self._row_last)
 
+        btn_wrap = QWidget()
+        btn_wrap.setStyleSheet("background: transparent;")
+        bwl = QVBoxLayout(btn_wrap)
+        bwl.setContentsMargins(14, 12, 14, 4)
+        bwl.setSpacing(8)
         actions = QHBoxLayout()
         actions.setSpacing(8)
         copy_rtsp = QPushButton("Copy RTSP")
@@ -753,18 +881,19 @@ class CameraDetailPanel(QFrame):
         restart.clicked.connect(self._restart_camera)
         actions.addWidget(copy_rtsp)
         actions.addWidget(restart)
-        cl.addLayout(actions)
+        bwl.addLayout(actions)
 
         edit = QPushButton("Edit Settings")
-        edit.setFixedHeight(36)
+        edit.setFixedHeight(38)
         edit.setStyleSheet(self._primary_button_style())
         self._set_button_icon(edit, "settings.svg", light=False)
         edit.clicked.connect(self.edit_requested)
-        cl.addWidget(edit)
+        bwl.addWidget(edit)
+        cl.addWidget(btn_wrap)
         lay.addWidget(config)
         lay.addWidget(self._divider())
 
-        lay.addWidget(self._section_header("RECENT EVENTS"))
+        lay.addWidget(self._section_header("RECENT EVENTS", WARN))
         events = QWidget()
         events.setStyleSheet("background: transparent;")
         self._ev_lay = QVBoxLayout(events)
@@ -948,34 +1077,26 @@ class CameraDetailPanel(QFrame):
             return
 
         for event in events:
-            row = QFrame()
-            row.setFixedHeight(40)
+            row = QWidget()
+            row.setFixedHeight(36)
             row.setStyleSheet(
-                "QFrame { background: #0a1828;"
-                "border: 1px solid rgba(239,68,68,0.40);"
-                "border-left: 3px solid #ef4444;"
-                "border-radius: 7px; }"
+                "QWidget { background: rgba(5,13,22,0.65);"
+                "border: none; border-bottom: 1px solid rgba(239,68,68,0.12);"
+                "border-left: 3px solid rgba(239,68,68,0.75); }"
                 "QLabel { background: transparent; border: none; }"
             )
             rl = QHBoxLayout(row)
             rl.setContentsMargins(12, 0, 12, 0)
             rl.setSpacing(10)
-            badge = QLabel("NO HELMET")
+            badge = QLabel("⚠ NO HELMET")
             badge.setStyleSheet(
-                "color: #fca5a5; background: rgba(239,68,68,0.15);"
-                "border: 1px solid rgba(239,68,68,0.50);"
-                "border-radius: 5px; padding: 1px 7px;"
-                "font-size: 9px; font-weight: 900;"
+                "color: #f87171; font-size: 10px; font-weight: 800;"
             )
             ts = QLabel(str(event.get("created_at", ""))[-8:] or "--")
             ts.setStyleSheet(
-                "color: #60a5fa; background: rgba(30,95,168,0.15);"
-                "border: 1px solid rgba(30,95,168,0.40);"
-                "border-radius: 5px; padding: 1px 7px;"
-                "font-size: 9px; font-weight: 700;"
+                "color: #3d6a94; font-size: 10px; font-weight: 700;"
             )
-            rl.addWidget(badge)
-            rl.addStretch()
+            rl.addWidget(badge, 1)
             rl.addWidget(ts)
             self._ev_lay.addWidget(row)
 
@@ -1003,22 +1124,20 @@ class CameraDetailPanel(QFrame):
     def _chip(title: str, value: str) -> QFrame:
         box = QFrame()
         box.setStyleSheet(
-            "QFrame { background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #0d1e30, stop:1 #071016);"
-            "border: 1px solid #1e5fa8; border-radius: 8px; "
-            "}"
+            "QFrame { background: rgba(4,12,22,0.90);"
+            "border: 1px solid rgba(30,95,168,0.32); border-radius: 9px; }"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QVBoxLayout(box)
-        lay.setContentsMargins(10, 8, 10, 8)
-        lay.setSpacing(2)
+        lay.setContentsMargins(10, 11, 10, 9)
+        lay.setSpacing(3)
         val = QLabel(value)
         val.setObjectName("chipValue")
         val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        val.setStyleSheet(f"color: {TEXT_2}; font-size: 15px; font-weight: 900;")
+        val.setStyleSheet(f"color: {TEXT_2}; font-size: 19px; font-weight: 900;")
         lbl = QLabel(title)
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet(f"color: {DIM}; font-size: 9px; font-weight: 900;")
+        lbl.setStyleSheet("color: #2d5070; font-size: 8px; font-weight: 900; letter-spacing: 1px;")
         lay.addWidget(val)
         lay.addWidget(lbl)
         return box
@@ -1028,29 +1147,27 @@ class CameraDetailPanel(QFrame):
         val = chip.findChild(QLabel, "chipValue")
         if val:
             val.setText(text)
-            val.setStyleSheet(f"color: {color}; font-size: 15px; font-weight: 900;")
+            val.setStyleSheet(f"color: {color}; font-size: 19px; font-weight: 900;")
 
     @staticmethod
     def _info_row(key: str, value: str) -> QWidget:
         row = QWidget()
-        row.setStyleSheet("background: transparent;")
-        lay = QHBoxLayout(row)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(8)
-        k = QLabel(key)
-        k.setFixedWidth(88)
-        k.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        k.setStyleSheet(
-            "color: #4a7a9b; font-size: 10px; font-weight: 800;"
-            "background: transparent;"
+        row.setFixedHeight(36)
+        row.setStyleSheet(
+            "QWidget { background: rgba(5,13,22,0.65);"
+            "border: none; border-bottom: 1px solid rgba(30,95,168,0.14); }"
+            "QLabel { background: transparent; border: none; }"
         )
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(16, 0, 16, 0)
+        lay.setSpacing(14)
+        k = QLabel(key)
+        k.setFixedWidth(82)
+        k.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        k.setStyleSheet("color: #2d5070; font-size: 10px; font-weight: 700;")
         v = QLabel(value)
         v.setObjectName("infoValue")
-        v.setStyleSheet(
-            "background: #0a1828;"
-            "border: 1px solid #1e5fa8; border-radius: 6px;"
-            f"color: {TEXT}; padding: 6px 10px; font-size: 11px; font-weight: 600;"
-        )
+        v.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-weight: 600;")
         v.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         lay.addWidget(k)
         lay.addWidget(v, 1)
@@ -1063,27 +1180,25 @@ class CameraDetailPanel(QFrame):
             label.setText(text or "--")
 
     @staticmethod
-    def _section_header(text: str) -> QWidget:
+    def _section_header(text: str, color: str = "#2d80c8") -> QWidget:
         w = QWidget()
-        w.setFixedHeight(36)
-        w.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 rgba(30,95,168,0.18), stop:1 transparent);"
-        )
+        w.setFixedHeight(32)
+        w.setStyleSheet("background: rgba(4,11,20,0.75);")
         lay = QHBoxLayout(w)
-        lay.setContentsMargins(0, 0, 14, 0)
-        lay.setSpacing(10)
+        lay.setContentsMargins(14, 0, 14, 0)
+        lay.setSpacing(7)
 
-        accent = QWidget()
-        accent.setFixedSize(4, 36)
-        accent.setStyleSheet("background: #1e5fa8; border: none;")
-        lay.addWidget(accent)
-
+        dot = QLabel("◆")
+        dot.setFixedWidth(10)
+        dot.setStyleSheet(
+            f"color: {color}; font-size: 7px; background: transparent; border: none;"
+        )
         lbl = QLabel(text)
         lbl.setStyleSheet(
-            "color: #60a5fa; font-size: 10px; font-weight: 900;"
-            "letter-spacing: 1px; background: transparent;"
+            f"color: {color}; font-size: 9px; font-weight: 900;"
+            "letter-spacing: 1.5px; background: transparent; border: none;"
         )
+        lay.addWidget(dot)
         lay.addWidget(lbl, 1)
         return w
 
@@ -1091,7 +1206,7 @@ class CameraDetailPanel(QFrame):
     def _divider() -> QWidget:
         sep = QWidget()
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background: #1e5fa8; border: none;")
+        sep.setStyleSheet("background: rgba(30,95,168,0.22); border: none;")
         return sep
 
     @staticmethod
@@ -1107,28 +1222,28 @@ class CameraDetailPanel(QFrame):
     def _primary_button_style() -> str:
         return (
             f"QPushButton {{ background: {ACCENT}; color: #05090d; border: none;"
-            "border-radius: 7px; font-size: 11px; font-weight: 900; }"
+            "border-radius: 8px; font-size: 12px; font-weight: 900; }"
             "QPushButton:hover { background: #fb923c; }"
         )
 
     @staticmethod
     def _secondary_button_style() -> str:
         return (
-            "QPushButton { background: rgba(30,95,168,0.18); color: #93c5fd;"
-            "border: 1px solid rgba(30,95,168,0.78); border-radius: 7px;"
-            "font-size: 11px; font-weight: 900; }"
-            "QPushButton:hover { background: rgba(30,95,168,0.30); color: #e0f2fe;"
-            "border-color: rgba(45,128,200,0.96); }"
+            "QPushButton { background: rgba(30,95,168,0.14); color: #7eb8f7;"
+            "border: 1px solid rgba(30,95,168,0.45); border-radius: 8px;"
+            "font-size: 11px; font-weight: 800; }"
+            "QPushButton:hover { background: rgba(30,95,168,0.26); color: #e0f2fe;"
+            "border-color: rgba(45,128,200,0.72); }"
         )
 
     @staticmethod
     def _danger_button_style() -> str:
         return (
-            "QPushButton { background: rgba(239,68,68,0.10); color: #fca5a5;"
-            "border: 1px solid rgba(239,68,68,0.52); border-radius: 7px;"
-            "font-size: 11px; font-weight: 900; }"
-            "QPushButton:hover { background: rgba(239,68,68,0.18); color: #ffffff;"
-            "border-color: rgba(239,68,68,0.82); }"
+            "QPushButton { background: rgba(239,68,68,0.08); color: #f87171;"
+            "border: 1px solid rgba(239,68,68,0.38); border-radius: 8px;"
+            "font-size: 11px; font-weight: 800; }"
+            "QPushButton:hover { background: rgba(239,68,68,0.16); color: #ffffff;"
+            "border-color: rgba(239,68,68,0.65); }"
         )
 
     @staticmethod
@@ -1228,6 +1343,17 @@ class CamerasPage(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._fit_side_panels()
+        if hasattr(self, "_grid_render_timer") and not self._grid_render_timer.isActive():
+            self._grid_render_timer.start(80)
+
+    def eventFilter(self, obj, event):
+        if (
+            hasattr(self, "_grid_scroll")
+            and obj is self._grid_scroll.viewport()
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._rerender_grid_later()
+        return super().eventFilter(obj, event)
 
     def _fit_side_panels(self):
         if not hasattr(self, "_sidebar") or not hasattr(self, "_detail"):
@@ -1261,7 +1387,8 @@ class CamerasPage(QWidget):
         row.setSpacing(0)
         self._sidebar = self._make_sidebar()
         row.addWidget(self._sidebar)
-        row.addWidget(SidebarResizeHandle(self._sidebar, parent=self))
+        self._sidebar_handle = SidebarResizeHandle(self._sidebar, parent=self)
+        row.addWidget(self._sidebar_handle)
         row.addWidget(self._make_grid_area(), 1)
         self._detail = CameraDetailPanel(self.db, self.cfg)
         self._detail.close_requested.connect(self._close_detail)
@@ -1287,8 +1414,21 @@ class CamerasPage(QWidget):
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(header)
-        lay.setContentsMargins(20, 0, 20, 0)
+        lay.setContentsMargins(14, 0, 20, 0)
         lay.setSpacing(10)
+
+        menu_btn = QPushButton("☰")
+        menu_btn.setFixedSize(36, 36)
+        menu_btn.setToolTip("Toggle sidebar")
+        menu_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #4a7a9b;"
+            "border: 1px solid transparent; border-radius: 8px; font-size: 16px; }"
+            "QPushButton:hover { background: rgba(30,95,168,0.18); color: #93c5fd;"
+            "border-color: rgba(30,95,168,0.45); }"
+        )
+        menu_btn.clicked.connect(self._toggle_sidebar)
+        lay.addWidget(menu_btn)
+
         title_col = QVBoxLayout()
         title_col.setSpacing(1)
         title = QLabel("Camera Operations")
@@ -1460,7 +1600,9 @@ class CamerasPage(QWidget):
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search camera...")
-        self._search.setFixedSize(240, 34)
+        self._search.setFixedHeight(34)
+        self._search.setMinimumWidth(80)
+        self._search.setMaximumWidth(200)
         self._search.setStyleSheet(
             "QLineEdit { background: rgba(7,22,38,0.95); color: #dbeafe;"
             "border: 1px solid rgba(30,95,168,0.55); border-radius: 8px;"
@@ -1494,11 +1636,7 @@ class CamerasPage(QWidget):
 
         sb.addStretch()
 
-        self._updated_lbl = QLabel("Updated --")
-        self._updated_lbl.setStyleSheet(
-            "color: #2d5070; background: transparent; font-size: 10px; font-weight: 600;"
-        )
-        sb.addWidget(self._updated_lbl)
+        self._updated_lbl = QLabel()  # kept for _render_grid update; not shown in toolbar
 
         _vsep2 = QFrame()
         _vsep2.setFixedSize(1, 24)
@@ -1528,6 +1666,10 @@ class CamerasPage(QWidget):
             sb.addWidget(btn)
         self._refresh_column_buttons()
         lay.addWidget(search_bar)
+
+        # ── Fleet status bar (one segment per camera) ─────────────────────
+        self._fleet_bar = FleetStatusBar()
+        lay.addWidget(self._fleet_bar)
 
         # ── Section title strip ───────────────────────────────────────────
         title_row = QHBoxLayout()
@@ -1564,12 +1706,19 @@ class CamerasPage(QWidget):
         self._grid_lay.setHorizontalSpacing(12)
         self._grid_lay.setVerticalSpacing(12)
         scroll.setWidget(self._grid_body)
+        scroll.viewport().installEventFilter(self)
         lay.addWidget(scroll, 1)
 
         self._foot = QLabel("")
         self._foot.setStyleSheet(f"color: {DIM}; font-size: 10px;")
         lay.addWidget(self._foot, 0, Qt.AlignmentFlag.AlignRight)
         return area
+
+    def _toggle_sidebar(self):
+        visible = self._sidebar.isVisible()
+        self._sidebar.setVisible(not visible)
+        self._sidebar_handle.setVisible(not visible)
+        self._rerender_grid_later()
 
     def setup_cameras(self, cameras: list):
         self._cameras = list(cameras)
@@ -1726,7 +1875,12 @@ class CamerasPage(QWidget):
             key=self._card_sort_key,
         )
         n = len(visible)
-        cols = max(3, min(self._grid_columns, n if n else 1))
+        avail_w = self._grid_scroll.viewport().width()
+        if avail_w < 50:
+            avail_w = max(300, self.width() - 260)
+        min_card_w = 200
+        auto_cols = max(1, avail_w // min_card_w)
+        cols = max(1, min(self._grid_columns, auto_cols, n if n else 1))
         self._grid_body.setMinimumWidth(0)
         for i, cam in enumerate(visible):
             cid = cam.get("id")
@@ -1769,8 +1923,8 @@ class CamerasPage(QWidget):
                 self._hdr_updated.setText(updated)
 
     def _rerender_grid_later(self):
-        if hasattr(self, "_grid_lay") and not self._grid_render_timer.isActive():
-            self._grid_render_timer.start(120)
+        if hasattr(self, "_grid_render_timer") and not self._grid_render_timer.isActive():
+            self._grid_render_timer.start(150)
 
     def _set_grid_columns(self, columns: int):
         self._grid_columns = max(3, min(6, int(columns)))
@@ -1801,6 +1955,8 @@ class CamerasPage(QWidget):
         )
         self._detail_handle.show()
         self._detail.show()
+        self._fit_side_panels()
+        self._rerender_grid_later()
 
     def _close_detail(self):
         self._detail.hide()
@@ -1808,6 +1964,7 @@ class CamerasPage(QWidget):
         self._selected = None
         for card in self._cards.values():
             card.set_selected(False)
+        self._rerender_grid_later()
 
     def _rebuild_locations(self):
         self._dept_badges.clear()
@@ -1855,13 +2012,7 @@ class CamerasPage(QWidget):
             )
             rl.addWidget(name_lbl, 1)
 
-            badge_color = LIVE if live else MUTED
-            badge = QLabel(f"{live}/{total}")
-            badge.setStyleSheet(
-                f"color: {badge_color}; background: rgba(2,6,23,0.72);"
-                "border: 1px solid rgba(30,95,168,0.58); border-radius: 5px;"
-                "font-size: 9px; font-weight: 900; padding: 1px 5px;"
-            )
+            badge = DeptProgressBadge(live, total)
             rl.addWidget(badge)
             if dep_id is not None:
                 self._dept_badges[int(dep_id)] = badge
@@ -1896,6 +2047,10 @@ class CamerasPage(QWidget):
             self._hdr_total.setText(f"{total} total")
             self._hdr_live.setText(f"{live} live")
             self._hdr_offline.setText(f"{offline + warn} off")
+        if hasattr(self, "_fleet_bar"):
+            self._fleet_bar.set_segments(
+                [self._status.get(c.get("id"), "connecting") for c in self._cameras]
+            )
         if hasattr(self, "_fbtn"):
             counts = {
                 "all": total,
@@ -1920,9 +2075,7 @@ class CamerasPage(QWidget):
                 1 for c in self._cameras
                 if c.get("department_id") == dep_id and self._status.get(c.get("id")) == "live"
             )
-            text = f"{live}/{total}"
-            if badge.text() != text:
-                badge.setText(text)
+            badge.update_counts(live, total)
 
     def _card_sort_key(self, c):
         cid = c.get("id")

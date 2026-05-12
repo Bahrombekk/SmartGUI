@@ -495,12 +495,13 @@ class DashboardBottomPanelsMixin:
         status, accent, status_bg = self._department_health(percent, online)
 
         row = QFrame()
+        row.setObjectName("deptStatRow")
         row.setFixedHeight(62)
         row.setStyleSheet(
-            "QFrame {"
+            "QFrame#deptStatRow {"
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #0e1d2e, stop:1 #0a1520);"
-            "border: 1px solid #1e5fa8;"
+            "stop:0 rgba(14,29,46,0.88), stop:1 rgba(10,21,32,0.88));"
+            "border: 1px solid rgba(30,95,168,0.28);"
             "border-radius: 8px;"
             "}"
         )

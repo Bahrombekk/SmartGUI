@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 from pathlib import Path
 
-from PyQt6.QtCore import QDate, QPointF, QTimer, Qt
+from PyQt6.QtCore import QDate, QPointF, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPainterPath, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -27,9 +27,14 @@ from app.application.services.analytics_service import AnalyticsService
 from app.ui.widgets.bar_chart import BarChart, HourlyBarChart, LineChart
 
 _ICON_DIR = Path(__file__).resolve().parents[3] / "images"
+_SVG_CACHE: dict[tuple[str, str, int], QPixmap] = {}
 
 
 def _svg_pixmap(name: str, color: str, size: int = 16) -> QPixmap:
+    key = (name, color, size)
+    cached = _SVG_CACHE.get(key)
+    if cached is not None:
+        return QPixmap(cached)
     path = _ICON_DIR / name
     src = QPixmap(str(path)) if path.exists() else QPixmap()
     if src.isNull():
@@ -44,21 +49,27 @@ def _svg_pixmap(name: str, color: str, size: int = 16) -> QPixmap:
     p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
     p.fillRect(result.rect(), QColor(color))
     p.end()
+    _SVG_CACHE[key] = QPixmap(result)
     return result
 
 
-# ── Design tokens ─────────────────────────────────────────────────────────────
-_BG     = "#03070b"
-_CARD   = "#07101a"
-_CARD2  = "#0a1520"
-_CARD3  = "#0d1e30"
-_BORDER = "#1e5fa8"
-_BSOFT  = "#1a3552"
-_TEXT   = "#f8fafc"
-_TEXT2  = "#cbd5e1"
-_MUTED  = "#64748b"
+def _hex_rgb(h: str) -> str:
+    h = h.lstrip("#")
+    return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
 
-_RED    = "#ef4444"
+
+# ── Design tokens ──────────────────────────────────────────────────────────────
+_BG     = "#020912"
+_CARD   = "#060f1c"
+_CARD2  = "#091828"
+_CARD3  = "#0d2038"
+_BORDER = "#1a4f8a"
+_BSOFT  = "#0f2238"
+_TEXT   = "#eef2f7"
+_TEXT2  = "#8dafc8"
+_MUTED  = "#3d566e"
+
+_RED    = "#f03a47"
 _ORANGE = "#f97316"
 _AMBER  = "#f59e0b"
 _GREEN  = "#22c55e"
@@ -78,7 +89,7 @@ class _Sparkline(QWidget):
         super().__init__(parent)
         self._color = color
         self._values: list[int] = [2, 8, 5, 12, 7, 16, 11, 20]
-        self.setFixedSize(82, 40)
+        self.setFixedSize(86, 44)
 
     def set_values(self, values: list[int]):
         self._values = values[-12:] or self._values
@@ -87,7 +98,7 @@ class _Sparkline(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = self.rect().adjusted(2, 4, -2, -3)
+        rect = self.rect().adjusted(2, 5, -2, -4)
         vals = self._values
         if not vals:
             return
@@ -109,21 +120,21 @@ class _Sparkline(QWidget):
             area.lineTo(pts[-1].x(), rect.bottom())
             area.closeSubpath()
             g = QLinearGradient(0, rect.top(), 0, rect.bottom())
-            g.setColorAt(0, QColor(self._color + "70"))
+            g.setColorAt(0, QColor(self._color + "88"))
             g.setColorAt(1, QColor(self._color + "00"))
             p.fillPath(area, g)
             line = QPainterPath()
             line.moveTo(pts[0])
             for pt in pts[1:]:
                 line.lineTo(pt)
-            p.setPen(QPen(QColor(self._color), 1.8,
+            p.setPen(QPen(QColor(self._color), 2.0,
                          Qt.PenStyle.SolidLine,
                          Qt.PenCapStyle.RoundCap,
                          Qt.PenJoinStyle.RoundJoin))
             p.drawPath(line)
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(self._color))
-            p.drawEllipse(pts[-1], 2.5, 2.5)
+            p.drawEllipse(pts[-1], 3.0, 3.0)
         p.end()
 
 
@@ -132,45 +143,54 @@ class _MetricCard(QFrame):
     def __init__(self, title: str, icon: str, accent: str, subtitle: str, parent=None):
         super().__init__(parent)
         self._accent = accent
-        self.setMinimumHeight(122)
+        rgb = _hex_rgb(accent)
+        self.setMinimumHeight(118)
         self.setStyleSheet(
             "QFrame {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {_CARD3},stop:1 {_CARD});"
-            f"border: 1px solid {_BORDER};"
-            f"border-top: 3px solid {accent};"
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
+            f"stop:0 rgba({rgb},0.10),stop:0.55 {_CARD},stop:1 {_CARD});"
+            f"border: 1px solid rgba({rgb},0.26);"
+            f"border-left: 4px solid {accent};"
             "border-radius: 10px; }"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(14)
+        lay.setContentsMargins(20, 16, 16, 16)
+        lay.setSpacing(16)
 
         ico = QLabel()
-        ico.setFixedSize(50, 50)
+        ico.setFixedSize(54, 54)
         ico.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ico.setStyleSheet(
-            f"background: rgba({self._hex_rgb(accent)},0.12);"
-            f"border: 1px solid rgba({self._hex_rgb(accent)},0.30);"
-            "border-radius: 12px;"
+            f"background: rgba({rgb},0.16);"
+            f"border: 1px solid rgba({rgb},0.42);"
+            "border-radius: 14px;"
         )
-        pix = _svg_pixmap(icon, accent, 22)
+        pix = _svg_pixmap(icon, accent, 24)
         if not pix.isNull():
             ico.setPixmap(pix)
         else:
             ico.setText("●")
-            ico.setStyleSheet(ico.styleSheet() + f" color: {accent}; font-size: 20px; font-weight: 900;")
+            ico.setStyleSheet(ico.styleSheet() + f" color: {accent}; font-size: 22px; font-weight: 900;")
         lay.addWidget(ico)
 
         col = QVBoxLayout()
         col.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet(f"color: {accent}; font-size: 10px; font-weight: 900; letter-spacing: 1px;")
+        t.setStyleSheet(
+            f"color: rgba({rgb},0.85); font-size: 9px; font-weight: 900;"
+            "letter-spacing: 1.6px;"
+        )
         col.addWidget(t)
         self._value_lbl = QLabel("0")
-        self._value_lbl.setStyleSheet(f"color: {_TEXT}; font-size: 28px; font-weight: 900;")
+        self._value_lbl.setStyleSheet(
+            f"color: {_TEXT}; font-size: 30px; font-weight: 900;"
+        )
         col.addWidget(self._value_lbl)
         self._delta_lbl = QLabel(subtitle)
-        self._delta_lbl.setStyleSheet(f"color: {_MUTED}; font-size: 11px; font-weight: 700;")
+        self._delta_lbl.setStyleSheet(
+            f"color: {_MUTED}; font-size: 11px; font-weight: 700;"
+        )
         col.addWidget(self._delta_lbl)
         lay.addLayout(col, 1)
 
@@ -189,21 +209,18 @@ class _MetricCard(QFrame):
     def set_spark_values(self, values: list[int]):
         self._spark.set_values(values)
 
-    @staticmethod
-    def _hex_rgb(h: str) -> str:
-        h = h.lstrip("#")
-        return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
-
 
 # ── Section card ───────────────────────────────────────────────────────────────
 class _SectionCard(QFrame):
     def __init__(self, title: str, bar_color: str = _LBLUE, parent=None):
         super().__init__(parent)
+        rgb = _hex_rgb(bar_color)
         self.setObjectName("analyticsSection")
         self.setStyleSheet(
             "QFrame#analyticsSection {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {_CARD2},stop:1 {_CARD});"
-            f"border: 1px solid {_BORDER}; border-radius: 10px; }}"
+            f"background: {_CARD2};"
+            f"border: 1px solid rgba({rgb},0.20);"
+            "border-radius: 10px; }"
             "QLabel { background: transparent; border: none; }"
         )
         root = QVBoxLayout(self)
@@ -212,33 +229,39 @@ class _SectionCard(QFrame):
 
         hdr = QWidget()
         hdr.setObjectName("secHdr")
-        hdr.setFixedHeight(42)
+        hdr.setFixedHeight(46)
         hdr.setStyleSheet(
             "QWidget#secHdr {"
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 rgba(30,95,168,0.14),stop:1 transparent);"
-            f"border-bottom: 1px solid {_BORDER};"
+            f"stop:0 rgba({rgb},0.22),stop:0.55 rgba({rgb},0.06),stop:1 transparent);"
+            f"border-bottom: 1px solid rgba({rgb},0.28);"
             "border-radius: 9px 9px 0 0; }"
             "QLabel { background: transparent; border: none; }"
         )
         hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(0, 0, 10, 0)
+        hl.setContentsMargins(0, 0, 12, 0)
         hl.setSpacing(0)
 
+        # left accent pill
         pill_wrap = QWidget()
-        pill_wrap.setFixedSize(14, 42)
+        pill_wrap.setFixedSize(16, 46)
         pill_wrap.setStyleSheet("background: transparent; border: none;")
         pwl = QVBoxLayout(pill_wrap)
-        pwl.setContentsMargins(5, 9, 4, 9)
+        pwl.setContentsMargins(5, 10, 5, 10)
         pwl.setSpacing(0)
         pill = QWidget()
-        pill.setStyleSheet(f"background: {bar_color}; border-radius: 3px; border: none;")
+        pill.setStyleSheet(
+            f"background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            f"stop:0 {bar_color},stop:1 rgba({rgb},0.4)); border-radius: 3px; border: none;"
+        )
         pwl.addWidget(pill)
         hl.addWidget(pill_wrap)
-        hl.addSpacing(6)
+        hl.addSpacing(4)
 
         lbl = QLabel(title)
-        lbl.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 900;")
+        lbl.setStyleSheet(
+            f"color: {_TEXT}; font-size: 13px; font-weight: 900; letter-spacing: 0.3px;"
+        )
         hl.addWidget(lbl)
         hl.addStretch()
         self._hdr_row = hl
@@ -247,7 +270,7 @@ class _SectionCard(QFrame):
         bw = QWidget()
         bw.setStyleSheet("background: transparent;")
         self._body = QVBoxLayout(bw)
-        self._body.setContentsMargins(14, 10, 14, 14)
+        self._body.setContentsMargins(14, 12, 14, 14)
         self._body.setSpacing(8)
         root.addWidget(bw, 1)
 
@@ -262,30 +285,33 @@ class _SectionCard(QFrame):
 class _InsightRow(QFrame):
     def __init__(self, title: str, detail: str, accent: str, icon: str, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(56)
+        rgb = _hex_rgb(accent)
+        self.setMinimumHeight(60)
         self.setStyleSheet(
             "QFrame {"
-            f"background: {_CARD}; border: 1px solid {_BSOFT};"
-            f"border-left: 3px solid {accent}; border-radius: 7px; }}"
+            f"background: rgba({rgb},0.06);"
+            f"border: 1px solid rgba({rgb},0.22);"
+            f"border-left: 3px solid {accent};"
+            "border-radius: 8px; }"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(12, 8, 12, 8)
-        lay.setSpacing(10)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(12)
 
         badge = QLabel()
-        badge.setFixedSize(32, 32)
+        badge.setFixedSize(34, 34)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setStyleSheet(
-            "background: rgba(30,95,168,0.18);"
-            f"border: 1px solid {_BORDER}; border-radius: 16px;"
+            f"background: rgba({rgb},0.18);"
+            f"border: 1px solid rgba({rgb},0.38); border-radius: 17px;"
         )
-        pix = _svg_pixmap(icon, accent, 15)
+        pix = _svg_pixmap(icon, accent, 16)
         if not pix.isNull():
             badge.setPixmap(pix)
         else:
             badge.setText("●")
-            badge.setStyleSheet(badge.styleSheet() + f" color: {accent}; font-size: 13px;")
+            badge.setStyleSheet(badge.styleSheet() + f" color: {accent}; font-size: 14px;")
         lay.addWidget(badge)
 
         col = QVBoxLayout()
@@ -301,32 +327,28 @@ class _InsightRow(QFrame):
 
 # ── Proportional progress bar ──────────────────────────────────────────────────
 class _ProportionalBar(QWidget):
-    """Paint-based bar that always fills proportionally to widget width."""
-
     def __init__(self, value: int, max_value: int, color: str, parent=None):
         super().__init__(parent)
         self._value = value
         self._max = max(max_value, 1)
         self._color = color
-        self.setFixedHeight(7)
+        self.setFixedHeight(6)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         W, H = self.width(), self.height()
-        # track
         track = QPainterPath()
         track.addRoundedRect(0, 0, W, H, 3, 3)
-        p.fillPath(track, QColor(30, 95, 168, 46))
-        # fill
+        p.fillPath(track, QColor(15, 35, 60, 120))
         fw = max(8, int(W * self._value / self._max))
         fill = QPainterPath()
         fill.addRoundedRect(0, 0, fw, H, 3, 3)
         g = QLinearGradient(0, 0, W, 0)
         g.setColorAt(0, QColor(self._color))
         c2 = QColor(self._color)
-        c2.setAlpha(120)
+        c2.setAlpha(100)
         g.setColorAt(1, c2)
         p.fillPath(fill, g)
         p.end()
@@ -342,7 +364,7 @@ class _ProgressRow(QFrame):
             "QLabel { background: transparent; border: none; }"
         )
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 2, 0, 2)
+        lay.setContentsMargins(0, 3, 0, 3)
         lay.setSpacing(5)
 
         top = QHBoxLayout()
@@ -351,7 +373,7 @@ class _ProgressRow(QFrame):
         top.addWidget(name, 1)
         cnt = QLabel(_fmt(value))
         cnt.setAlignment(Qt.AlignmentFlag.AlignRight)
-        cnt.setStyleSheet(f"color: {_TEXT2}; font-size: 12px; font-weight: 900;")
+        cnt.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 900;")
         top.addWidget(cnt)
         lay.addLayout(top)
 
@@ -368,7 +390,7 @@ class _SplitGauge(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._items: list[tuple[str, int, str]] = []
-        self.setMinimumHeight(114)
+        self.setMinimumHeight(120)
 
     def set_items(self, items: list[tuple[str, int, str]]):
         self._items = items
@@ -379,23 +401,23 @@ class _SplitGauge(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         total = sum(v for _, v, _ in self._items) or 1
         cx, cy = self.width() // 2, self.height() // 2
-        r = min(46, max(30, min(self.width(), self.height()) // 3))
+        r = min(50, max(32, min(self.width(), self.height()) // 3))
         start = 90 * 16
         for _, value, color in self._items:
             span = -int(360 * 16 * value / total)
-            p.setPen(QPen(QColor(color), 11, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+            p.setPen(QPen(QColor(color), 12, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(cx - r, cy - r, r * 2, r * 2, start, span)
             start += span
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(_CARD))
-        ir = r - 6
+        p.setBrush(QColor(_CARD2))
+        ir = r - 7
         p.drawEllipse(cx - ir, cy - ir, ir * 2, ir * 2)
         p.setPen(QColor(_TEXT))
-        p.setFont(QFont("Segoe UI", 13, QFont.Weight.Black))
-        p.drawText(cx - 36, cy - 14, 72, 22, Qt.AlignmentFlag.AlignCenter, _fmt(total))
+        p.setFont(QFont("Segoe UI", 14, QFont.Weight.Black))
+        p.drawText(cx - 38, cy - 15, 76, 24, Qt.AlignmentFlag.AlignCenter, _fmt(total))
         p.setPen(QColor(_MUTED))
         p.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        p.drawText(cx - 36, cy + 5, 72, 14, Qt.AlignmentFlag.AlignCenter, "events")
+        p.drawText(cx - 38, cy + 8, 76, 14, Qt.AlignmentFlag.AlignCenter, "events")
         p.end()
 
 
@@ -403,22 +425,23 @@ class _SplitGauge(QWidget):
 def _ranking_row(rank: int, name: str, count: int, max_count: int) -> QFrame:
     palette = [_RED, _ORANGE, _AMBER, _BLUE, _GREEN]
     color = palette[rank % len(palette)]
+    rgb = _hex_rgb(color)
     w = QFrame()
     w.setStyleSheet(
-        f"QFrame {{ background: {_CARD}; border: 1px solid {_BSOFT}; border-radius: 7px; }}"
+        f"QFrame {{ background: rgba({rgb},0.06);"
+        f"border: 1px solid rgba({rgb},0.20); border-radius: 8px; }}"
         "QLabel { background: transparent; border: none; }"
     )
     lay = QHBoxLayout(w)
-    lay.setContentsMargins(10, 7, 10, 7)
-    lay.setSpacing(9)
+    lay.setContentsMargins(10, 8, 10, 8)
+    lay.setSpacing(10)
 
     badge = QLabel(str(rank + 1))
-    badge.setFixedSize(24, 24)
+    badge.setFixedSize(26, 26)
     badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
     badge.setStyleSheet(
-        f"color: {color}; background: rgba(30,95,168,0.22);"
-        f"border: 1px solid {_BORDER}; border-radius: 12px;"
-        "font-weight: 900; font-size: 11px;"
+        f"color: {_BG}; background: {color};"
+        "border-radius: 13px; font-weight: 900; font-size: 11px;"
     )
     lay.addWidget(badge)
 
@@ -429,37 +452,42 @@ def _ranking_row(rank: int, name: str, count: int, max_count: int) -> QFrame:
     lay.addWidget(_ProportionalBar(count, max_count, color))
 
     cv = QLabel(_fmt(count))
-    cv.setMinimumWidth(48)
+    cv.setMinimumWidth(52)
     cv.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-    cv.setStyleSheet(f"color: {_TEXT2}; font-size: 12px; font-weight: 900;")
+    cv.setStyleSheet(f"color: {color}; font-size: 12px; font-weight: 900;")
     lay.addWidget(cv)
     return w
 
 
 # ── Ops mini card ──────────────────────────────────────────────────────────────
 def _ops_card(title: str, value: str, color: str) -> QFrame:
+    rgb = _hex_rgb(color)
     card = QFrame()
-    card.setMinimumHeight(66)
+    card.setMinimumHeight(70)
     card.setStyleSheet(
         "QFrame {"
-        f"background: {_CARD}; border: 1px solid {_BSOFT};"
-        f"border-left: 3px solid {color}; border-radius: 7px; }}"
+        f"background: rgba({rgb},0.07);"
+        f"border: 1px solid rgba({rgb},0.22);"
+        f"border-bottom: 3px solid {color};"
+        "border-radius: 8px; }"
         "QLabel { background: transparent; border: none; }"
     )
     lay = QVBoxLayout(card)
-    lay.setContentsMargins(12, 8, 12, 8)
+    lay.setContentsMargins(14, 10, 14, 10)
     lay.setSpacing(1)
     v = QLabel(value)
-    v.setStyleSheet(f"color: {color}; font-size: 20px; font-weight: 900;")
+    v.setStyleSheet(f"color: {color}; font-size: 22px; font-weight: 900;")
     lay.addWidget(v)
     t = QLabel(title)
-    t.setStyleSheet(f"color: {_MUTED}; font-size: 10px; font-weight: 700;")
+    t.setStyleSheet(f"color: {_MUTED}; font-size: 10px; font-weight: 700; letter-spacing: 0.5px;")
     lay.addWidget(t)
     return card
 
 
 # ── Main page ──────────────────────────────────────────────────────────────────
 class AnalyticsPage(QWidget):
+    go_cameras = pyqtSignal()
+
     def __init__(self, db, config_manager=None, parent=None):
         super().__init__(parent)
         self.db = db
@@ -487,7 +515,7 @@ class AnalyticsPage(QWidget):
         body = QWidget()
         body.setStyleSheet("background: transparent;")
         c = QVBoxLayout(body)
-        c.setContentsMargins(16, 14, 16, 18)
+        c.setContentsMargins(16, 16, 16, 20)
         c.setSpacing(12)
 
         # KPI row
@@ -540,6 +568,7 @@ class AnalyticsPage(QWidget):
             "border: none; font-size: 11px; font-weight: 800; text-align: right; }}"
             "QPushButton:hover { color: #fb923c; }"
         )
+        all_btn.clicked.connect(self.go_cameras)
         ranking.add_body_widget(all_btn)
         r1.addWidget(ranking, 3)
         c.addLayout(r1)
@@ -599,30 +628,35 @@ class AnalyticsPage(QWidget):
     def _build_header(self) -> QWidget:
         h = QFrame()
         h.setObjectName("analyticsHdr")
-        h.setFixedHeight(72)
+        h.setFixedHeight(76)
         h.setStyleSheet(
             "QFrame#analyticsHdr {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {_CARD3},stop:1 {_CARD});"
-            f"border-bottom: 1px solid {_BORDER}; }}"
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            f"stop:0 {_CARD3},stop:0.6 {_CARD2},stop:1 {_CARD});"
+            f"border-bottom: 1px solid rgba({_hex_rgb(_ORANGE)},0.22); }}"
             "QLabel { background: transparent; border: none; }"
         )
         lay = QHBoxLayout(h)
         lay.setContentsMargins(0, 0, 20, 0)
         lay.setSpacing(10)
 
+        # Left accent bar
         bar = QWidget()
-        bar.setFixedSize(4, 72)
-        bar.setStyleSheet(f"background: {_ORANGE}; border: none;")
+        bar.setFixedSize(4, 76)
+        bar.setStyleSheet(
+            f"background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            f"stop:0 {_ORANGE},stop:0.6 #c2410c,stop:1 transparent); border: none;"
+        )
         lay.addWidget(bar)
-        lay.addSpacing(10)
+        lay.addSpacing(12)
 
         tc = QVBoxLayout()
-        tc.setSpacing(2)
+        tc.setSpacing(3)
         t = QLabel("Analytics")
         t.setStyleSheet(f"color: {_TEXT}; font-size: 20px; font-weight: 900;")
         tc.addWidget(t)
         s = QLabel("Violation trends by time, camera and operational health")
-        s.setStyleSheet(f"color: {_MUTED}; font-size: 11px;")
+        s.setStyleSheet(f"color: {_MUTED}; font-size: 11px; font-weight: 600;")
         tc.addWidget(s)
         lay.addLayout(tc)
         lay.addStretch()
@@ -687,7 +721,7 @@ class AnalyticsPage(QWidget):
             btn.setCheckable(True)
             btn.setFixedHeight(34)
             btn.setStyleSheet(self._seg_style(idx, 4))
-            if idx == 1:  # default: Week
+            if idx == 1:
                 btn.setChecked(True)
             self._period_group.addButton(btn, idx)
             sl.addWidget(btn)
@@ -697,10 +731,10 @@ class AnalyticsPage(QWidget):
         refresh = QPushButton("Refresh")
         refresh.setFixedSize(88, 34)
         refresh.setStyleSheet(
-            f"QPushButton {{ background: rgba(249,115,22,0.12); color: {_ORANGE};"
-            f"border: 1px solid rgba(249,115,22,0.35); border-radius: 7px;"
+            f"QPushButton {{ background: rgba({_hex_rgb(_ORANGE)},0.14); color: {_ORANGE};"
+            f"border: 1px solid rgba({_hex_rgb(_ORANGE)},0.38); border-radius: 7px;"
             "font-size: 12px; font-weight: 800; }}"
-            f"QPushButton:hover {{ background: rgba(249,115,22,0.22); color: #fff; }}"
+            f"QPushButton:hover {{ background: rgba({_hex_rgb(_ORANGE)},0.26); color: #fff; }}"
         )
         refresh.clicked.connect(self._load_all)
         lay.addWidget(refresh)
@@ -724,27 +758,48 @@ class AnalyticsPage(QWidget):
             return today - timedelta(days=today.weekday()), today
         elif btn_id == 2:
             return date(today.year, today.month, 1), today
-        else:  # Custom
+        else:
             d_from = self._date_from.date().toPyDate()
             d_to = self._date_to.date().toPyDate()
             return min(d_from, d_to), max(d_from, d_to)
 
+    def _current_camera_name(self) -> str | None:
+        idx = self._camera_combo.currentIndex()
+        return None if idx == 0 else self._camera_combo.currentText()
+
+    def _current_department_id(self) -> int | None:
+        idx = self._zone_combo.currentIndex()
+        if idx == 0 or not self.cfg:
+            return None
+        dept_name = self._zone_combo.currentText()
+        for d in self.cfg.get_departments():
+            if str(d.get("name", "")) == dept_name:
+                return d.get("id")
+        return None
+
     # ── Data loaders ───────────────────────────────────────────────────────────
     def _load_all(self):
-        d_from, d_to = self._current_range()
-        self._load_summary()
-        self._load_daily()
-        self._load_weekly()
-        self._load_hourly()
-        self._load_ranking(d_from, d_to)
-        self._load_insights(d_from, d_to)
-        self._load_departments(d_from, d_to)
-        self._load_violation_mix(d_from, d_to)
-        self._load_operations()
+        try:
+            d_from, d_to = self._current_range()
+            cam   = self._current_camera_name()
+            dept  = self._current_department_id()
+            self._load_summary(cam, dept)
+            self._load_daily(cam, dept)
+            self._load_weekly(cam, dept)
+            self._load_hourly(cam, dept)
+            self._load_ranking(d_from, d_to, cam, dept)
+            self._load_insights(d_from, d_to, cam, dept)
+            self._load_departments(d_from, d_to, cam, dept)
+            self._load_violation_mix(d_from, d_to, cam, dept)
+            self._load_operations()
+        except Exception as exc:
+            for card in self._metric_cards.values():
+                card.set_delta(f"DB error: {str(exc)[:48]}", _RED)
 
-    def _load_summary(self):
-        data = self.analytics.summary_with_delta()
-
+    def _load_summary(self, camera_name=None, department_id=None):
+        data = self.analytics.summary_with_delta(
+            camera_name=camera_name, department_id=department_id
+        )
         self._metric_cards["today"].set_value(data["today"])
         self._metric_cards["week"].set_value(data["week"])
         self._metric_cards["month"].set_value(data["month"])
@@ -765,24 +820,33 @@ class AnalyticsPage(QWidget):
         self._metric_cards["month"].set_delta(txt, col)
         self._metric_cards["total"].set_delta("all time data", _MUTED)
 
-    def _load_daily(self):
+    def _load_daily(self, camera_name=None, department_id=None):
         days = {0: 14, 1: 30, 2: 60, 3: 90}.get(self._days_combo.currentIndex(), 30)
-        rows = self.analytics.daily_counts(days=days)
+        rows = self.analytics.daily_counts(
+            days=days, camera_name=camera_name, department_id=department_id
+        )
         self._bar_chart.set_data(rows)
         values = [int(r.get("count", 0)) for r in rows]
         for card in self._metric_cards.values():
             card.set_spark_values(values)
 
-    def _load_weekly(self):
+    def _load_weekly(self, camera_name=None, department_id=None):
         weeks = 16 if self._weekly_combo.currentIndex() == 1 else 8
-        self._line_chart.set_data(self.analytics.weekly_counts(weeks=weeks))
+        self._line_chart.set_data(
+            self.analytics.weekly_counts(weeks=weeks, camera_name=camera_name, department_id=department_id)
+        )
 
-    def _load_hourly(self):
-        self._hourly_chart.set_data(self.analytics.hourly_counts())
+    def _load_hourly(self, camera_name=None, department_id=None):
+        self._hourly_chart.set_data(
+            self.analytics.hourly_counts(camera_name=camera_name, department_id=department_id)
+        )
 
-    def _load_ranking(self, date_from: date, date_to: date):
+    def _load_ranking(self, date_from: date, date_to: date, camera_name=None, department_id=None):
         _clear_layout(self._ranking_layout)
-        rows = self.analytics.camera_ranking(date_from=date_from, date_to=date_to, limit=5)
+        rows = self.analytics.camera_ranking(
+            date_from=date_from, date_to=date_to, limit=5,
+            camera_name=camera_name, department_id=department_id,
+        )
         if not rows:
             lbl = QLabel("No camera data yet")
             lbl.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
@@ -792,25 +856,33 @@ class AnalyticsPage(QWidget):
         for i, r in enumerate(rows):
             self._ranking_layout.addWidget(_ranking_row(i, r["camera_name"], r["count"], mx))
 
-    def _load_insights(self, date_from: date, date_to: date):
+    def _load_insights(self, date_from: date, date_to: date, camera_name=None, department_id=None):
         _clear_layout(self._insight_layout)
-        ins = self.analytics.peak_insights(date_from=date_from, date_to=date_to)
+        ins = self.analytics.peak_insights(
+            date_from=date_from, date_to=date_to,
+            camera_name=camera_name, department_id=department_id,
+        )
         peak_h = ins["peak_hour"]
         peak_label = f"{peak_h:02d}:00 – {peak_h+1:02d}:00 ({_fmt(ins['peak_hour_count'])} violations)"
         top_cam = f"{ins['top_camera']} ({_fmt(ins['top_camera_count'])} cases)"
-        today_n = self.analytics.summary_counts().get("today", 0)
+        today_n = self.analytics.summary_counts(
+            camera_name=camera_name, department_id=department_id
+        ).get("today", 0)
         rows = [
-            ("Peak violation time",  peak_label,             _RED,    "bell.svg"),
-            ("Highest risk camera",  top_cam,                _ORANGE, "camera.svg"),
-            ("Today's violations",   f"{_fmt(today_n)} today",_LBLUE, "analytics.svg"),
-            ("Highest risk zone",    ins["top_dept"],        _GREEN,  "map-pin.svg"),
+            ("Peak violation time",  peak_label,              _RED,    "bell.svg"),
+            ("Highest risk camera",  top_cam,                 _ORANGE, "camera.svg"),
+            ("Today's violations",   f"{_fmt(today_n)} today", _LBLUE, "analytics.svg"),
+            ("Highest risk zone",    ins["top_dept"],         _GREEN,  "map-pin.svg"),
         ]
         for row in rows:
             self._insight_layout.addWidget(_InsightRow(*row))
 
-    def _load_departments(self, date_from: date, date_to: date):
+    def _load_departments(self, date_from: date, date_to: date, camera_name=None, department_id=None):
         _clear_layout(self._dept_layout)
-        rows = self.analytics.department_breakdown(date_from=date_from, date_to=date_to)
+        rows = self.analytics.department_breakdown(
+            date_from=date_from, date_to=date_to,
+            camera_name=camera_name, department_id=department_id,
+        )
         if not rows and self.cfg:
             dep_names = {d.get("id"): str(d.get("name", "")) for d in self.cfg.get_departments()}
             rows = [
@@ -832,9 +904,12 @@ class AnalyticsPage(QWidget):
                              self._dept_detail(name))
             )
 
-    def _load_violation_mix(self, date_from: date, date_to: date):
+    def _load_violation_mix(self, date_from: date, date_to: date, camera_name=None, department_id=None):
         _clear_layout(self._type_layout)
-        items_raw = self.analytics.violation_type_breakdown(date_from=date_from, date_to=date_to)
+        items_raw = self.analytics.violation_type_breakdown(
+            date_from=date_from, date_to=date_to,
+            camera_name=camera_name, department_id=department_id,
+        )
         palette = [_RED, _ORANGE, _LBLUE, _AMBER, _GREEN]
         items = [
             (r["label"], r["count"], palette[i % len(palette)])
@@ -891,11 +966,16 @@ class AnalyticsPage(QWidget):
     @staticmethod
     def _combo_style() -> str:
         return (
-            f"QComboBox, QDateEdit {{ background: {_CARD}; color: {_TEXT2};"
+            f"QComboBox {{ background: {_CARD}; color: {_TEXT2};"
             f"border: 1px solid {_BORDER}; border-radius: 7px;"
             "padding: 0 10px; font-size: 12px; font-weight: 700; }}"
-            f"QComboBox:hover, QDateEdit:hover {{ border-color: {_ORANGE}88; }}"
-            "QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 22px; }"
+            f"QComboBox:hover {{ border-color: rgba({_hex_rgb(_ORANGE)},0.55); }}"
+            "QComboBox::drop-down { border: none; width: 22px; }"
+            f"QDateEdit {{ background: {_CARD}; color: {_TEXT2};"
+            f"border: 1px solid {_BORDER}; border-radius: 7px;"
+            "padding: 0 10px; font-size: 12px; font-weight: 700; }}"
+            f"QDateEdit:hover {{ border-color: rgba({_hex_rgb(_ORANGE)},0.55); }}"
+            "QDateEdit::drop-down { border: none; width: 22px; }"
         )
 
     @staticmethod
@@ -909,9 +989,10 @@ class AnalyticsPage(QWidget):
         return (
             f"QPushButton {{ background: {_CARD}; color: {_MUTED};"
             f"border: 1px solid {_BORDER}; {r}"
-            "padding: 0 13px; font-size: 12px; font-weight: 800; }}"
+            "padding: 0 14px; font-size: 12px; font-weight: 800; }}"
             f"QPushButton:hover {{ color: {_TEXT2}; background: {_CARD2}; }}"
-            f"QPushButton:checked {{ background: {_ORANGE}; color: #05090d; border-color: {_ORANGE}; }}"
+            f"QPushButton:checked {{ background: {_ORANGE}; color: #05090d;"
+            f"border-color: {_ORANGE}; }}"
         )
 
     @staticmethod
