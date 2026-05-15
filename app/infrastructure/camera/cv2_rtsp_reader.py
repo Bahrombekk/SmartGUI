@@ -16,6 +16,10 @@ import threading
 import numpy as np
 import cv2
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 os.environ["OPENCV_LOG_LEVEL"]       = "ERROR"
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "quiet"
 
@@ -50,6 +54,11 @@ def _cuda_ffmpeg_available() -> bool:
         return False
 
 _USE_GPU_DECODE = _cuda_ffmpeg_available()
+
+
+class _Snap:
+    """snapshot() qaytaruvchi yengil obyekt — bir marta aniqlanadi."""
+    __slots__ = ("frame", "timestamp", "fps", "status")
 
 
 # ── Lock-free double buffer ───────────────────────────────────────────────────
@@ -191,9 +200,9 @@ class CV2RTSPReader(threading.Thread):
         if _USE_GPU_DECODE:
             cap = self._try_open_cap(_RTSP_OPTIONS_GPU, "RTSPOpenGPU")
             if cap is not None:
-                print(f"[RTSPReader] GPU (NVDEC) dekodlash faollashdi")
+                _log.info("GPU (NVDEC) dekodlash faollashdi")
                 return cap
-            print("[RTSPReader] GPU dekodlash ishlamadi, CPU ga o'tildi")
+            _log.warning("GPU dekodlash ishlamadi, CPU ga o'tildi")
 
         # 1-urinish: TCP (asosiy, CPU)
         cap = self._try_open_cap()
@@ -301,6 +310,8 @@ class CV2RTSPReader(threading.Thread):
                         _remaining = _interval - _elapsed
                         if _remaining > 0.010:
                             time.sleep(max(0.005, _remaining - 0.005))
+                        else:
+                            time.sleep(0.002)
                         continue
                     _last_retrieve = _now
 
@@ -366,9 +377,6 @@ class CV2RTSPReader(threading.Thread):
         .frame, .timestamp, .fps, .status atributlari bor obyekt qaytaradi.
         """
         ok, frame = self.get_frame()
-
-        class _Snap:
-            __slots__ = ("frame", "timestamp", "fps", "status")
 
         snap = _Snap()
         snap.frame     = frame if ok else None

@@ -3,7 +3,6 @@ MainWindow тАФ asosiy oyna.
 SmartHelmet dizayni: maxsus top navbar + dashboard + violations + analytics.
 """
 
-import os
 import time
 from pathlib import Path
 
@@ -30,7 +29,7 @@ from app.ui.pages.violations_page import ViolationsPage
 from app.ui.pages.analytics_page import AnalyticsPage
 from app.ui.pages.users_page import UsersPage
 from app.ui.pages.settings_dialog import SettingsPage
-from app.ui.theme import C
+from app.ui.theme import C, get_main_stylesheet, set_theme
 
 
 # тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -46,14 +45,20 @@ class TopNavBar(QWidget):
     PAGE_USERS      = 5
     PAGE_SETTINGS   = 6
 
-    def __init__(self, on_page_change, on_settings, on_quit, on_search=None, parent=None):
+    def __init__(self, on_page_change, on_settings, on_quit, on_search=None,
+                 on_notifications=None, on_theme_change=None, parent=None):
         super().__init__(parent)
         self._on_page_change = on_page_change
         self._on_settings    = on_settings
         self._on_quit        = on_quit
         self._on_search      = on_search
+        self._on_notifications = on_notifications
+        self._on_theme_change = on_theme_change
         self._nav_btns: dict[int, QPushButton] = {}
         self._icon_dir = Path(__file__).resolve().parents[3] / "images"
+        self._notif_count = 0
+        self._is_light_mode = False
+        self._restore_maximized_after_fullscreen = True
 
         self.setFixedHeight(58)
         self.setStyleSheet(
@@ -139,24 +144,7 @@ class TopNavBar(QWidget):
         self._search.setPlaceholderText("Search...")
         self._search.setFixedWidth(190)
         self._search.setFixedHeight(32)
-        self._search.setStyleSheet(f"""
-            QLineEdit {{
-                background: rgba(2,6,23,0.72);
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.22);
-                border-radius: 7px;
-                padding: 0 10px;
-                font-size: 13px;
-            }}
-            QLineEdit:hover {{
-                background: rgba(15,23,42,0.70);
-                border-color: rgba(148,163,184,0.38);
-            }}
-            QLineEdit:focus {{
-                background: rgba(15,23,42,0.86);
-                border: 1px solid rgba(251,146,60,0.74);
-            }}
-        """)
+        self._search.setStyleSheet(self._search_style())
         self._search.textChanged.connect(self._on_search_changed)
         lay.addWidget(self._search)
         lay.addSpacing(8)
@@ -167,8 +155,8 @@ class TopNavBar(QWidget):
         self._bell_btn.setIcon(self._icon("bell.svg"))
         self._bell_btn.setIconSize(QSize(18, 18))
         self._bell_btn.setStyleSheet(self._icon_btn_style())
-        self._bell_btn.setToolTip("Reports")
-        self._bell_btn.clicked.connect(lambda: self._nav_click(self.PAGE_REPORTS))
+        self._bell_btn.setToolTip("Reports / violations")
+        self._bell_btn.clicked.connect(self._open_notifications)
         lay.addWidget(self._bell_btn)
 
         # Notification badge
@@ -183,25 +171,25 @@ class TopNavBar(QWidget):
         self._notif_badge.hide()
 
         # Moon / tema
-        moon_btn = QPushButton()
-        moon_btn.setFixedSize(30, 30)
-        moon_btn.setIcon(self._icon("moon.svg"))
-        moon_btn.setIconSize(QSize(18, 18))
-        moon_btn.setToolTip("Dark mode")
-        moon_btn.setStyleSheet(self._icon_btn_style())
-        lay.addWidget(moon_btn)
+        self._theme_btn = QPushButton()
+        self._theme_btn.setFixedSize(30, 30)
+        self._theme_btn.setIcon(self._icon("moon.svg"))
+        self._theme_btn.setIconSize(QSize(18, 18))
+        self._theme_btn.setToolTip("Light mode")
+        self._theme_btn.setCheckable(True)
+        self._theme_btn.setStyleSheet(self._icon_btn_style())
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        lay.addWidget(self._theme_btn)
 
         # Expand (fullscreen)
-        expand_btn = QPushButton()
-        expand_btn.setFixedSize(30, 30)
-        expand_btn.setIcon(self._icon("expand.svg"))
-        expand_btn.setIconSize(QSize(18, 18))
-        expand_btn.setToolTip("Fullscreen")
-        expand_btn.setStyleSheet(self._icon_btn_style())
-        expand_btn.clicked.connect(lambda: self.window().showFullScreen()
-                                   if self.window() and not self.window().isFullScreen()
-                                   else self.window().showMaximized() if self.window() else None)
-        lay.addWidget(expand_btn)
+        self._expand_btn = QPushButton()
+        self._expand_btn.setFixedSize(30, 30)
+        self._expand_btn.setIcon(self._icon("expand.svg"))
+        self._expand_btn.setIconSize(QSize(18, 18))
+        self._expand_btn.setToolTip("Fullscreen")
+        self._expand_btn.setStyleSheet(self._icon_btn_style())
+        self._expand_btn.clicked.connect(self._toggle_fullscreen)
+        lay.addWidget(self._expand_btn)
 
         lay.addSpacing(2)
 
@@ -246,27 +234,14 @@ class TopNavBar(QWidget):
         lay.addSpacing(8)
 
         # Chiqish
-        quit_btn = QPushButton()
-        quit_btn.setFixedSize(30, 30)
-        quit_btn.setIcon(self._icon("close.svg"))
-        quit_btn.setIconSize(QSize(18, 18))
-        quit_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                color: {C('text_muted')};
-                border: none;
-                border-radius: 16px;
-                font-size: 16px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{
-                background: {C('danger_dim')};
-                color: {C('danger')};
-            }}
-        """)
-        quit_btn.setToolTip("Clear search")
-        quit_btn.clicked.connect(self._search.clear)
-        lay.addWidget(quit_btn)
+        self._quit_btn = QPushButton()
+        self._quit_btn.setFixedSize(30, 30)
+        self._quit_btn.setIcon(self._icon("close.svg"))
+        self._quit_btn.setIconSize(QSize(18, 18))
+        self._quit_btn.setStyleSheet(self._quit_btn_style())
+        self._quit_btn.setToolTip("Exit")
+        self._quit_btn.clicked.connect(self._on_quit)
+        lay.addWidget(self._quit_btn)
 
         # Dashboard boshlang'ich holat
         self._set_active(self.PAGE_DASHBOARD)
@@ -307,8 +282,51 @@ class TopNavBar(QWidget):
             font-size: 16px;
         }}
         QPushButton:hover {{
+            background: rgba(148,163,184,0.10);
             color: #ffffff;
         }}
+        QPushButton:checked {{
+            background: rgba(249,115,22,0.14);
+            color: {C('accent')};
+        }}
+        """
+
+    @staticmethod
+    def _search_style() -> str:
+        return f"""
+            QLineEdit {{
+                background: {C('bg_input')};
+                color: {C('text_primary')};
+                border: 1px solid {C('border')};
+                border-radius: 7px;
+                padding: 0 10px;
+                font-size: 13px;
+            }}
+            QLineEdit:hover {{
+                background: {C('bg_panel')};
+                border-color: {C('border_hover')};
+            }}
+            QLineEdit:focus {{
+                background: {C('bg_panel')};
+                border: 1px solid {C('accent')};
+            }}
+        """
+
+    @staticmethod
+    def _quit_btn_style() -> str:
+        return f"""
+            QPushButton {{
+                background: transparent;
+                color: {C('text_muted')};
+                border: none;
+                border-radius: 16px;
+                font-size: 16px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background: {C('danger_dim')};
+                color: {C('danger')};
+            }}
         """
 
     @staticmethod
@@ -353,6 +371,72 @@ class TopNavBar(QWidget):
         if self._on_search:
             self._on_search(text)
 
+    def _open_notifications(self):
+        self._violation_count_seen()
+        if self._on_notifications:
+            self._on_notifications()
+        else:
+            self._nav_click(self.PAGE_REPORTS)
+
+    def _violation_count_seen(self):
+        self._notif_count = 0
+        self._notif_badge.hide()
+
+    def _toggle_theme(self):
+        self._is_light_mode = not self._is_light_mode
+        self.apply_theme("light" if self._is_light_mode else "dark")
+        if self._on_theme_change:
+            self._on_theme_change("light" if self._is_light_mode else "dark")
+
+    def apply_theme(self, theme: str):
+        app = QApplication.instance()
+        is_light = theme == "light"
+        set_theme(theme)
+        self._is_light_mode = is_light
+        self._theme_btn.setChecked(is_light)
+        if app:
+            app.setStyleSheet(get_main_stylesheet())
+        self.setStyleSheet("background: #f8fafc;" if is_light else "background: #05090d;")
+        self._theme_btn.setToolTip("Dark mode" if is_light else "Light mode")
+        self._apply_navbar_style()
+
+    def _apply_navbar_style(self):
+        for btn in self._nav_btns.values():
+            btn.setStyleSheet(self._nav_style())
+        self._search.setStyleSheet(self._search_style())
+        for btn in (self._bell_btn, self._theme_btn, self._expand_btn):
+            btn.setStyleSheet(self._icon_btn_style())
+        self._notif_badge.setStyleSheet(
+            f"background: {C('accent_hover')}; color: white; border-radius: 9px;"
+            " font-size: 10px; font-weight: bold;"
+        )
+        self._cam_badge.setStyleSheet(
+            f"color: {C('accent')}; font-size: 11px; font-weight: 600;"
+            f"background: {C('accent_dim')}; padding: 0 12px;"
+            f"border-left: 1px solid {C('border')}; border-right: 1px solid {C('border')};"
+        )
+        for btn in (self._pause_btn, self._restart_btn, self._ss_btn):
+            btn.setStyleSheet(self._action_btn_style())
+        self._quit_btn.setStyleSheet(self._quit_btn_style())
+
+    def _toggle_fullscreen(self):
+        window = self.window()
+        if not window:
+            return
+        if window.isFullScreen():
+            if self._restore_maximized_after_fullscreen:
+                window.showMaximized()
+            else:
+                window.showNormal()
+            self._expand_btn.setToolTip("Fullscreen")
+            self._expand_btn.setChecked(False)
+        else:
+            self._restore_maximized_after_fullscreen = window.isMaximized()
+            window.showFullScreen()
+            self._expand_btn.setToolTip("Exit fullscreen")
+            self._expand_btn.setChecked(True)
+        QTimer.singleShot(0, self._position_notif_badge)
+
     def _set_active(self, page_id: int):
         for pid, btn in self._nav_btns.items():
             btn.setChecked(pid == page_id)
@@ -367,13 +451,24 @@ class TopNavBar(QWidget):
         self._pause_btn.setEnabled(enabled)
 
     def set_notif_count(self, count: int):
+        self._notif_count = max(0, count)
         if count > 0:
             self._notif_badge.setText(str(min(count, 99)))
-            pos = self._bell_btn.mapTo(self, self._bell_btn.rect().topRight())
-            self._notif_badge.move(pos.x() - 8, pos.y() - 2)
+            self._position_notif_badge()
             self._notif_badge.show()
         else:
             self._notif_badge.hide()
+
+    def _position_notif_badge(self):
+        if not hasattr(self, "_notif_badge") or not hasattr(self, "_bell_btn"):
+            return
+        pos = self._bell_btn.mapTo(self, self._bell_btn.rect().topRight())
+        self._notif_badge.move(pos.x() - 8, pos.y() - 2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if getattr(self, "_notif_count", 0) > 0:
+            self._position_notif_badge()
 
 
 # тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -443,6 +538,8 @@ class MainWindow(QMainWindow):
             on_settings    = self._open_settings,
             on_quit        = self.close,
             on_search      = self._on_global_search,
+            on_notifications = self._open_notifications_from_nav,
+            on_theme_change = self._on_theme_changed,
         )
         self._navbar._pause_btn.clicked.connect(self._toggle_pause_all)
         self._navbar._restart_btn.clicked.connect(self._restart_all_cameras)
@@ -482,6 +579,7 @@ class MainWindow(QMainWindow):
         self._dashboard.setup_cameras(cameras)
         self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
+        self._navbar.apply_theme(str(self.cfg.get("theme", "dark")).lower())
 
     def _lazy_placeholder(self, title: str) -> QWidget:
         w = QWidget()
@@ -534,8 +632,7 @@ class MainWindow(QMainWindow):
         self._sb_status = QLabel("Tayyor")
         self._sb_today  = QLabel("Bugun: 0 buzilish")
 
-        for lbl in [self._sb_cams, self._sb_status, self._sb_today]:
-            lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
+        self._apply_statusbar_style()
 
         self._sb.addPermanentWidget(self._sb_cams)
         self._sb.addPermanentWidget(self._sep_lbl())
@@ -545,6 +642,16 @@ class MainWindow(QMainWindow):
 
         self._refresh_sb_cams()
         self._sb.hide()
+
+    def _apply_statusbar_style(self):
+        if not hasattr(self, "_sb"):
+            return
+        self._sb.setStyleSheet(
+            f"background: {C('bg_sidebar')}; color: {C('text_muted')};"
+            f" border-top: 1px solid {C('border')};"
+        )
+        for lbl in [self._sb_cams, self._sb_status, self._sb_today]:
+            lbl.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
 
     @staticmethod
     def _sep_lbl(text="  |  ") -> QLabel:
@@ -572,6 +679,7 @@ class MainWindow(QMainWindow):
             self._save_screenshot
         )
         QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
+        QShortcut(QKeySequence("Esc"), self).activated.connect(self._exit_fullscreen)
         QShortcut(QKeySequence("F5"),     self).activated.connect(
             self._refresh_current
         )
@@ -868,6 +976,27 @@ class MainWindow(QMainWindow):
         self._settings._load_values()
         self._switch_page(self.PAGE_SETTINGS)
 
+    def _open_notifications_from_nav(self):
+        self._violation_count = 0
+        self._switch_page(self.PAGE_VIOLATIONS, 3)
+
+    def _on_theme_changed(self, theme: str):
+        self.cfg.set("theme", theme)
+        self.cfg.save()
+        self._apply_theme_refresh(theme)
+
+    def _apply_theme_refresh(self, theme: str):
+        self._navbar.apply_theme(theme)
+        self._apply_statusbar_style()
+        self._refresh_current()
+        self.update()
+        self.repaint()
+        self._sb_status.setText("Theme yangilandi")
+
+    def _exit_fullscreen(self):
+        if self.isFullScreen():
+            self._navbar._toggle_fullscreen()
+
     def _on_settings_saved(self):
         self._refresh_sb_cams()
         self._users_loaded = False
@@ -896,12 +1025,26 @@ class MainWindow(QMainWindow):
 
     def _refresh_current(self):
         page = self._stack.currentIndex()
-        if page == self.PAGE_VIOLATIONS:
+        if page == self.PAGE_DASHBOARD:
+            self._dashboard.setup_cameras(self.cfg.get_enabled_cameras())
+            self._apply_cached_camera_state(page)
+            self._update_cam_badge()
+        elif page == self.PAGE_CAMERAS:
+            self._cameras.setup_cameras(self.cfg.get_enabled_cameras())
+            self._apply_cached_camera_state(page)
+            self._update_cam_badge()
+        elif page == self.PAGE_VIOLATIONS:
             self._ensure_page(self.PAGE_VIOLATIONS)
             self._violations._load_violations()
         elif page == self.PAGE_ANALYTICS:
             self._ensure_page(self.PAGE_ANALYTICS)
             self._analytics.refresh()
+        elif page == self.PAGE_USERS:
+            self._ensure_page(self.PAGE_USERS)
+            self._users.refresh()
+        elif page == self.PAGE_SETTINGS:
+            self._ensure_page(self.PAGE_SETTINGS)
+            self._settings._load_values()
 
     # тФАтФА Yopish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 

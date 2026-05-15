@@ -8,6 +8,10 @@ BUG FIX: QImage(rgb.data, ...) — PyQt6 da numpy memoryview egnida qoladi
 
 import numpy as np
 from PyQt6.QtWidgets import QLabel, QSizePolicy
+
+import logging
+
+_log = logging.getLogger(__name__)
 from PyQt6.QtCore import Qt, QTimer, QRect, QRectF, QPointF
 from PyQt6.QtGui import (QPixmap, QImage, QPainter, QColor, QFont, QPen, QBrush,
                           QRadialGradient, QPolygonF)
@@ -223,7 +227,7 @@ class VideoLabel(QLabel):
             self.update()
 
         except Exception as e:
-            print(f"[VideoLabel] Frame xatosi: {e}")
+            _log.warning("Frame xatosi: %s", e)
 
     # ── Holat metodlari ───────────────────────────────────────────────────
 

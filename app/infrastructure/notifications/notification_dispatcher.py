@@ -5,6 +5,9 @@ import threading
 import numpy as np
 
 from app.domain.entities import ViolationEvent
+import logging
+
+_log = logging.getLogger(__name__)
 
 
 class NotificationDispatcher:
@@ -27,7 +30,7 @@ class NotificationDispatcher:
                         crop_frame, full_copy, event.track_id, event.timestamp
                     )
                 except Exception as exc:
-                    print(f"[NotificationDispatcher] Telegram xato: {exc}")
+                    _log.error("Telegram xato: %s", exc)
 
             threading.Thread(target=_send_telegram, daemon=True).start()
 
@@ -46,6 +49,6 @@ class NotificationDispatcher:
                             event.camera_name, event.company_id, full_copy, full_copy
                         )
                 except Exception as exc:
-                    print(f"[NotificationDispatcher] Backend xato: {exc}")
+                    _log.error("Backend xato: %s", exc)
 
             threading.Thread(target=_send_backend, daemon=True).start()

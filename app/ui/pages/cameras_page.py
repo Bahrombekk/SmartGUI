@@ -502,15 +502,13 @@ class CameraGridCard(QFrame):
         self._pulse_phase ^= 1
         if self._pulse_phase:
             self._badge.setStyleSheet(
-                f"color: {LIVE}; background: rgba(34,197,94,0.22);"
-                "border: 1px solid rgba(34,197,94,0.95); border-radius: 6px;"
-                "padding: 2px 10px; font-size: 10px; font-weight: 900;"
+                f"color: {LIVE}; background: transparent;"
+                "border: none; padding: 2px 10px; font-size: 10px; font-weight: 900;"
             )
         else:
             self._badge.setStyleSheet(
-                f"color: {LIVE}; background: rgba(34,197,94,0.07);"
-                "border: 1px solid rgba(34,197,94,0.55); border-radius: 6px;"
-                "padding: 2px 10px; font-size: 10px; font-weight: 900;"
+                f"color: rgba(34,197,94,0.6); background: transparent;"
+                "border: none; padding: 2px 10px; font-size: 10px; font-weight: 900;"
             )
 
     def enterEvent(self, event):
@@ -578,8 +576,8 @@ class CameraGridCard(QFrame):
         }
         bg = bg_map.get(status, "rgba(245,158,11,0.12)")
         return (
-            f"color: {color}; background: {bg};"
-            f"border: 1px solid {color}; border-radius: 6px;"
+            f"color: {color}; background: transparent;"
+            "border: none;"
             "padding: 2px 10px; font-size: 10px; font-weight: 900;"
         )
 

@@ -28,6 +28,9 @@ from app.shared.utils.frame_display import (
     frame_to_qimage,
     resize_for_display,
 )
+import logging
+
+_log = logging.getLogger(__name__)
 
 
 class DetectionWorker(QThread):
@@ -142,7 +145,7 @@ class DetectionWorker(QThread):
                 )
                 self._violation_runtime.notifier = self._notifier
             except Exception as e:
-                print(f"[Worker] Telegram yuklanmadi: {e}")
+                _log.error("Telegram yuklanmadi: %s", e)
 
         if self.cfg.backend_enabled:
             try:
@@ -154,7 +157,7 @@ class DetectionWorker(QThread):
                 )
                 self._violation_runtime.backend = self._backend
             except Exception as e:
-                print(f"[Worker] Backend yuklanmadi: {e}")
+                _log.error("Backend yuklanmadi: %s", e)
 
     def _setup_faceid(self):
         if not bool(self.cfg.get("faceid_enabled", False) or self.cfg.get("access_roster_enabled", False)):
@@ -369,7 +372,7 @@ class DetectionWorker(QThread):
                 time.sleep(remaining - 0.005)
                 continue
             elif remaining > 0:
-                time.sleep(0.001)   # spin o'rniga qisqa uxlash
+                time.sleep(remaining)
                 continue
 
             # ── Frame olish ───────────────────────────────────────────────

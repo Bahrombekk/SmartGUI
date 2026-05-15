@@ -16,6 +16,10 @@ import cv2
 import torch
 from ultralytics import YOLO
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 
 BOX_COLORS = [
     (0, 255, 0), (0, 255, 255), (255, 0, 0),
@@ -107,7 +111,7 @@ class DetectorGroup(threading.Thread):
             try:
                 self.model.fuse()
             except Exception as e:
-                print(f"[DetectorGroup-{group_id}] model.fuse() bajarilmadi: {e}")
+                _log.warning("DetectorGroup-%s model.fuse() bajarilmadi: %s", group_id, e)
 
         # Cache
         self._results: dict[int, DetectionResult] = {
@@ -142,9 +146,9 @@ class DetectorGroup(threading.Thread):
             self.model.predict([dummy], **kwargs)
             if self.device.startswith("cuda"):
                 torch.cuda.synchronize()
-            print(f"[DetectorGroup-{self.group_id}] Warmup tayyor ({self.device})")
+            _log.info("DetectorGroup-%s warmup tayyor (%s)", self.group_id, self.device)
         except Exception as exc:
-            print(f"[DetectorGroup-{self.group_id}] Warmup xato: {exc}")
+            _log.warning("DetectorGroup-%s warmup xato: %s", self.group_id, exc)
 
     def run(self):
         # CUDA warmup — birinchi real frameni kutmasdan oldin bajar
@@ -202,7 +206,7 @@ class DetectorGroup(threading.Thread):
                 try:
                     predictions = self.model.predict(frames, **kwargs)
                 except Exception as exc:
-                    print(f"[DetectorGroup-{self.group_id}] inference xato: {exc}")
+                    _log.error("DetectorGroup-%s inference xato: %s", self.group_id, exc)
                     time.sleep(1)
                     continue
 
@@ -411,7 +415,7 @@ def svc_acquire(cfg) -> CameraService | None:
     if not p.is_absolute():
         p = Path(__file__).parent.parent.parent / p
     if not p.exists():
-        print(f"[CameraService] Model topilmadi: {p}")
+        _log.error("Model topilmadi: %s", p)
         return None
 
     use_gpu = bool(cfg.get("use_gpu", True))

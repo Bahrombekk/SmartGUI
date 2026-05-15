@@ -57,9 +57,58 @@ _DARK = {
 }
 
 
+_LIGHT = {
+    "bg_main":        "#f8fafc",
+    "bg_card":        "#ffffff",
+    "bg_input":       "#ffffff",
+    "bg_hover":       "#e2e8f0",
+    "bg_sidebar":     "#f1f5f9",
+    "bg_panel":       "#ffffff",
+    "accent":         "#ea580c",
+    "accent_hover":   "#f97316",
+    "accent_dim":     "#ffedd5",
+    "accent_light":   "#c2410c",
+    "accent_subtle":  "#fff7ed",
+    "text_primary":   "#0f172a",
+    "text_secondary": "#475569",
+    "text_muted":     "#64748b",
+    "text_link":      "#0284c7",
+    "danger":         "#dc2626",
+    "danger_dim":     "#fee2e2",
+    "success":        "#059669",
+    "success_dim":    "#d1fae5",
+    "warning":        "#d97706",
+    "warning_dim":    "#fef3c7",
+    "info":           "#0284c7",
+    "info_dim":       "#e0f2fe",
+    "border":         "#cbd5e1",
+    "border_light":   "#e2e8f0",
+    "border_accent":  "#f97316",
+    "border_hover":   "#94a3b8",
+    "shadow":         "#0f172a20",
+    "overlay":        "#0f172a66",
+    "scrollbar":      "#cbd5e1",
+    "scrollbar_hover": "#94a3b8",
+    "cam_active":     "#059669",
+    "cam_idle":       "#94a3b8",
+    "cam_error":      "#dc2626",
+    "cam_rec":        "#dc2626",
+}
+
+_ACTIVE = dict(_DARK)
+
+
+def set_theme(theme: str) -> None:
+    """Global UI tokenlarini tanlangan mavzuga moslaydi."""
+    global _ACTIVE
+    _ACTIVE = dict(_LIGHT if str(theme).lower() == "light" else _DARK)
+    COLORS.clear()
+    COLORS.update(_ACTIVE)
+
+
 def C(key: str) -> str:
     """Mavzu rangini qaytaradi. Noma'lum kalit uchun fallback — oq."""
-    return COLORS.get(key, _DARK.get(key, "#ffffff"))
+    return COLORS.get(key, _ACTIVE.get(key, "#ffffff"))
 
 
 def get_main_stylesheet() -> str:

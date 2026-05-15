@@ -6,6 +6,10 @@ import threading
 
 import cv2
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 
 class TelegramNotifier:
     def __init__(self, token: str, chat_ids: list[str]):
@@ -41,4 +45,4 @@ class TelegramNotifier:
                     timeout=15,
                 )
             except Exception as e:
-                print(f"[Telegram] {e}")
+                _log.error("Telegram yuborish xatosi (chat_id=%s): %s", chat_id, e)

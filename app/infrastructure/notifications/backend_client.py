@@ -5,6 +5,10 @@ import threading
 
 import cv2
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 
 class BackendClient:
     def __init__(self, api_url: str, login: str, password: str):
@@ -38,4 +42,4 @@ class BackendClient:
                 timeout=15,
             )
         except Exception as e:
-            print(f"[BackendClient] {e}")
+            _log.error("Yuborish xatosi: %s", e)

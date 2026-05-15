@@ -7,6 +7,10 @@ import json
 import os
 from pathlib import Path
 
+import logging
+
+_log = logging.getLogger(__name__)
+
 SMARTHELMET_DEFAULT = ""
 
 # Default bitta kamera
@@ -129,7 +133,7 @@ class ConfigManager:
                     saved = json.load(f)
                 self._settings = {**DEFAULT_SETTINGS, **saved}
             except Exception as e:
-                print(f"[ConfigManager] settings.json o'qishda xatolik: {e}")
+                _log.error("settings.json o'qishda xatolik: %s", e)
                 self._settings = dict(DEFAULT_SETTINGS)
         else:
             self._settings = dict(DEFAULT_SETTINGS)
@@ -225,7 +229,7 @@ class ConfigManager:
             with open(self.settings_file, "w", encoding="utf-8") as f:
                 json.dump(self._settings, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"[ConfigManager] Saqlashda xatolik: {e}")
+            _log.error("Saqlashda xatolik: %s", e)
 
     # ── Get / Set ─────────────────────────────────────────────────────────
 

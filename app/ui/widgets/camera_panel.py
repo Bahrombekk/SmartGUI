@@ -192,15 +192,13 @@ class CameraPanel(QFrame):
                 self._set_style(
                     self._badge,
                     "color: #22c55e; font-size: 10px; font-weight: 800; letter-spacing: 1px;"
-                    " background: rgba(34,197,94,0.22); border: 1px solid rgba(34,197,94,0.70);"
-                    " border-radius: 4px; padding: 1px 8px;",
+                    " background: transparent; border: none; padding: 1px 8px;",
                 )
             else:
                 self._set_style(
                     self._badge,
-                    "color: #22c55e; font-size: 10px; font-weight: 800; letter-spacing: 1px;"
-                    " background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.30);"
-                    " border-radius: 4px; padding: 1px 8px;",
+                    "color: rgba(34,197,94,0.6); font-size: 10px; font-weight: 800; letter-spacing: 1px;"
+                    " background: transparent; border: none; padding: 1px 8px;",
                 )
 
     # ── External updates ──────────────────────────────────────────────────
@@ -236,9 +234,8 @@ class CameraPanel(QFrame):
             self._badge.setStyleSheet(
                 "color: #22c55e; font-size: 10px; font-weight: 800;"
                 " letter-spacing: 1px;"
-                " background: rgba(34,197,94,0.14);"
-                " border: 1px solid rgba(34,197,94,0.45);"
-                " border-radius: 4px; padding: 1px 8px;"
+                " background: transparent;"
+                " border: none; padding: 1px 8px;"
             )
             self._fps_lbl.setStyleSheet(
                 "color: #60a5fa; font-size: 10px; font-weight: 700; background: transparent;"

@@ -13,7 +13,6 @@ Ishga tushirish:
 import sys
 import os
 import json
-import signal
 from pathlib import Path
 
 # ── Venv Python ni majburan ishlatish ────────────────────────────────────
@@ -42,6 +41,17 @@ def _ai_model_enabled() -> bool:
         return False
 
 
+def _ui_theme() -> str:
+    try:
+        settings_path = BASE_DIR / "settings.json"
+        if not settings_path.exists():
+            return "dark"
+        with open(settings_path, "r", encoding="utf-8") as f:
+            return str(json.load(f).get("theme", "dark")).lower()
+    except Exception:
+        return "dark"
+
+
 if _ai_model_enabled():
     try:
         import torch
@@ -50,7 +60,7 @@ if _ai_model_enabled():
         except Exception:
             pass
     except Exception as _torch_err:
-        print(f"[main] torch yuklanmadi: {_torch_err}")
+        print(f"[main] torch yuklanmadi: {_torch_err}", file=sys.stderr)
 
 # ── PyQt6 import ─────────────────────────────────────────────────────────
 try:
@@ -58,12 +68,31 @@ try:
     from PyQt6.QtCore import Qt, QTimer
     from PyQt6.QtGui import QPixmap, QFont, QColor
 except ImportError:
-    print("PyQt6 o'rnatilmagan. Quyidagi buyruqni bajaring:")
-    print("  pip install PyQt6")
+    print("PyQt6 o'rnatilmagan. Quyidagi buyruqni bajaring:\n  pip install PyQt6",
+          file=sys.stderr)
     sys.exit(1)
 
-from app.ui.theme import get_main_stylesheet
-from app.ui.pages.main_window import MainWindow
+import logging
+import logging.handlers
+
+from app.ui.theme import get_main_stylesheet, set_theme
+
+# ── Logging sozlash ───────────────────────────────────────────────────────
+_log_dir = BASE_DIR / "logs"
+_log_dir.mkdir(exist_ok=True)
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                         datefmt="%Y-%m-%d %H:%M:%S")
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+_ch = logging.StreamHandler()
+_ch.setFormatter(_fmt)
+_fh = logging.handlers.RotatingFileHandler(
+    _log_dir / "smartgui.log", maxBytes=5*1024*1024, backupCount=7, encoding="utf-8"
+)
+_fh.setFormatter(_fmt)
+_root.addHandler(_ch)
+_root.addHandler(_fh)
+_log = logging.getLogger("main")
 
 
 # ── Splash Screen ─────────────────────────────────────────────────────────
@@ -125,23 +154,16 @@ def main():
     app.setOrganizationName("SmartHelmet")
     app.setApplicationVersion("1.0.0")
 
-    # Ctrl+C terminalni to'g'ri yopsin — lambda ichida crash bo'lmasin
-    signal.signal(signal.SIGINT, lambda *_: app.quit())
-    # Qt event loop C++ da bloklanganda Python signal handlerlar ishlamaydi,
-    # shuning uchun har 500ms da Python interpreter laqqa bo'sh aylanadi
-    _sigint_poll = QTimer()
-    _sigint_poll.start(500)
-    _sigint_poll.timeout.connect(lambda: None)
-
     # Font
     font = QFont("Segoe UI", 10)
     app.setFont(font)
 
     # QSS stil
     try:
+        set_theme(_ui_theme())
         app.setStyleSheet(get_main_stylesheet())
     except Exception as e:
-        print(f"[main] Stil yuklanmadi: {e}")
+        _log.warning("Stil yuklanmadi: %s", e)
 
     # Splash
     splash = _make_splash(app)
@@ -154,6 +176,8 @@ def main():
     def _open_main():
         nonlocal window
         try:
+            from app.ui.pages.main_window import MainWindow
+
             window = MainWindow()
             window.show()
             splash.finish(window)
