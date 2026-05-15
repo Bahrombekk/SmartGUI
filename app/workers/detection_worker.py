@@ -74,6 +74,9 @@ class DetectionWorker(QThread):
 
         self._running = False
         self._paused  = False
+        # UI Dashboard/Cameras sahifasida emas bo'lsa frame ni emit qilmaslik —
+        # QImage konversiyasi va Qt signal trafigini drastik kamaytiradi.
+        self._emit_frames = True
         self._reader: CV2RTSPReader | None = None
 
         # CameraService (ai_camera_service arxitekturasi)
@@ -292,6 +295,9 @@ class DetectionWorker(QThread):
         return frame_to_qimage(frame)
 
     def _emit_frame(self, frame: np.ndarray):
+        # Hech kim ko'rmaydigan sahifada bo'lsa — konversiya va signal yubormaymiz.
+        if not self._emit_frames:
+            return
         display = self._resize_for_display(frame)
         self.frame_ready.emit(self._to_qimage(display))
 
@@ -379,7 +385,8 @@ class DetectionWorker(QThread):
             if is_stream:
                 current_id = getattr(self._reader, "frame_count", self._frame_count)
                 if current_id == last_frame_id:
-                    time.sleep(0.005)
+                    # Yangi frame yo'q — video_interval yarmigacha kutish (busy-wait kamaytirish)
+                    time.sleep(min(0.020, video_interval * 0.5))
                     continue
 
                 ok, frame = self._reader.get_frame()
@@ -392,7 +399,7 @@ class DetectionWorker(QThread):
                             "active_persons": 0, "connected": False, "ping_ms": None,
                         })
                         self.status_changed.emit("Qayta ulanmoqda...")
-                    time.sleep(0.05)
+                    time.sleep(0.1)
                     continue
                 no_frame_count = 0
             else:
@@ -519,6 +526,10 @@ class DetectionWorker(QThread):
 
     def is_paused(self) -> bool:
         return self._paused
+
+    def set_emit_frames(self, enabled: bool):
+        """UI dan chaqiriladi — sahifa Dashboard/Cameras emas bo'lsa False."""
+        self._emit_frames = bool(enabled)
 
     # ── Reconnect callbacklar (CV2RTSPReader dan) ─────────────────────────
 

@@ -6,7 +6,7 @@ from PyQt6.QtCore import QTimer, Qt, QSize
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from app.ui.theme import C
+from app.ui.styles import C
 from app.ui.widgets.camera_panel import CameraPanel
 from app.ui.pages.dashboard.timeline import TimelineWidget
 
@@ -20,17 +20,12 @@ class DashboardMonitorMixin:
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
 
-        # Live Monitoring paneli (header + kamera grid bir panel ichida)
+        # Live Monitoring paneli — yangi styles modulidan
+        from app.ui.styles import premium_panel_style
         monitor_panel = QFrame()
         self._monitor_panel = monitor_panel
         monitor_panel.setObjectName("monitorPanel")
-        monitor_panel.setStyleSheet(
-            "QFrame#monitorPanel {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c1520,stop:1 #07101a);"
-            "border: 2px solid #1e5fa8;"
-            "border-radius: 12px;"
-            "}"
-        )
+        monitor_panel.setStyleSheet(premium_panel_style("monitorPanel"))
         mp_lay = QVBoxLayout(monitor_panel)
         mp_lay.setContentsMargins(14, 12, 14, 12)
         mp_lay.setSpacing(10)
@@ -172,35 +167,35 @@ class DashboardMonitorMixin:
 
     @staticmethod
     def _camera_scroll_style() -> str:
-        return """
-            QScrollArea {
+        return f"""
+            QScrollArea {{
                 background: transparent;
                 border: none;
-            }
-            QScrollBar:vertical {
-                background: #050a0f;
+            }}
+            QScrollBar:vertical {{
+                background: {C('bg_sidebar')};
                 width: 8px;
                 margin: 2px 0 2px 6px;
                 border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background: #334155;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {C('scrollbar')};
                 border-radius: 4px;
                 min-height: 36px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #fb923c;
-            }
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {C('accent')};
+            }}
             QScrollBar::add-line:vertical,
-            QScrollBar::sub-line:vertical {
+            QScrollBar::sub-line:vertical {{
                 height: 0;
                 border: none;
                 background: transparent;
-            }
+            }}
             QScrollBar::add-page:vertical,
-            QScrollBar::sub-page:vertical {
+            QScrollBar::sub-page:vertical {{
                 background: transparent;
-            }
+            }}
         """
 
     def set_search_text(self, text: str):
@@ -215,21 +210,21 @@ class DashboardMonitorMixin:
 
     @staticmethod
     def _grid_btn_style(active: bool = False) -> str:
-        bg = "rgba(249,115,22,0.18)" if active else "#0f172a"
-        border = "rgba(249,115,22,0.55)" if active else "#1e293b"
+        bg = C('accent_dim_2') if active else C('bg_panel')
+        border = C('accent') if active else C('border')
         return f"""
             QPushButton {{
                 background: {bg};
-                color: #cbd5e1;
+                color: {C('text_secondary')};
                 border: 1px solid {border};
                 border-radius: 7px;
                 font-size: 11px;
                 font-weight: 800;
             }}
             QPushButton:hover {{
-                background: rgba(30,41,59,0.9);
-                color: #ffffff;
-                border-color: rgba(249,115,22,0.45);
+                background: {C('bg_hover')};
+                color: {C('text_primary')};
+                border-color: {C('accent')};
             }}
         """
 

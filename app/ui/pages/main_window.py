@@ -29,7 +29,7 @@ from app.ui.pages.violations_page import ViolationsPage
 from app.ui.pages.analytics_page import AnalyticsPage
 from app.ui.pages.users_page import UsersPage
 from app.ui.pages.settings_dialog import SettingsPage
-from app.ui.theme import C, get_main_stylesheet, set_theme
+from app.ui.styles import C, build_main_stylesheet as get_main_stylesheet, set_theme
 
 
 # тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -62,7 +62,7 @@ class TopNavBar(QWidget):
 
         self.setFixedHeight(58)
         self.setStyleSheet(
-            "background: #05090d;"
+            f"background: {C('bg_sidebar')};"
         )
         self._setup_ui()
 
@@ -79,30 +79,26 @@ class TopNavBar(QWidget):
         logo_lay.setContentsMargins(16, 0, 16, 0)
         logo_lay.setSpacing(10)
 
-        # Orange circle with "SH"
-        logo_circle = QLabel("SH")
+        # Brand mark
+        logo_circle = QLabel("SZ")
         logo_circle.setFixedSize(32, 32)
         logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_circle.setStyleSheet(
-            "background: #f97316; color: #000000; border-radius: 16px;"
-            " font-size: 12px; font-weight: 900; letter-spacing: -1px;"
+            f"background: {C('accent')}; color: {C('text_on_accent')}; border-radius: 16px;"
+            " font-size: 12px; font-weight: 900;"
         )
         logo_lay.addWidget(logo_circle)
 
-        # "Smart" orange + "Helmet" white
-        logo_txt = QLabel()
-        logo_txt.setTextFormat(Qt.TextFormat.RichText)
-        logo_txt.setText(
-            '<span style="color:#fb923c;font-size:16px;font-weight:bold">Smart</span>'
-            '<span style="color:#ffffff;font-size:16px;font-weight:bold">Helmet</span>'
-        )
-        logo_txt.setStyleSheet("background: transparent;")
-        logo_lay.addWidget(logo_txt)
+        self._logo_txt = QLabel()
+        self._logo_txt.setTextFormat(Qt.TextFormat.RichText)
+        self._apply_logo_text()
+        self._logo_txt.setStyleSheet("background: transparent;")
+        logo_lay.addWidget(self._logo_txt)
         lay.addWidget(logo_w)
 
         logo_sep = QWidget()
         logo_sep.setFixedWidth(1)
-        logo_sep.setStyleSheet("background: #1e293b;")
+        logo_sep.setStyleSheet(f"background: {C('border')};")
         lay.addWidget(logo_sep)
 
         # тФАтФА Nav tugmalari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -396,11 +392,23 @@ class TopNavBar(QWidget):
         self._theme_btn.setChecked(is_light)
         if app:
             app.setStyleSheet(get_main_stylesheet())
-        self.setStyleSheet("background: #f8fafc;" if is_light else "background: #05090d;")
+        self.setStyleSheet(f"background: {C('bg_sidebar')};")
         self._theme_btn.setToolTip("Dark mode" if is_light else "Light mode")
         self._apply_navbar_style()
 
+    def _apply_logo_text(self):
+        """Logo matni — SafeZone brand text."""
+        primary = C('text_primary')
+        accent = C('accent')
+        self._logo_txt.setText(
+            f'<span style="font-family:Segoe UI Semibold,Segoe UI,sans-serif;'
+            f'color:{primary};font-size:18px;font-weight:800;letter-spacing:.2px">Safe</span>'
+            f'<span style="font-family:Segoe UI Semibold,Segoe UI,sans-serif;'
+            f'color:{accent};font-size:18px;font-weight:900;letter-spacing:.2px">Zone</span>'
+        )
+
     def _apply_navbar_style(self):
+        self._apply_logo_text()
         for btn in self._nav_btns.values():
             btn.setStyleSheet(self._nav_style())
         self._search.setStyleSheet(self._search_style())
@@ -505,7 +513,7 @@ class MainWindow(QMainWindow):
         self._users = None
         self._settings = None
 
-        self.setWindowTitle("SmartHelmet - Live Monitoring System")
+        self.setWindowTitle("SafeZone - Live Safety Monitoring")
         self.setMinimumSize(1280, 760)
 
         self._setup_ui()
@@ -546,10 +554,10 @@ class MainWindow(QMainWindow):
         self._navbar._ss_btn.clicked.connect(self._save_screenshot)
         v_lay.addWidget(self._navbar)
 
-        # Orange separator line тАФ full width
+        # Aksent rang chizig'i — full width
         _sep = QWidget()
         _sep.setFixedHeight(2)
-        _sep.setStyleSheet("background: #f97316;")
+        _sep.setStyleSheet(f"background: {C('accent')};")
         v_lay.addWidget(_sep)
 
         # Sahifalar
@@ -583,7 +591,7 @@ class MainWindow(QMainWindow):
 
     def _lazy_placeholder(self, title: str) -> QWidget:
         w = QWidget()
-        w.setStyleSheet("background: #03070b;")
+        w.setStyleSheet(f"background: {C('bg_main')};")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lbl = QLabel(f"{title} yuklanmoqda...")
@@ -713,6 +721,15 @@ class MainWindow(QMainWindow):
             self._users_loaded = True
         if page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
             self._apply_cached_camera_state(page)
+        self._apply_frame_emission(page)
+
+    def _apply_frame_emission(self, page: int):
+        """Faqat Dashboard yoki Cameras sahifasida frame'larni UI ga uzatamiz.
+        Boshqa sahifalarda QImage konversiyasi va signal trafigi to'xtatiladi."""
+        emit = page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}
+        for worker in self._workers.values():
+            if hasattr(worker, "set_emit_frames"):
+                worker.set_emit_frames(emit)
 
     def _on_global_search(self, text: str):
         if self._stack.currentIndex() == self.PAGE_USERS and self._users is not None:
@@ -749,6 +766,9 @@ class MainWindow(QMainWindow):
             lambda cid=cam_id: self._on_model_loaded(cid)
         )
 
+        # Yangi worker uchun joriy sahifaga mos emit holatini sozlash
+        page = self._stack.currentIndex()
+        worker.set_emit_frames(page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS})
         worker.start()
         self._workers[cam_id] = worker
         return True
@@ -902,10 +922,12 @@ class MainWindow(QMainWindow):
         elif page == self.PAGE_CAMERAS:
             self._cameras.on_stats(cam_id, stats)
         persons = stats.get("active_persons", 0)
+        prev_persons = self._persons_per_cam.get(cam_id)
+        if prev_persons == persons:
+            return
         self._persons_per_cam[cam_id] = persons
-        total_persons = sum(self._persons_per_cam.values())
         if page == self.PAGE_DASHBOARD:
-            self._dashboard.set_total_persons(total_persons)
+            self._dashboard.set_total_persons(sum(self._persons_per_cam.values()))
 
     def _on_status(self, cam_id: int, text: str):
         self._latest_status[cam_id] = text
@@ -1052,7 +1074,7 @@ class MainWindow(QMainWindow):
         cam_count = len(self._workers)
         reply = QMessageBox.question(
             self, "Dasturdan chiqish",
-            f"SmartHelmet tizimini to'xtatib chiqmoqchimisiz?\n"
+            f"SafeZone tizimini to'xtatib chiqmoqchimisiz?\n"
             f"({cam_count} ta kamera worker to'xtatiladi)",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,

@@ -1,0 +1,129 @@
+/* ── Global ─────────────────────────────────────────── */
+QMainWindow, QDialog, QWidget {
+    background-color: {{bg_main}};
+    color: {{text_primary}};
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+}
+
+/* ── Toolbar ─────────────────────────────────────────── */
+QToolBar {
+    background: {{bg_sidebar}};
+    border-bottom: 1px solid {{border}};
+    spacing: 4px;
+    padding: 0 8px;
+}
+QToolBar QToolButton {
+    background: transparent;
+    color: {{text_secondary}};
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+}
+QToolBar QToolButton:hover {
+    background-color: {{bg_hover}};
+    color: {{text_primary}};
+}
+QToolBar QToolButton:checked {
+    background-color: {{bg_hover}};
+    color: {{accent}};
+    font-weight: bold;
+    border-bottom: 2px solid {{accent}};
+}
+QToolBar::separator {
+    background: {{border}};
+    width: 1px;
+    margin: 6px 4px;
+}
+
+/* ── StatusBar ───────────────────────────────────────── */
+QStatusBar {
+    background: {{bg_sidebar}};
+    color: {{text_muted}};
+    border-top: 1px solid {{border}};
+    font-size: 12px;
+    padding: 2px 8px;
+}
+QStatusBar::item { border: none; }
+
+/* ── ScrollBar ───────────────────────────────────────── */
+QScrollBar:vertical {
+    background: transparent;
+    width: 6px;
+    border-radius: 3px;
+}
+QScrollBar::handle:vertical {
+    background: {{scrollbar}};
+    border-radius: 3px;
+    min-height: 30px;
+}
+QScrollBar::handle:vertical:hover { background: {{scrollbar_hover}}; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar:horizontal {
+    background: transparent;
+    height: 6px;
+    border-radius: 3px;
+}
+QScrollBar::handle:horizontal {
+    background: {{scrollbar}};
+    border-radius: 3px;
+    min-width: 30px;
+}
+QScrollBar::handle:horizontal:hover { background: {{scrollbar_hover}}; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+
+/* ── QLabel ──────────────────────────────────────────── */
+QLabel {
+    color: {{text_primary}};
+    background: transparent;
+}
+
+/* ── QFrame card ─────────────────────────────────────── */
+QFrame[card="true"] {
+    background-color: {{bg_card}};
+    border: 1px solid {{border}};
+    border-radius: 10px;
+}
+QFrame[cam_panel="true"] {
+    background-color: {{campanel_bg}};
+    border: 1px solid {{campanel_border}};
+    border-radius: 8px;
+}
+QFrame[cam_panel="true"]:hover {
+    border-color: {{accent_dim}};
+}
+
+/* ── QScrollArea ─────────────────────────────────────── */
+QScrollArea { border: none; background: transparent; }
+QScrollArea > QWidget > QWidget { background: transparent; }
+
+/* ── QSplitter ───────────────────────────────────────── */
+QSplitter::handle { background: {{border}}; width: 1px; }
+
+/* ── QToolTip ────────────────────────────────────────── */
+QToolTip {
+    background-color: {{bg_card}};
+    color: {{text_primary}};
+    border: 1px solid {{border_accent}};
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* ── QProgressBar ────────────────────────────────────── */
+QProgressBar {
+    background: {{bg_panel}};
+    border: none;
+    border-radius: 3px;
+    text-align: center;
+    color: transparent;
+}
+QProgressBar::chunk {
+    border-radius: 3px;
+    background: {{accent}};
+}
+
+/* ── QMessageBox ─────────────────────────────────────── */
+QMessageBox { background-color: {{bg_card}}; }
+QMessageBox QLabel { color: {{text_primary}}; min-width: 280px; }

@@ -264,67 +264,67 @@ class SettingsPage(QWidget):
 
     def _setup_ui(self):
         self.setObjectName("settingsPage")
-        self.setStyleSheet("""
-            QWidget#settingsPage {
-                background: #03070b;
-            }
-            QLabel {
+        self.setStyleSheet(f"""
+            QWidget#settingsPage {{
+                background: {C('bg_main')};
+            }}
+            QLabel {{
                 border: none;
                 background: transparent;
-            }
-            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-                background: rgba(2,6,23,0.72);
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.22);
+            }}
+            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
+                background: {C('input_bg')};
+                color: {C('text_primary')};
+                border: 1px solid {C('input_border')};
                 border-radius: 7px;
                 padding: 0 10px;
                 min-height: 34px;
                 font-size: 13px;
-                selection-background-color: #fb923c;
-            }
-            QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {
-                background: rgba(15,23,42,0.70);
-                border-color: rgba(148,163,184,0.38);
-            }
-            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-                background: rgba(15,23,42,0.86);
-                border: 1px solid rgba(251,146,60,0.74);
-            }
-            QComboBox::drop-down {
+                selection-background-color: {C('selection_bg')};
+            }}
+            QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{
+                background: {C('input_bg_hover')};
+                border-color: {C('input_border_hov')};
+            }}
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
+                background: {C('input_bg_focus')};
+                border: 1px solid {C('input_border_foc')};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 26px;
-            }
-            QComboBox QAbstractItemView {
-                background: #071016;
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.18);
-                selection-background-color: rgba(249,115,22,0.14);
-            }
+            }}
+            QComboBox QAbstractItemView {{
+                background: {C('combo_view_bg')};
+                color: {C('text_primary')};
+                border: 1px solid {C('combo_view_border')};
+                selection-background-color: {C('selection_bg')};
+            }}
             QSpinBox::up-button, QSpinBox::down-button,
-            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+            QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {{
                 border: none;
                 width: 18px;
                 background: transparent;
-            }
-            QLineEdit::placeholder {
-                color: #64748b;
-            }
-            QCheckBox {
-                color: #cbd5e1;
+            }}
+            QLineEdit::placeholder {{
+                color: {C('text_muted')};
+            }}
+            QCheckBox {{
+                color: {C('text_secondary')};
                 spacing: 8px;
                 background: transparent;
-            }
-            QCheckBox::indicator {
+            }}
+            QCheckBox::indicator {{
                 width: 16px;
                 height: 16px;
                 border-radius: 4px;
-                border: 1px solid #334155;
-                background: #071016;
-            }
-            QCheckBox::indicator:checked {
-                background: #fb923c;
-                border-color: #fb923c;
-            }
+                border: 1px solid {C('border_hover')};
+                background: {C('bg_panel')};
+            }}
+            QCheckBox::indicator:checked {{
+                background: {C('accent')};
+                border-color: {C('accent')};
+            }}
         """)
 
         root = QHBoxLayout(self)
@@ -335,11 +335,11 @@ class SettingsPage(QWidget):
 
         vsep = QWidget()
         vsep.setFixedWidth(1)
-        vsep.setStyleSheet("background: #1e293b;")
+        vsep.setStyleSheet(f"background: {C('border')};")
         root.addWidget(vsep)
 
         content_w = QWidget()
-        content_w.setStyleSheet("background: #03070b;")
+        content_w.setStyleSheet(f"background: {C('bg_main')};")
         c_lay = QVBoxLayout(content_w)
         c_lay.setContentsMargins(0, 0, 0, 0)
         c_lay.setSpacing(0)
@@ -368,7 +368,7 @@ class SettingsPage(QWidget):
         sidebar.setObjectName("settingsSidebar")
         sidebar.setStyleSheet(
             "QFrame#settingsSidebar {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #07111b,stop:1 #050a10);"
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {C('bg_sidebar')},stop:1 {C('bg_panel_alt')});"
             "border: none;"
             "}"
         )
@@ -378,7 +378,7 @@ class SettingsPage(QWidget):
 
         sec_title = QLabel("SOZLAMALAR")
         sec_title.setStyleSheet(
-            "color: #475569; font-size: 10px; font-weight: 900; "
+            f"color: {C('text_muted')}; font-size: 10px; font-weight: 900; "
             "padding: 0 8px 10px 8px; background: transparent;"
         )
         lay.addWidget(sec_title)
@@ -404,8 +404,8 @@ class SettingsPage(QWidget):
         help_box.setObjectName("helpBox")
         help_box.setStyleSheet(
             "QFrame#helpBox {"
-            "background: rgba(15,23,42,0.66);"
-            "border: 1px solid rgba(148,163,184,0.12);"
+            f"background: {C('bg_panel')};"
+            f"border: 1px solid {C('border_light')};"
             "border-radius: 10px;"
             "}"
         )
@@ -422,7 +422,7 @@ class SettingsPage(QWidget):
 
         ht = QLabel("Yordam kerakmi?")
         ht.setStyleSheet(
-            "color: #f8fafc; font-size: 12px; font-weight: 700; background: transparent; border: none;"
+            f"color: {C('text_primary')}; font-size: 12px; font-weight: 700; background: transparent; border: none;"
         )
         hd = QLabel("Biz bilan bog'laning,\nyordam beramiz.")
         hd.setStyleSheet(
@@ -451,7 +451,7 @@ class SettingsPage(QWidget):
             icon_file = self._NAV_ITEMS[i][1]
             icon_path = self._icon_dir / icon_file
             if icon_path.exists():
-                color = "#fb923c" if active else "#64748b"
+                color = C("accent") if active else C("text_muted")
                 pix = self._colored_icon(str(icon_path), color, 16)
                 if pix:
                     btn.setIcon(QIcon(pix))
@@ -462,7 +462,7 @@ class SettingsPage(QWidget):
         footer = QFrame()
         footer.setObjectName("settingsFooter")
         footer.setStyleSheet(
-            "QFrame#settingsFooter { background: #05090d; border-top: 1px solid rgba(148,163,184,0.12); }"
+            f"QFrame#settingsFooter {{ background: {C('bg_panel')}; border-top: 1px solid {C('border_light')}; }}"
         )
         lay = QHBoxLayout(footer)
         lay.setContentsMargins(20, 10, 20, 10)
@@ -474,8 +474,8 @@ class SettingsPage(QWidget):
 
         self._restart_indicator = QLabel("Restart needed after save")
         self._restart_indicator.setStyleSheet(
-            "color: #fdba74; background: rgba(249,115,22,0.10);"
-            "border: 1px solid rgba(249,115,22,0.20); border-radius: 8px;"
+            f"color: {C('accent_light')}; background: {C('accent_dim_2')};"
+            f"border: 1px solid {C('border_accent')}; border-radius: 8px;"
             "padding: 5px 9px; font-size: 11px; font-weight: 800;"
         )
         lay.addWidget(self._restart_indicator)
@@ -483,7 +483,7 @@ class SettingsPage(QWidget):
         cancel_btn = QPushButton("  Bekor qilish")
         cancel_btn.setFixedHeight(36)
         cancel_btn.setStyleSheet(self._secondary_btn_style())
-        self._set_button_icon(cancel_btn, "x.svg", "#cbd5e1", 16)
+        self._set_button_icon(cancel_btn, "x.svg", C("text_secondary"), 16)
         cancel_btn.clicked.connect(self._load_values)
 
         save_btn = QPushButton("  Saqlash")
@@ -503,8 +503,8 @@ class SettingsPage(QWidget):
         if active:
             return (
                 "QPushButton {"
-                "  background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(249,115,22,0.20),stop:1 rgba(249,115,22,0.06));"
-                "  color: #fb923c;"
+                f"  background: {C('accent_subtle')};"
+                f"  color: {C('accent')};"
                 "  border: none;"
                 "  border-radius: 6px;"
                 "  text-align: left;"
@@ -516,7 +516,7 @@ class SettingsPage(QWidget):
         return (
             "QPushButton {"
             "  background: transparent;"
-            "  color: #cbd5e1;"
+            f"  color: {C('text_secondary')};"
             "  border: none;"
             "  border-radius: 6px;"
             "  text-align: left;"
@@ -524,15 +524,15 @@ class SettingsPage(QWidget):
             "  padding-left: 14px;"
             "}"
             "QPushButton:hover {"
-            "  background: #071016;"
-            "  color: #e2e8f0;"
+            f"  background: {C('bg_hover')};"
+            f"  color: {C('text_primary')};"
             "}"
         )
 
     @staticmethod
     def _primary_btn_style() -> str:
         return (
-            f"QPushButton {{ background: {C('accent')}; color: #fff; border: none; "
+            f"QPushButton {{ background: {C('accent')}; color: {C('text_on_accent')}; border: none; "
             f"border-radius: 7px; padding: 0 18px; font-weight: 800; font-size: 13px; }}"
             f"QPushButton:hover {{ background: {C('accent_hover')}; }}"
         )
@@ -540,10 +540,10 @@ class SettingsPage(QWidget):
     @staticmethod
     def _secondary_btn_style() -> str:
         return (
-            "QPushButton { background: #071016; color: #cbd5e1; "
-            "border: 1px solid rgba(148,163,184,0.14); border-radius: 7px; "
+            f"QPushButton {{ background: {C('bg_panel')}; color: {C('text_secondary')}; "
+            f"border: 1px solid {C('border_light')}; border-radius: 7px; "
             "padding: 0 14px; font-size: 13px; }"
-            "QPushButton:hover { border-color: rgba(251,146,60,0.45); color: #f8fafc; background: #0f172a; }"
+            f"QPushButton:hover {{ border-color: {C('border_accent')}; color: {C('text_primary')}; background: {C('bg_hover')}; }}"
         )
 
     @staticmethod
@@ -552,14 +552,14 @@ class SettingsPage(QWidget):
             f"QPushButton {{ background: {C('danger_dim')}; color: {C('danger')}; "
             f"border: 1px solid rgba(239,68,68,0.35); border-radius: 7px; "
             f"padding: 0 14px; font-size: 13px; }}"
-            f"QPushButton:hover {{ background: #5c2222; }}"
+            f"QPushButton:hover {{ background: {C('danger_hover_bg')}; }}"
         )
 
     def _panel(self, inner: bool = False) -> QFrame:
         f = QFrame()
         f.setObjectName("settingsInnerPanel" if inner else "settingsPanel")
-        bg = "rgba(7,16,22,0.72)" if inner else "rgba(15,23,42,0.58)"
-        border = "rgba(148,163,184,0.10)" if inner else "rgba(148,163,184,0.14)"
+        bg = C("bg_panel_alt") if inner else C("bg_panel")
+        border = C("border_light") if inner else C("border")
         name = f.objectName()
         f.setStyleSheet(
             f"QFrame#{name} {{ background: {bg}; border: 1px solid {border}; border-radius: 9px; }}"
@@ -571,7 +571,7 @@ class SettingsPage(QWidget):
     def _scroll_page(self) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
         page.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #07111b,stop:0.55 #050a10,stop:1 #071016);"
+            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {C('bg_main')},stop:0.55 {C('bg_main')},stop:1 {C('bg_panel_alt')});"
         )
         outer = QVBoxLayout(page)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -614,7 +614,7 @@ class SettingsPage(QWidget):
         col = QVBoxLayout()
         col.setSpacing(3)
         t = QLabel(title)
-        t.setStyleSheet("color: #f8fafc; font-size: 24px; font-weight: 900; background: transparent;")
+        t.setStyleSheet(f"color: {C('text_primary')}; font-size: 24px; font-weight: 900; background: transparent;")
         s = QLabel(subtitle)
         s.setStyleSheet(f"color: {C('text_muted')}; font-size: 13px; background: transparent;")
         col.addWidget(t)
@@ -633,7 +633,7 @@ class SettingsPage(QWidget):
         right_col.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._settings_summary = QLabel("")
         self._settings_summary.setStyleSheet(
-            "color: #34d399; background: rgba(52,211,153,0.10);"
+            f"color: {C('success')}; background: {C('success_dim_2')};"
             "border: none; border-radius: 7px;"
             "padding: 4px 12px; font-size: 12px; font-weight: 800;"
         )
@@ -663,7 +663,7 @@ class SettingsPage(QWidget):
         add_dep = QPushButton("Bo'lim")
         add_dep.setFixedHeight(36)
         add_dep.setStyleSheet(self._secondary_btn_style())
-        self._set_button_icon(add_dep, "plus.svg", "#cbd5e1", 16)
+        self._set_button_icon(add_dep, "plus.svg", C("text_secondary"), 16)
         add_dep.clicked.connect(self._add_department)
 
         add_cam = QPushButton("Kamera")
@@ -675,7 +675,7 @@ class SettingsPage(QWidget):
         edit_btn = QPushButton("  Tahrirlash")
         edit_btn.setFixedHeight(36)
         edit_btn.setStyleSheet(self._secondary_btn_style())
-        self._set_button_icon(edit_btn, "pencil.svg", "#cbd5e1", 16)
+        self._set_button_icon(edit_btn, "pencil.svg", C("text_secondary"), 16)
         edit_btn.clicked.connect(self._edit_camera)
 
         del_btn = QPushButton("  O'chirish")
@@ -702,27 +702,27 @@ class SettingsPage(QWidget):
         lp_lay.setSpacing(10)
 
         list_title = QLabel("Bo'limlar")
-        list_title.setStyleSheet("color: #f8fafc; font-size: 15px; font-weight: 900;")
+        list_title.setStyleSheet(f"color: {C('text_primary')}; font-size: 15px; font-weight: 900;")
         lp_lay.addWidget(list_title)
 
         self._dept_search = QLineEdit()
         self._dept_search.setPlaceholderText("Bo'lim qidirish...")
         self._dept_search.setFixedHeight(34)
-        self._dept_search.setStyleSheet("""
-            QLineEdit {
-                background: rgba(2,6,23,0.72); color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.22);
+        self._dept_search.setStyleSheet(f"""
+            QLineEdit {{
+                background: {C('input_bg')}; color: {C('text_primary')};
+                border: 1px solid {C('input_border')};
                 border-radius: 7px;
                 padding: 0 10px; font-size: 12px;
-            }
-            QLineEdit:hover {
-                background: rgba(15,23,42,0.70);
-                border-color: rgba(148,163,184,0.38);
-            }
-            QLineEdit:focus {
-                background: rgba(15,23,42,0.86);
-                border: 1px solid rgba(251,146,60,0.74);
-            }
+            }}
+            QLineEdit:hover {{
+                background: {C('input_bg_hover')};
+                border-color: {C('input_border_hov')};
+            }}
+            QLineEdit:focus {{
+                background: {C('input_bg_focus')};
+                border: 1px solid {C('input_border_foc')};
+            }}
         """)
         self._dept_search.textChanged.connect(self._filter_department_list)
         lp_lay.addWidget(self._dept_search)
@@ -738,8 +738,8 @@ class SettingsPage(QWidget):
         self._dept_list.setAlternatingRowColors(False)
         self._dept_list.setStyleSheet(f"""
             QTreeWidget {{
-                background: rgba(7,16,22,0.26);
-                border: 1px solid rgba(148,163,184,0.16);
+                background: {C('bg_card')};
+                border: 1px solid {C('border_light')};
                 border-radius: 8px;
                 outline: none;
                 padding: 4px;
@@ -749,7 +749,7 @@ class SettingsPage(QWidget):
                 border: none;
                 padding: 0;
                 margin: 0;
-                color: #e2e8f0;
+                color: {C('text_primary')};
             }}
             QTreeWidget::item:selected {{
                 background: transparent;
@@ -782,15 +782,15 @@ class SettingsPage(QWidget):
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
         detail_title = QLabel("Kamera")
-        detail_title.setStyleSheet("color: #f8fafc; font-size: 15px; font-weight: 900;")
+        detail_title.setStyleSheet(f"color: {C('text_primary')}; font-size: 15px; font-weight: 900;")
         self._detail_name = QLabel("Kamera tanlang")
-        self._detail_name.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 700;")
+        self._detail_name.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px; font-weight: 700;")
         title_box.addWidget(detail_title)
         title_box.addWidget(self._detail_name)
         det_hdr.addLayout(title_box, 1)
         self._detail_status = QLabel("")
         self._detail_status.setStyleSheet(
-            "color: #34d399; background: rgba(52,211,153,0.12);"
+            f"color: {C('success')}; background: {C('success_dim_2')};"
             "border: none;"
             "border-radius: 8px; padding: 3px 10px; font-size: 11px; font-weight: 800;"
         )
@@ -799,25 +799,25 @@ class SettingsPage(QWidget):
         more_btn.setFixedSize(28, 28)
         more_btn.setStyleSheet(self._secondary_btn_style())
         more_btn.setText("")
-        self._set_button_icon(more_btn, "more-vertical.svg", "#94a3b8", 16)
+        self._set_button_icon(more_btn, "more-vertical.svg", C("text_secondary"), 16)
         more_menu = QMenu(more_btn)
-        more_menu.setStyleSheet("""
-            QMenu {
-                background: #071016;
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.18);
+        more_menu.setStyleSheet(f"""
+            QMenu {{
+                background: {C('bg_panel')};
+                color: {C('text_primary')};
+                border: 1px solid {C('border_light')};
                 border-radius: 7px;
                 padding: 4px;
-            }
-            QMenu::item {
+            }}
+            QMenu::item {{
                 padding: 7px 22px 7px 10px;
                 border-radius: 5px;
                 font-size: 12px;
-            }
-            QMenu::item:selected {
-                background: rgba(249,115,22,0.12);
-                color: #fb923c;
-            }
+            }}
+            QMenu::item:selected {{
+                background: {C('accent_subtle')};
+                color: {C('accent')};
+            }}
         """)
         edit_action = QAction("Izmenit", more_menu)
         edit_action.triggered.connect(self._edit_camera)
@@ -833,20 +833,20 @@ class SettingsPage(QWidget):
         self._cam_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._cam_list.setAlternatingRowColors(False)
         self._cam_list.setFixedHeight(58)
-        self._cam_list.setStyleSheet("""
-            QListWidget {
-                background: rgba(7,16,22,0.36); border: none; outline: none;
+        self._cam_list.setStyleSheet(f"""
+            QListWidget {{
+                background: {C('bg_card')}; border: none; outline: none;
                 border-radius: 8px;
-            }
-            QListWidget::item {
+            }}
+            QListWidget::item {{
                 border: none; border-radius: 7px;
-                padding: 8px 12px; margin: 2px; color: #e2e8f0;
-            }
-            QListWidget::item:selected {
-                background: rgba(249,115,22,0.12);
-                color: #f8fafc;
-            }
-            QListWidget::item:hover:!selected { background: #0f172a; }
+                padding: 8px 12px; margin: 2px; color: {C('text_primary')};
+            }}
+            QListWidget::item:selected {{
+                background: {C('accent_subtle')};
+                color: {C('text_primary')};
+            }}
+            QListWidget::item:hover:!selected {{ background: {C('bg_hover')}; }}
         """)
         self._cam_list.itemDoubleClicked.connect(self._edit_camera)
         self._cam_list.itemSelectionChanged.connect(self._update_camera_preview)
@@ -869,22 +869,22 @@ class SettingsPage(QWidget):
         # Info hint box
         hint_box = QFrame()
         hint_box.setStyleSheet(
-            "QFrame { background: rgba(34,211,238,0.06);"
-            "border: 1px solid rgba(34,211,238,0.18); border-radius: 7px; }"
+            f"QFrame {{ background: {C('info_dim')};"
+            f"border: 1px solid {C('border_light')}; border-radius: 7px; }}"
         )
         hb = QHBoxLayout(hint_box)
         hb.setContentsMargins(12, 10, 12, 10)
         hb.setSpacing(8)
         hi = QLabel("тД╣")
-        hi.setStyleSheet("color: #22d3ee; font-size: 14px; background: transparent; border: none;")
+        hi.setStyleSheet(f"color: {C('info')}; font-size: 14px; background: transparent; border: none;")
         hi.setText("")
         hi.setFixedSize(18, 18)
-        info_pix = self._colored_icon(str(self._icon_dir / "info.svg"), "#22d3ee", 16)
+        info_pix = self._colored_icon(str(self._icon_dir / "info.svg"), C("info"), 16)
         if info_pix:
             hi.setPixmap(info_pix)
         ht = QLabel("Ikki marta bosish yoki Tahrirlash orqali kamera ma'lumotlarini o'zgartiring.")
         ht.setWordWrap(True)
-        ht.setStyleSheet("color: #22d3ee; font-size: 11px; background: transparent; border: none;")
+        ht.setStyleSheet(f"color: {C('info')}; font-size: 11px; background: transparent; border: none;")
         hb.addWidget(hi)
         hb.addWidget(ht, 1)
         dp_lay.addWidget(hint_box)
@@ -920,7 +920,7 @@ class SettingsPage(QWidget):
         t.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px; font-weight: 800;")
         v = QLabel(value)
         v.setObjectName("statValue")
-        v.setStyleSheet("color: #f8fafc; font-size: 28px; font-weight: 900;")
+        v.setStyleSheet(f"color: {C('text_primary')}; font-size: 28px; font-weight: 900;")
         c = QLabel(caption)
         c.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
         text_col.addWidget(t)
@@ -965,39 +965,39 @@ class SettingsPage(QWidget):
         row.setObjectName("deptRow")
         row.setFixedHeight(58)
         row.setCursor(Qt.CursorShape.PointingHandCursor)
-        row.setStyleSheet("""
-            QWidget#deptRow {
-                background: rgba(15,23,42,0.46);
-                border: 1px solid rgba(148,163,184,0.18);
+        row.setStyleSheet(f"""
+            QWidget#deptRow {{
+                background: {C('bg_panel_alt')};
+                border: 1px solid {C('border_light')};
                 border-radius: 8px;
-            }
-            QWidget#deptRow:hover {
-                background: rgba(15,23,42,0.68);
-                border: 1px solid rgba(148,163,184,0.34);
-            }
-            QWidget#deptRow[pressed="true"] {
-                background: rgba(30,41,59,0.78);
-                border: 1px solid rgba(203,213,225,0.46);
-            }
-            QWidget#deptRow[selected="true"] {
-                background: rgba(249,115,22,0.10);
-                border: 1px solid rgba(251,146,60,0.74);
-            }
-            QWidget#deptRow[selected="true"]:hover {
-                background: rgba(249,115,22,0.14);
-                border: 1px solid rgba(251,146,60,0.86);
-            }
-            QWidget#deptRow[selected="true"][pressed="true"] {
-                background: rgba(249,115,22,0.18);
-                border: 1px solid rgba(253,186,116,0.90);
-            }
+            }}
+            QWidget#deptRow:hover {{
+                background: {C('bg_hover')};
+                border: 1px solid {C('border_hover')};
+            }}
+            QWidget#deptRow[pressed="true"] {{
+                background: {C('bg_hover')};
+                border: 1px solid {C('border_strong')};
+            }}
+            QWidget#deptRow[selected="true"] {{
+                background: {C('accent_subtle')};
+                border: 1px solid {C('border_accent')};
+            }}
+            QWidget#deptRow[selected="true"]:hover {{
+                background: {C('accent_dim')};
+                border: 1px solid {C('border_accent')};
+            }}
+            QWidget#deptRow[selected="true"][pressed="true"] {{
+                background: {C('accent_dim_2')};
+                border: 1px solid {C('accent_light')};
+            }}
         """)
         lay = QHBoxLayout(row)
         lay.setContentsMargins(16, 0, 12, 0)
         lay.setSpacing(10)
 
         name_lbl = QLabel(name)
-        name_lbl.setStyleSheet("color: #f8fafc; font-size: 14px; font-weight: 800;")
+        name_lbl.setStyleSheet(f"color: {C('text_primary')}; font-size: 14px; font-weight: 800;")
         lay.addWidget(name_lbl, 1)
 
         count_lbl = QLabel(f"{count}")
@@ -1005,7 +1005,7 @@ class SettingsPage(QWidget):
         count_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         count_lbl.setFixedSize(28, 22)
         count_lbl.setStyleSheet(
-            "color: #cbd5e1; background: rgba(148,163,184,0.10);"
+            f"color: {C('text_secondary')}; background: {C('bg_hover')};"
             "border: none; border-radius: 11px; font-size: 11px; font-weight: 900;"
         )
         lay.addWidget(count_lbl)
@@ -1026,7 +1026,7 @@ class SettingsPage(QWidget):
             "QPushButton#deptArrow { background: transparent; border: none; border-radius: 6px; }"
             "QPushButton#deptArrow:hover { background: rgba(148,163,184,0.12); }"
         )
-        self._set_button_icon(arrow, "chevron-down.svg" if item.isExpanded() else "chevron-right.svg", "#e2e8f0", 18)
+        self._set_button_icon(arrow, "chevron-down.svg" if item.isExpanded() else "chevron-right.svg", C("text_primary"), 18)
         arrow.clicked.connect(lambda: self._toggle_department_item(item))
         lay.addWidget(arrow)
 
@@ -1040,32 +1040,32 @@ class SettingsPage(QWidget):
         row.setObjectName("deptCameraRow")
         row.setFixedHeight(42)
         row.setCursor(Qt.CursorShape.PointingHandCursor)
-        row.setStyleSheet("""
-            QWidget#deptCameraRow {
-                background: rgba(2,6,23,0.34);
-                border: 1px solid rgba(148,163,184,0.14);
+        row.setStyleSheet(f"""
+            QWidget#deptCameraRow {{
+                background: {C('bg_card')};
+                border: 1px solid {C('border_light')};
                 border-radius: 7px;
-            }
-            QWidget#deptCameraRow:hover {
-                background: rgba(15,23,42,0.58);
-                border: 1px solid rgba(148,163,184,0.30);
-            }
-            QWidget#deptCameraRow[pressed="true"] {
-                background: rgba(30,41,59,0.70);
-                border: 1px solid rgba(203,213,225,0.40);
-            }
-            QWidget#deptCameraRow[selected="true"] {
-                background: rgba(249,115,22,0.09);
-                border: 1px solid rgba(251,146,60,0.68);
-            }
-            QWidget#deptCameraRow[selected="true"]:hover {
-                background: rgba(249,115,22,0.13);
-                border: 1px solid rgba(251,146,60,0.84);
-            }
-            QWidget#deptCameraRow[selected="true"][pressed="true"] {
-                background: rgba(249,115,22,0.17);
-                border: 1px solid rgba(253,186,116,0.88);
-            }
+            }}
+            QWidget#deptCameraRow:hover {{
+                background: {C('bg_hover')};
+                border: 1px solid {C('border_hover')};
+            }}
+            QWidget#deptCameraRow[pressed="true"] {{
+                background: {C('bg_hover')};
+                border: 1px solid {C('border_strong')};
+            }}
+            QWidget#deptCameraRow[selected="true"] {{
+                background: {C('accent_subtle')};
+                border: 1px solid {C('border_accent')};
+            }}
+            QWidget#deptCameraRow[selected="true"]:hover {{
+                background: {C('accent_dim')};
+                border: 1px solid {C('border_accent')};
+            }}
+            QWidget#deptCameraRow[selected="true"][pressed="true"] {{
+                background: {C('accent_dim_2')};
+                border: 1px solid {C('accent_light')};
+            }}
         """)
         lay = QHBoxLayout(row)
         lay.setContentsMargins(18, 0, 10, 0)
@@ -1073,13 +1073,13 @@ class SettingsPage(QWidget):
 
         icon = QLabel()
         icon.setFixedSize(20, 20)
-        pix = self._colored_icon(str(self._icon_dir / "camera-small.svg"), "#cbd5e1", 16)
+        pix = self._colored_icon(str(self._icon_dir / "camera-small.svg"), C("text_secondary"), 16)
         if pix:
             icon.setPixmap(pix)
         lay.addWidget(icon)
 
         name_lbl = QLabel(cam.get("name", "Kamera"))
-        name_lbl.setStyleSheet("color: #e2e8f0; font-size: 13px; font-weight: 700;")
+        name_lbl.setStyleSheet(f"color: {C('text_primary')}; font-size: 13px; font-weight: 700;")
         lay.addWidget(name_lbl, 1)
 
         status = QLabel("Online" if enabled else "Offline")
@@ -1120,7 +1120,7 @@ class SettingsPage(QWidget):
             self._set_button_icon(
                 arrow,
                 "chevron-down.svg" if item.isExpanded() else "chevron-right.svg",
-                "#e2e8f0",
+                C("text_primary"),
                 18,
             )
 
@@ -1160,12 +1160,12 @@ class SettingsPage(QWidget):
     def _build_inline_camera_editor(self) -> QFrame:
         editor = QFrame()
         editor.setObjectName("inlineCameraEditor")
-        editor.setStyleSheet("""
-            QFrame#inlineCameraEditor {
-                background: rgba(7,16,22,0.38);
-                border: 1px solid rgba(251,146,60,0.22);
+        editor.setStyleSheet(f"""
+            QFrame#inlineCameraEditor {{
+                background: {C('bg_panel_alt')};
+                border: 1px solid {C('border_accent')};
                 border-radius: 8px;
-            }
+            }}
         """)
         lay = QGridLayout(editor)
         lay.setContentsMargins(14, 12, 14, 12)
@@ -1175,7 +1175,7 @@ class SettingsPage(QWidget):
         lay.setColumnStretch(3, 1)
 
         title = QLabel("Kamera ma'lumotlarini tahrirlash")
-        title.setStyleSheet("color: #f8fafc; font-size: 12px; font-weight: 900;")
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 12px; font-weight: 900;")
         lay.addWidget(title, 0, 0, 1, 4)
 
         self._edit_name = QLineEdit()
@@ -1183,34 +1183,34 @@ class SettingsPage(QWidget):
         self._edit_company = QLineEdit()
         self._edit_rtsp = QLineEdit()
         self._edit_enabled = QCheckBox("Faol")
-        edit_input_style = """
-            QLineEdit, QComboBox {
-                background: rgba(2,6,23,0.72);
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.22);
+        edit_input_style = f"""
+            QLineEdit, QComboBox {{
+                background: {C('input_bg')};
+                color: {C('text_primary')};
+                border: 1px solid {C('input_border')};
                 border-radius: 7px;
                 padding: 0 10px;
                 min-height: 34px;
                 font-size: 12px;
-            }
-            QLineEdit:hover, QComboBox:hover {
-                border-color: rgba(148,163,184,0.38);
-                background: rgba(15,23,42,0.70);
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1px solid rgba(251,146,60,0.74);
-                background: rgba(15,23,42,0.86);
-            }
-            QComboBox::drop-down {
+            }}
+            QLineEdit:hover, QComboBox:hover {{
+                border-color: {C('input_border_hov')};
+                background: {C('input_bg_hover')};
+            }}
+            QLineEdit:focus, QComboBox:focus {{
+                border: 1px solid {C('input_border_foc')};
+                background: {C('input_bg_focus')};
+            }}
+            QComboBox::drop-down {{
                 border: none;
                 width: 26px;
-            }
-            QComboBox QAbstractItemView {
-                background: #071016;
-                color: #e2e8f0;
-                border: 1px solid rgba(148,163,184,0.18);
-                selection-background-color: rgba(249,115,22,0.14);
-            }
+            }}
+            QComboBox QAbstractItemView {{
+                background: {C('combo_view_bg')};
+                color: {C('text_primary')};
+                border: 1px solid {C('combo_view_border')};
+                selection-background-color: {C('selection_bg')};
+            }}
         """
         for widget in (self._edit_name, self._edit_dep, self._edit_company, self._edit_rtsp):
             widget.setFixedHeight(34)
@@ -1259,7 +1259,7 @@ class SettingsPage(QWidget):
         row.setObjectName("detailRow")
         row.setStyleSheet(
             "QFrame#detailRow { background: transparent; border: none;"
-            "border-bottom: 1px solid #16212c; }"
+            f"border-bottom: 1px solid {C('border_light')}; }}"
         )
         lay = QHBoxLayout(row)
         lay.setContentsMargins(0, 10, 0, 10)
@@ -1271,7 +1271,7 @@ class SettingsPage(QWidget):
         icon_lbl.setStyleSheet("background: transparent; border: none;")
         icon_file = self._DETAIL_ICONS.get(key, "")
         if icon_file:
-            pix = self._colored_icon(str(self._icon_dir / icon_file), "#475569", 18)
+            pix = self._colored_icon(str(self._icon_dir / icon_file), C("text_muted"), 18)
             if pix:
                 icon_lbl.setPixmap(pix)
 
@@ -1282,7 +1282,7 @@ class SettingsPage(QWidget):
         v = QLabel(value)
         v.setObjectName("detailValue")
         v.setWordWrap(True)
-        v.setStyleSheet("color: #e2e8f0; font-size: 12px;")
+        v.setStyleSheet(f"color: {C('text_primary')}; font-size: 12px;")
         v.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         lay.addWidget(icon_lbl)

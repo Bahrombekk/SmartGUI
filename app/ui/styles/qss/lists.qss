@@ -1,0 +1,41 @@
+/* ── QTableWidget ────────────────────────────────────── */
+QTableWidget {
+    background-color: {{bg_card}};
+    color: {{text_primary}};
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    gridline-color: {{border_light}};
+    selection-background-color: {{accent_dim}};
+    outline: none;
+}
+QTableWidget::item { padding: 6px 10px; border: none; }
+QTableWidget::item:selected { color: {{accent}}; }
+QHeaderView::section {
+    background-color: {{bg_panel}};
+    color: {{text_muted}};
+    border: none;
+    border-bottom: 1px solid {{border}};
+    padding: 8px 10px;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ── QListWidget ─────────────────────────────────────── */
+QListWidget {
+    background-color: {{bg_card}};
+    color: {{text_primary}};
+    border: 1px solid {{border}};
+    border-radius: 6px;
+    outline: none;
+}
+QListWidget::item {
+    padding: 8px 12px;
+    border-bottom: 1px solid {{border_light}};
+}
+QListWidget::item:selected {
+    background-color: {{accent_dim}};
+    color: {{accent_light}};
+}
+QListWidget::item:hover:!selected { background-color: {{bg_hover}}; }

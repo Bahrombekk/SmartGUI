@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
-from app.ui.theme import C
+from app.ui.styles import C
 
 
 class CameraTreeBranch(QWidget):
@@ -90,7 +90,7 @@ class CameraListItem(QWidget):
         self._dot.setFixedWidth(14)
         self._dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dot.setStyleSheet(
-            "color: #fbbf24; font-size: 9px; background: transparent; border: none;"
+            f"color: {C('warning')}; font-size: 9px; background: transparent; border: none;"
         )
         content_lay.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -100,13 +100,13 @@ class CameraListItem(QWidget):
 
         self._name_lbl = QLabel(f"{self.cam_id:02d} {cam_name}")
         self._name_lbl.setStyleSheet(
-            "color: #f8fafc; font-size: 13px; font-weight: 500; background: transparent; border: none;"
+            f"color: {C('text_primary')}; font-size: 13px; font-weight: 500; background: transparent; border: none;"
         )
         name_col.addWidget(self._name_lbl)
 
         self._status_lbl = QLabel("Ulanmoqda")
         self._status_lbl.setStyleSheet(
-            "color: #64748b; font-size: 12px; background: transparent; border: none;"
+            f"color: {C('text_muted')}; font-size: 12px; background: transparent; border: none;"
         )
         name_col.addWidget(self._status_lbl)
         content_lay.addLayout(name_col, 1)
@@ -129,27 +129,27 @@ class CameraListItem(QWidget):
         self._status = status
         if status == "live":
             self._dot.setStyleSheet(
-                "color: #34d399; font-size: 11px; background: transparent; border: none;"
+                f"color: {C('success')}; font-size: 11px; background: transparent; border: none;"
             )
             self._status_lbl.setText("Live")
             self._status_lbl.setStyleSheet(
-                "color: #34d399; font-size: 12px; background: transparent; border: none;"
+                f"color: {C('success')}; font-size: 12px; background: transparent; border: none;"
             )
         elif status == "offline" or status == "error":
             self._dot.setStyleSheet(
-                "color: #64748b; font-size: 11px; background: transparent; border: none;"
+                f"color: {C('text_muted')}; font-size: 11px; background: transparent; border: none;"
             )
             self._status_lbl.setText("Offline")
             self._status_lbl.setStyleSheet(
-                "color: #64748b; font-size: 12px; background: transparent; border: none;"
+                f"color: {C('text_muted')}; font-size: 12px; background: transparent; border: none;"
             )
         else:
             self._dot.setStyleSheet(
-                "color: #fbbf24; font-size: 11px; background: transparent; border: none;"
+                f"color: {C('warning')}; font-size: 11px; background: transparent; border: none;"
             )
             self._status_lbl.setText("Ulanmoqda")
             self._status_lbl.setStyleSheet(
-                "color: #fbbf24; font-size: 12px; background: transparent; border: none;"
+                f"color: {C('warning')}; font-size: 12px; background: transparent; border: none;"
             )
 
     def set_selected(self, selected: bool):
@@ -162,7 +162,7 @@ class CameraListItem(QWidget):
     def _apply_active_style(self):
         if self._active:
             self._content.setStyleSheet(
-                "background: rgba(249,115,22,0.20); border: none; border-radius: 7px;"
+                f"background: {C('accent_dim_3')}; border: none; border-radius: 7px;"
             )
         else:
             self._content.setStyleSheet("background: transparent; border: none;")
@@ -173,7 +173,7 @@ class CameraListItem(QWidget):
     def enterEvent(self, event):
         if not self._active:
             self._content.setStyleSheet(
-                "background: rgba(30,41,59,0.45); border: none; border-radius: 7px;"
+                f"background: {C('bg_hover')}; border: none; border-radius: 7px;"
             )
 
     def leaveEvent(self, event):
@@ -203,13 +203,13 @@ class CameraGroupHeader(QWidget):
 
         name = QLabel(title)
         name.setStyleSheet(
-            "color: #ffffff; font-size: 13px; font-weight: 600; background: transparent; border: none;"
+            f"color: {C('text_primary')}; font-size: 13px; font-weight: 600; background: transparent; border: none;"
         )
         lay.addWidget(name, 1)
 
         badge = QLabel(str(count))
         badge.setStyleSheet(
-            "color: #64748b; font-size: 10px; background: transparent; border: none;"
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
         )
         badge.setVisible(False)
         lay.addWidget(badge)
@@ -238,15 +238,10 @@ class DashboardSidebarMixin:
         lay.setSpacing(12)
 
         # ── Kamera paneli (flex-[7]) ─────────────────────────────────────
+        from app.ui.styles import premium_panel_style
         cam_panel = QFrame()
         cam_panel.setObjectName("cameraSidebarPanel")
-        cam_panel.setStyleSheet(
-            "QFrame#cameraSidebarPanel {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c1520,stop:1 #07101a);"
-            "border: 2px solid #1e5fa8;"
-            "border-radius: 12px;"
-            "}"
-        )
+        cam_panel.setStyleSheet(premium_panel_style("cameraSidebarPanel"))
         cam_lay = QVBoxLayout(cam_panel)
         cam_lay.setContentsMargins(16, 14, 16, 14)
         cam_lay.setSpacing(0)
@@ -257,7 +252,7 @@ class DashboardSidebarMixin:
 
         cam_title = QLabel("CAMERAS")
         cam_title.setStyleSheet(
-            "color: #ffffff; font-size: 11px; font-weight: bold;"
+            f"color: {C('text_primary')}; font-size: 11px; font-weight: bold;"
             " letter-spacing: 1px; background: transparent; border: none;"
         )
         hdr_lay.addWidget(cam_title, 1)
@@ -266,16 +261,18 @@ class DashboardSidebarMixin:
         add_btn.setFixedHeight(32)
         add_btn.setStyleSheet(f"""
             QPushButton {{
-                background: #1e293b;
-                color: #ffffff;
-                border: none;
+                background: {C('bg_hover')};
+                color: {C('text_primary')};
+                border: 1px solid {C('border')};
                 border-radius: 7px;
                 padding: 0 14px;
                 font-size: 12px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
-                background: #334155;
+                background: {C('accent')};
+                color: {C('text_on_accent')};
+                border-color: {C('accent')};
             }}
         """)
         add_btn.clicked.connect(self.add_camera_requested)
@@ -299,25 +296,25 @@ class DashboardSidebarMixin:
 
         all_lbl = QLabel("All Cameras")
         all_lbl.setStyleSheet(
-            "color: #fb923c; font-size: 13px; font-weight: bold; background: transparent; border: none;"
+            f"color: {C('accent')}; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )
         all_cam_lay.addWidget(all_lbl, 1)
 
         self._all_count_lbl = QLabel("0")
         self._all_count_lbl.setStyleSheet(
-            "color: #fb923c; font-size: 12px; font-weight: bold;"
-            " background: rgba(249,115,22,0.18); border: none; border-radius: 11px; padding: 2px 8px;"
+            f"color: {C('accent')}; font-size: 12px; font-weight: bold;"
+            f" background: {C('accent_dim_2')}; border: none; border-radius: 11px; padding: 2px 8px;"
         )
         all_cam_lay.addWidget(self._all_count_lbl)
 
-        all_cam.setStyleSheet("""
-            QPushButton {
-                background: rgba(30,41,59,0.55);
-                border: none;
+        all_cam.setStyleSheet(f"""
+            QPushButton {{
+                background: {C('bg_hover')};
+                border: 1px solid {C('border')};
                 border-radius: 8px;
                 text-align: left;
-            }
-            QPushButton:hover { background: rgba(30,41,59,0.8); }
+            }}
+            QPushButton:hover {{ background: {C('accent_dim_2')}; }}
         """)
         cam_lay.addWidget(all_cam)
         cam_lay.addSpacing(14)

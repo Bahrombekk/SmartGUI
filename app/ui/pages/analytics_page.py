@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.application.services.analytics_service import AnalyticsService
+from app.ui.styles import C, on_theme_change
 from app.ui.widgets.bar_chart import BarChart, HourlyBarChart, LineChart
 
 _ICON_DIR = Path(__file__).resolve().parents[3] / "images"
@@ -59,24 +60,33 @@ def _hex_rgb(h: str) -> str:
 
 
 # ── Design tokens ──────────────────────────────────────────────────────────────
-_BG     = "#020912"
-_CARD   = "#060f1c"
-_CARD2  = "#091828"
-_CARD3  = "#0d2038"
-_BORDER = "#1a4f8a"
-_BSOFT  = "#0f2238"
-_TEXT   = "#eef2f7"
-_TEXT2  = "#8dafc8"
-_MUTED  = "#3d566e"
+_BG = _CARD = _CARD2 = _CARD3 = _BORDER = _BSOFT = ""
+_TEXT = _TEXT2 = _MUTED = ""
+_RED = _ORANGE = _AMBER = _GREEN = _BLUE = _LBLUE = _PURPLE = _TEAL = ""
 
-_RED    = "#f03a47"
-_ORANGE = "#f97316"
-_AMBER  = "#f59e0b"
-_GREEN  = "#22c55e"
-_BLUE   = "#3b82f6"
-_LBLUE  = "#60a5fa"
-_PURPLE = "#a78bfa"
-_TEAL   = "#2dd4bf"
+
+def _refresh_theme_tokens() -> None:
+    g = globals()
+    g["_BG"] = C("bg_main")
+    g["_CARD"] = C("bg_card")
+    g["_CARD2"] = C("bg_panel")
+    g["_CARD3"] = C("bg_panel_alt")
+    g["_BORDER"] = C("border_panel")
+    g["_BSOFT"] = C("border_soft")
+    g["_TEXT"] = C("text_primary")
+    g["_TEXT2"] = C("text_secondary")
+    g["_MUTED"] = C("text_muted")
+    g["_RED"] = C("danger")
+    g["_ORANGE"] = C("accent")
+    g["_AMBER"] = C("warning")
+    g["_GREEN"] = C("success")
+    g["_BLUE"] = "#3b82f6"
+    g["_LBLUE"] = C("text_link")
+    g["_PURPLE"] = "#8b5cf6"
+    g["_TEAL"] = C("info")
+
+
+on_theme_change(_refresh_theme_tokens)
 
 
 def _fmt(v) -> str:
@@ -991,7 +1001,7 @@ class AnalyticsPage(QWidget):
             f"border: 1px solid {_BORDER}; {r}"
             "padding: 0 14px; font-size: 12px; font-weight: 800; }}"
             f"QPushButton:hover {{ color: {_TEXT2}; background: {_CARD2}; }}"
-            f"QPushButton:checked {{ background: {_ORANGE}; color: #05090d;"
+            f"QPushButton:checked {{ background: {_ORANGE}; color: {C('text_on_accent')};"
             f"border-color: {_ORANGE}; }}"
         )
 

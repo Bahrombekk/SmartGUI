@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.application.services.analytics_service import AnalyticsService
+from app.ui.styles import C, on_theme_change
 from app.ui.widgets.violation_card import EvidenceImage, ViolationDetailDialog
 
 _ICON_DIR = Path(__file__).resolve().parents[3] / "images"
@@ -30,23 +31,32 @@ _PAGE_LIMIT = 120
 _SVG_CACHE: dict[tuple[str, str, int], QPixmap] = {}
 
 # ── Design tokens (self-contained) ────────────────────────────────────────────
-_BG    = "#020912"
-_CARD  = "#060f1c"
-_CARD2 = "#091828"
-_CARD3 = "#0d2038"
-_BDR   = "#1a4f8a"
-_BSOFT = "#0f2238"
-_TEXT  = "#eef2f7"
-_TEXT2 = "#8dafc8"
-_MUTED = "#3d566e"
+_BG = _CARD = _CARD2 = _CARD3 = _BDR = _BSOFT = ""
+_TEXT = _TEXT2 = _MUTED = ""
+_RED = _ORANGE = _AMBER = _GREEN = _LBLUE = _TEAL = _CYAN = ""
 
-_RED    = "#f03a47"
-_ORANGE = "#f97316"
-_AMBER  = "#f59e0b"
-_GREEN  = "#22c55e"
-_LBLUE  = "#60a5fa"
-_TEAL   = "#2dd4bf"
-_CYAN   = "#22d3ee"
+
+def _refresh_theme_tokens() -> None:
+    g = globals()
+    g["_BG"] = C("bg_main")
+    g["_CARD"] = C("bg_card")
+    g["_CARD2"] = C("bg_panel")
+    g["_CARD3"] = C("bg_panel_alt")
+    g["_BDR"] = C("border_panel")
+    g["_BSOFT"] = C("border_soft")
+    g["_TEXT"] = C("text_primary")
+    g["_TEXT2"] = C("text_secondary")
+    g["_MUTED"] = C("text_muted")
+    g["_RED"] = C("danger")
+    g["_ORANGE"] = C("accent")
+    g["_AMBER"] = C("warning")
+    g["_GREEN"] = C("success")
+    g["_LBLUE"] = C("text_link")
+    g["_TEAL"] = C("info")
+    g["_CYAN"] = C("info")
+
+
+on_theme_change(_refresh_theme_tokens)
 
 
 def _rgb(h: str) -> str:
@@ -447,10 +457,10 @@ class ViolationsPage(QWidget):
 
         apply_btn = QPushButton("  Apply")
         apply_btn.setFixedSize(86, 34)
-        apply_btn.setIcon(_icon_btn("check.svg", "#05090d", 14))
+        apply_btn.setIcon(_icon_btn("check.svg", C("text_on_accent"), 14))
         apply_btn.setIconSize(QSize(14, 14))
         apply_btn.setStyleSheet(
-            f"QPushButton {{ background: {_ORANGE}; color: #05090d;"
+            f"QPushButton {{ background: {_ORANGE}; color: {C('text_on_accent')};"
             "border: none; border-radius: 8px; font-size: 12px; font-weight: 900; }}"
             f"QPushButton:hover {{ background: #ea6c10; }}"
         )
@@ -641,7 +651,7 @@ class ViolationsPage(QWidget):
     def _seg_btn_style(active: bool) -> str:
         if active:
             return (
-                f"QPushButton {{ background: {_ORANGE}; color: #05090d;"
+                f"QPushButton {{ background: {_ORANGE}; color: {C('text_on_accent')};"
                 "border: none; border-radius: 6px; font-size: 12px; font-weight: 900; }}"
             )
         return (

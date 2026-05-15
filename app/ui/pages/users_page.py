@@ -45,9 +45,9 @@ class UserAvatar(QLabel):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#1e293b"))
+        p.setBrush(QColor(C('success_dim')))
         p.drawRoundedRect(0, 0, self.width(), self.height(), 12, 12)
-        p.setPen(QPen(QColor("#fb923c")))
+        p.setPen(QPen(QColor(C('accent'))))
         font = QFont("Segoe UI", 15, QFont.Weight.Bold)
         p.setFont(font)
         initials = ((self._first_name[:1] or "H") + (self._last_name[:1] or "")).upper()
@@ -61,16 +61,16 @@ class UserCard(QFrame):
         self._user = user
         self._on_remove = on_remove
         self.setFixedHeight(112)
-        self.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0c151c,stop:1 #071016);
-                border: 1px solid #1e293b;
+        self.setStyleSheet(f"""
+            QFrame {{
+                background: {C('bg_card')};
+                border: 1px solid {C('border')};
                 border-radius: 10px;
-            }
-            QFrame:hover {
-                border-color: rgba(249,115,22,0.55);
-            }
-            QLabel { border: none; background: transparent; }
+            }}
+            QFrame:hover {{
+                border-color: {C('accent')};
+            }}
+            QLabel {{ border: none; background: transparent; }}
         """)
 
         lay = QHBoxLayout(self)
@@ -87,22 +87,22 @@ class UserCard(QFrame):
         info.setSpacing(4)
 
         name = QLabel(f"{user.get('first_name', '')} {user.get('last_name', '')}".strip())
-        name.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 700;")
+        name.setStyleSheet(f"color: {C('text_primary')}; font-size: 15px; font-weight: 700;")
         info.addWidget(name)
 
         active = bool(user.get("active", True))
         emp_id = QLabel(f"ID: {user.get('employee_id', '')}  |  {'Active' if active else 'Inactive'}")
-        emp_id.setStyleSheet("color: #fb923c; font-size: 12px; font-weight: 600;")
+        emp_id.setStyleSheet(f"color: {C('accent')}; font-size: 12px; font-weight: 600;")
         info.addWidget(emp_id)
 
         dep = QLabel(department_name or "Bo'limsiz")
-        dep.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        dep.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px;")
         info.addWidget(dep)
         face_status = "FaceID photo ready" if user.get("photo_path") and Path(user.get("photo_path")).exists() else "FaceID photo missing"
         face = QLabel(face_status)
         face.setStyleSheet(
-            "color: #34d399; font-size: 11px;" if "ready" in face_status
-            else "color: #fbbf24; font-size: 11px;"
+            f"color: {C('success')}; font-size: 11px;" if "ready" in face_status
+            else f"color: {C('warning')}; font-size: 11px;"
         )
         info.addWidget(face)
         info.addStretch()
@@ -139,7 +139,7 @@ class UsersPage(QWidget):
         self.refresh()
 
     def _setup_ui(self):
-        self.setStyleSheet("background: #03070b;")
+        self.setStyleSheet(f"background: {C('bg_main')};")
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(12)
@@ -148,10 +148,10 @@ class UsersPage(QWidget):
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
         title = QLabel("Employees")
-        title.setStyleSheet("color: #ffffff; font-size: 20px; font-weight: 800;")
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 20px; font-weight: 800;")
         title_col.addWidget(title)
         subtitle = QLabel("Hodimlar rasmlari, ID raqamlari va bo'limlar bo'yicha ro'yxat")
-        subtitle.setStyleSheet("color: #64748b; font-size: 12px;")
+        subtitle.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
         title_col.addWidget(subtitle)
         header.addLayout(title_col)
         header.addStretch()
@@ -160,8 +160,8 @@ class UsersPage(QWidget):
         self._total_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._total_badge.setFixedHeight(32)
         self._total_badge.setStyleSheet(
-            "color: #34d399; background: rgba(52,211,153,0.08);"
-            " border: 1px solid rgba(52,211,153,0.25); border-radius: 8px; padding: 0 12px;"
+            f"color: {C('success')}; background: {C('success_dim')};"
+            f" border: 1px solid {C('success')}; border-radius: 8px; padding: 0 12px;"
         )
         header.addWidget(self._total_badge)
         root.addLayout(header)
@@ -195,7 +195,7 @@ class UsersPage(QWidget):
         lay.setSpacing(10)
 
         title = QLabel("Add Employee / FaceID")
-        title.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: 800;")
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 15px; font-weight: 800;")
         lay.addWidget(title)
 
         self._first_name = self._input("Ism")
@@ -243,7 +243,7 @@ class UsersPage(QWidget):
 
         hint = QLabel("Hodimlar mavjud kamera bo'limlariga biriktiriladi.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #64748b; font-size: 11px; line-height: 16px;")
+        hint.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px; line-height: 16px;")
         lay.addWidget(hint)
         return panel
 
@@ -357,7 +357,8 @@ class UsersPage(QWidget):
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setMinimumHeight(220)
             empty.setStyleSheet(
-                "color: #64748b; background: #071016; border: 1px solid #1e293b;"
+                f"color: {C('text_muted')}; background: {C('bg_card')};"
+                f" border: 1px solid {C('border')};"
                 " border-radius: 12px; font-size: 14px;"
             )
             self._list_layout.addWidget(empty)
@@ -380,13 +381,13 @@ class UsersPage(QWidget):
 
         hdr = QHBoxLayout()
         name = QLabel(title)
-        name.setStyleSheet("color: #ffffff; font-size: 14px; font-weight: 800;")
+        name.setStyleSheet(f"color: {C('text_primary')}; font-size: 14px; font-weight: 800;")
         hdr.addWidget(name)
         count = QLabel(str(len(users)))
         count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         count.setFixedSize(28, 24)
         count.setStyleSheet(
-            "color: #fb923c; background: rgba(249,115,22,0.16);"
+            f"color: {C('accent')}; background: {C('accent_dim')};"
             " border-radius: 8px; font-weight: 700;"
         )
         hdr.addWidget(count)

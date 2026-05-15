@@ -75,7 +75,7 @@ except ImportError:
 import logging
 import logging.handlers
 
-from app.ui.theme import get_main_stylesheet, set_theme
+from app.ui.styles import build_main_stylesheet as get_main_stylesheet, set_theme
 
 # ── Logging sozlash ───────────────────────────────────────────────────────
 _log_dir = BASE_DIR / "logs"
@@ -118,7 +118,7 @@ def _make_splash(app: QApplication) -> QSplashScreen:
     font_big = QFont("Segoe UI", 26, QFont.Weight.Bold)
     painter.setFont(font_big)
     painter.setPen(QColor("#f97316"))
-    painter.drawText(QRect(0, 50, W, 60), Qt.AlignmentFlag.AlignCenter, "⛑ SmartHelmet")
+    painter.drawText(QRect(0, 50, W, 60), Qt.AlignmentFlag.AlignCenter, "SafeZone")
 
     # Kichik matn
     font_sm = QFont("Segoe UI", 11)
@@ -150,8 +150,8 @@ def main():
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("SmartHelmet GUI")
-    app.setOrganizationName("SmartHelmet")
+    app.setApplicationName("SafeZone")
+    app.setOrganizationName("SafeZone")
     app.setApplicationVersion("1.0.0")
 
     # Font

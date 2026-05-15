@@ -194,7 +194,7 @@
   "access_roster_enabled": true,
   "use_polygon": false,
   "polygon_points": [],
-  "theme": "dark",
+  "theme": "light",
   "language": "uz",
   "display_max_width": 960,
   "video_fps_limit": 25,

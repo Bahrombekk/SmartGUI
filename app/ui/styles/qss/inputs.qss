@@ -1,0 +1,84 @@
+/* ── QLineEdit / QComboBox / QSpinBox / QDateEdit ────── */
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit {
+    background: {{input_bg}};
+    color: {{text_primary}};
+    border: 1px solid {{input_border}};
+    border-radius: 7px;
+    padding: 0 10px;
+    min-height: 34px;
+    font-size: 13px;
+    selection-background-color: {{selection_bg}};
+}
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover, QDateEdit:hover {
+    background: {{input_bg_hover}};
+    border-color: {{input_border_hov}};
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus {
+    background: {{input_bg_focus}};
+    border: 1px solid {{input_border_foc}};
+}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QDateEdit:disabled {
+    color: {{text_muted}};
+    border-color: {{border_light}};
+}
+QLineEdit::placeholder { color: {{text_muted}}; }
+
+/* ── QComboBox dropdown ──────────────────────────────── */
+QComboBox QAbstractItemView {
+    background-color: {{combo_view_bg}};
+    color: {{text_primary}};
+    border: 1px solid {{combo_view_border}};
+    selection-background-color: {{success_dim}};
+    outline: none;
+}
+QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 26px; }
+
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+    border: none;
+    width: 18px;
+    background: transparent;
+}
+
+/* ── QSlider ─────────────────────────────────────────── */
+QSlider::groove:horizontal {
+    height: 4px;
+    background: {{border}};
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    background: {{accent}};
+    border: none;
+    width: 16px; height: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+}
+QSlider::sub-page:horizontal {
+    background: {{accent}};
+    border-radius: 2px;
+}
+
+/* ── QCheckBox ───────────────────────────────────────── */
+QCheckBox { color: {{text_primary}}; spacing: 8px; }
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 2px solid {{border}};
+    border-radius: 3px;
+    background: {{bg_panel}};
+}
+QCheckBox::indicator:checked {
+    background: {{accent}};
+    border-color: {{accent}};
+}
+QCheckBox::indicator:hover { border-color: {{accent}}; }
+
+/* ── QDateEdit calendar ──────────────────────────────── */
+QCalendarWidget {
+    background-color: {{bg_card}};
+    color: {{text_primary}};
+}
+QCalendarWidget QAbstractItemView {
+    background-color: {{bg_card}};
+    color: {{text_primary}};
+    selection-background-color: {{accent_dim}};
+}

@@ -78,8 +78,9 @@ class DashboardPage(
     # ── Ana UI ───────────────────────────────────────────────────────────
 
     def _setup_ui(self):
+        from app.ui.styles import C
         root = QHBoxLayout(self)
-        self.setStyleSheet("background: #03070b;")
+        self.setStyleSheet(f"background: {C('bg_main')};")
         root.setContentsMargins(14, 12, 14, 12)
         root.setSpacing(14)
 

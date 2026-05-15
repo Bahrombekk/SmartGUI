@@ -39,6 +39,11 @@ class ViolationRuntime:
             maxsize=max(1, int(cfg.get("violation_save_queue_size", 64)))
         )
         self._save_thread: threading.Thread | None = None
+        # today_count / no_helmet_count cache — bir necha violation ketma-ket
+        # kelganda DB ga ortiqcha COUNT(*) so'rovini oldini olish.
+        self._today_cache_ts: float = 0.0
+        self._cached_today: int = 0
+        self._cached_no_helmet: int = 0
 
     def set_running(self, running: bool) -> None:
         self._running = running
@@ -171,10 +176,22 @@ class ViolationRuntime:
                     notifier=self.notifier,
                     backend=self.backend,
                 )
-                self.today_count = self.db.get_today_count()
+                now = time.time()
+                # 2 sekundlik cache — yaqin vaqtda kelgan bir nechta violation
+                # bir necha COUNT(*) emas, bitta query bilan ko'rsatiladi.
+                if now - self._today_cache_ts > 2.0:
+                    self._cached_today = self.db.get_today_count()
+                    self._cached_no_helmet = self.db.get_today_count("no_helmet")
+                    self._today_cache_ts = now
+                else:
+                    # Yangi violation kirgani uchun cache'ni inkrementlash
+                    self._cached_today += 1
+                    if item.get("violation_type", "no_helmet") == "no_helmet":
+                        self._cached_no_helmet += 1
+                self.today_count = self._cached_today
                 payload = event.to_payload()
-                payload["today_count"] = self.today_count
-                payload["no_helmet_count"] = self.db.get_today_count("no_helmet")
+                payload["today_count"] = self._cached_today
+                payload["no_helmet_count"] = self._cached_no_helmet
                 if self._running:
                     self.emit_payload(payload)
             except Exception as exc:

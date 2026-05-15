@@ -8,7 +8,14 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                               QFrame, QSizePolicy)
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
-from app.ui.theme import C
+from app.ui.styles import (
+    C,
+    campanel_outer_style,
+    campanel_id_pill_style,
+    campanel_name_style,
+    campanel_fps_style,
+    header_gradient_style,
+)
 from app.ui.widgets.video_label import VideoLabel
 
 
@@ -44,15 +51,7 @@ class CameraPanel(QFrame):
         if self._panel_style_key == selected:
             return
         self._panel_style_key = selected
-        border = C("accent") if selected else "#1e5fa8"
-        bg     = "rgba(249,115,22,0.10)" if selected else "#060e18"
-        self.setStyleSheet(
-            "QFrame[cam_panel='true'] {"
-            f"background: {bg};"
-            f"border: 2px solid {border};"
-            "border-radius: 10px;"
-            "}"
-        )
+        self.setStyleSheet(campanel_outer_style(selected))
 
     def set_selected(self, selected: bool):
         if self._selected == selected:
@@ -83,11 +82,7 @@ class CameraPanel(QFrame):
     def _build_header(self) -> QWidget:
         hdr = QWidget()
         hdr.setFixedHeight(38)
-        hdr.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #091828, stop:1 #071016);"
-            "border-radius: 9px 9px 0 0;"
-        )
+        hdr.setStyleSheet(header_gradient_style("9px 9px 0 0"))
         lay = QHBoxLayout(hdr)
         lay.setContentsMargins(10, 0, 10, 0)
         lay.setSpacing(8)
@@ -97,35 +92,26 @@ class CameraPanel(QFrame):
         self._dot.setFixedSize(18, 18)
         self._dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._dot.setStyleSheet(
-            "color: #fbbf24; font-size: 13px; background: transparent;"
+            f"color: {C('warning')}; font-size: 13px; background: transparent;"
         )
         lay.addWidget(self._dot)
 
-        # Camera ID pill
+        # Camera ID pill — theme'ga moslangan
         id_pill = QLabel(f"{self.cam_id:02d}")
         id_pill.setFixedSize(30, 20)
         id_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        id_pill.setStyleSheet(
-            "background: rgba(30,95,168,0.40);"
-            "color: #93c5fd;"
-            "border: 1px solid rgba(30,95,168,0.70);"
-            "border-radius: 5px;"
-            "font-size: 10px; font-weight: 800;"
-        )
+        id_pill.setStyleSheet(campanel_id_pill_style())
         lay.addWidget(id_pill)
 
         # Camera name
         name_lbl = QLabel(self.cam_name)
-        name_lbl.setStyleSheet(
-            "color: #e8f4ff; font-size: 12px; font-weight: 700;"
-            " background: transparent;"
-        )
+        name_lbl.setStyleSheet(campanel_name_style())
         lay.addWidget(name_lbl, 1)
 
         # Status badge (LIVE / OFFLINE / connecting)
         self._badge = QLabel("Ulanmoqda")
         self._badge.setStyleSheet(
-            "color: #fbbf24; font-size: 10px; font-weight: 800;"
+            f"color: {C('warning')}; font-size: 10px; font-weight: 800;"
             " background: transparent;"
         )
         lay.addWidget(self._badge)
@@ -144,21 +130,14 @@ class CameraPanel(QFrame):
     def _build_footer(self) -> QWidget:
         ftr = QWidget()
         ftr.setFixedHeight(28)
-        ftr.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #091828, stop:1 #071016);"
-            "border-radius: 0 0 9px 9px;"
-        )
+        ftr.setStyleSheet(header_gradient_style("0 0 9px 9px"))
         lay = QHBoxLayout(ftr)
         lay.setContentsMargins(12, 0, 12, 0)
         lay.setSpacing(0)
 
         # FPS — left
         self._fps_lbl = QLabel("-- fps")
-        self._fps_lbl.setStyleSheet(
-            "color: #60a5fa; font-size: 10px; font-weight: 700;"
-            " background: transparent;"
-        )
+        self._fps_lbl.setStyleSheet(campanel_fps_style())
         lay.addWidget(self._fps_lbl)
 
         lay.addStretch()
@@ -166,7 +145,7 @@ class CameraPanel(QFrame):
         # Person count — right with icon dot
         self._persons_dot = QLabel("●")
         self._persons_dot.setStyleSheet(
-            "color: #475569; font-size: 7px; background: transparent;"
+            f"color: {C('text_muted')}; font-size: 7px; background: transparent;"
         )
         lay.addWidget(self._persons_dot)
 
@@ -174,7 +153,7 @@ class CameraPanel(QFrame):
 
         self._persons_lbl = QLabel("0 kishi")
         self._persons_lbl.setStyleSheet(
-            "color: #94a3b8; font-size: 10px; font-weight: 700;"
+            f"color: {C('text_secondary')}; font-size: 10px; font-weight: 700;"
             " background: transparent;"
         )
         lay.addWidget(self._persons_lbl)
@@ -184,6 +163,10 @@ class CameraPanel(QFrame):
     # ── Pulsing dot ───────────────────────────────────────────────────────
 
     def _pulse_dot(self):
+        # Yashirin bo'lsa pulse ishlamasin (panel boshqa sahifaga o'tganda CPU sarflanmasin)
+        if not self.isVisible():
+            self._pulse_timer.stop()
+            return
         self._pulse_on = not self._pulse_on
         if self._connected:
             col = "#22c55e" if self._pulse_on else "#16a34a"
@@ -285,6 +268,18 @@ class CameraPanel(QFrame):
         self._badge.setStyleSheet(
             "color: #fbbf24; font-size: 10px; font-weight: 800; background: transparent;"
         )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Qayta ko'rinadigan bo'lsa va kamera tirik bo'lsa pulse'ni qayta yoqish
+        if self._connected and not self._pulse_timer.isActive():
+            self._pulse_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        # Yashirin bo'lganda pulse to'xtaydi — CPU sarflanmaydi
+        if self._pulse_timer.isActive():
+            self._pulse_timer.stop()
 
     def mousePressEvent(self, event):
         self.clicked.emit(self.cam_id)

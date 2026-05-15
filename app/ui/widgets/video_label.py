@@ -37,10 +37,11 @@ class VideoLabel(QLabel):
         self._qimage: QImage | None = None
 
         self._anim_timer = QTimer(self)
-        self._anim_timer.setInterval(500)
+        self._anim_timer.setInterval(700)
         self._anim_timer.timeout.connect(self._tick_anim)
 
         self._apply_base_style()
+        # Faqat frame yo'q va connecting/loading bo'lganda yoqiladi
         self._anim_timer.start()
 
     # ── Stil ─────────────────────────────────────────────────────────────
@@ -54,7 +55,10 @@ class VideoLabel(QLabel):
     # ── Animatsiya ────────────────────────────────────────────────────────
 
     def _tick_anim(self):
-        if self._has_frame:
+        if self._has_frame or self._mode not in ("connecting", "loading"):
+            self._anim_timer.stop()
+            return
+        if not self.isVisible():
             return
         self._anim_step = (self._anim_step + 1) % 4
         dots = "●" * self._anim_step + "○" * (3 - self._anim_step)

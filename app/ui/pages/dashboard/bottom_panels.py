@@ -6,6 +6,18 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+from app.ui.styles import C
+
+
+def _stat_card_style() -> str:
+    return (
+        "QFrame {"
+        f"background: {C('bg_panel_alt')};"
+        f"border: 1px solid {C('border_panel')};"
+        "border-radius: 8px;"
+        "}"
+    )
+
 
 class DashboardBottomPanelsMixin:
     def _build_system_overview(self) -> QFrame:
@@ -30,15 +42,12 @@ class DashboardBottomPanelsMixin:
         counts_row.setSpacing(7)
 
         for key, label, lbl_color, val_color in [
-            ("total",   "Total",   "#94a3b8", "#ffffff"),
-            ("online",  "Online",  "#34d399", "#22d3ee"),
-            ("offline", "Offline", "#94a3b8", "#94a3b8"),
+            ("total",   "Total",   C('text_secondary'), C('text_primary')),
+            ("online",  "Online",  C('success'),        C('info')),
+            ("offline", "Offline", C('text_secondary'), C('text_secondary')),
         ]:
             card = QFrame()
-            card.setStyleSheet(
-                "QFrame { background: #0e1d2e;"
-                "border: 1px solid #1e5fa8; border-radius: 8px; }"
-            )
+            card.setStyleSheet(_stat_card_style())
             col = QVBoxLayout(card)
             col.setContentsMargins(8, 7, 8, 7)
             col.setSpacing(2)
@@ -74,29 +83,26 @@ class DashboardBottomPanelsMixin:
 
         # Recognition Rate
         rr = QFrame()
-        rr.setStyleSheet(
-            "QFrame { background: #0e1d2e;"
-            "border: 1px solid #1e5fa8; border-radius: 8px; }"
-        )
+        rr.setStyleSheet(_stat_card_style())
         rr_lay = QVBoxLayout(rr)
         rr_lay.setContentsMargins(10, 8, 10, 8)
         rr_lay.setSpacing(5)
 
         rl = QLabel("Recognition Rate")
-        rl.setStyleSheet("color: #94a3b8; font-size: 11px; background: transparent; border: none;")
+        rl.setStyleSheet(f"color: {C('text_secondary')}; font-size: 11px; background: transparent; border: none;")
         rr_lay.addWidget(rl)
 
         rv_row = QHBoxLayout()
         rv_row.setSpacing(6)
         rv = QLabel("98.6%")
-        rv.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: 800; background: transparent; border: none;")
+        rv.setStyleSheet(f"color: {C('text_primary')}; font-size: 22px; font-weight: 800; background: transparent; border: none;")
         rv_row.addWidget(rv)
         rd = QLabel("+2.4%")
-        rd.setStyleSheet(self._soft_status_style("#34d399", "rgba(52,211,153,0.10)"))
+        rd.setStyleSheet(self._soft_status_style(C('success'), C('success_dim_2')))
         rv_row.addWidget(rd, 0, Qt.AlignmentFlag.AlignBottom)
         rv_row.addStretch()
         rex = QLabel("Excellent")
-        rex.setStyleSheet(self._soft_status_style("#22d3ee", "rgba(34,211,238,0.09)"))
+        rex.setStyleSheet(self._soft_status_style(C('info'), C('info_dim')))
         rv_row.addWidget(rex, 0, Qt.AlignmentFlag.AlignBottom)
         rr_lay.addLayout(rv_row)
 
@@ -107,7 +113,7 @@ class DashboardBottomPanelsMixin:
         rate_bar.setTextVisible(False)
         rate_bar.setStyleSheet(
             "QProgressBar { background: rgba(148,163,184,0.16); border: none; border-radius: 3px; }"
-            "QProgressBar::chunk { background: #2dd4bf; border-radius: 3px; }"
+            f"QProgressBar::chunk {{ background: {C('success')}; border-radius: 3px; }}"
         )
         rr_lay.addWidget(rate_bar)
         lay.addWidget(rr)
@@ -116,23 +122,25 @@ class DashboardBottomPanelsMixin:
 
     def _stat_line(self, title: str, value: str, delta: str, red: bool = False) -> QWidget:
         w = QFrame()
-        accent = "#ef4444" if red else "#2dd4bf"
-        bg = "rgba(239,68,68,0.08)" if red else "rgba(45,212,191,0.07)"
+        accent = C('danger') if red else C('success')
+        bg = C('danger_dim_2') if red else C('success_dim_2')
         w.setStyleSheet(
-            f"QFrame {{ background: {bg}; border: 1px solid #1e5fa8; border-radius: 8px; }}"
+            f"QFrame {{ background: {bg};"
+            f" border: 1px solid {C('border_panel')};"
+            " border-radius: 8px; }}"
         )
         lay = QVBoxLayout(w)
         lay.setContentsMargins(10, 8, 10, 8)
         lay.setSpacing(4)
 
         t = QLabel(title)
-        t.setStyleSheet("color: #94a3b8; font-size: 11px; background: transparent; border: none;")
+        t.setStyleSheet(f"color: {C('text_secondary')}; font-size: 11px; background: transparent; border: none;")
         lay.addWidget(t)
 
         vrow = QHBoxLayout()
         vrow.setSpacing(6)
         v = QLabel(value)
-        v.setStyleSheet("color: #ffffff; font-size: 22px; font-weight: 800; background: transparent; border: none;")
+        v.setStyleSheet(f"color: {C('text_primary')}; font-size: 22px; font-weight: 800; background: transparent; border: none;")
         if title == "Detections Today":
             self._detections_today_lbl = v
         elif title == "No Helmet Detections":
@@ -253,8 +261,8 @@ class DashboardBottomPanelsMixin:
         person_box.setFixedSize(78, 98)
         person_box.setStyleSheet(
             "QFrame#aiPersonBox {"
-            "background: rgba(34,211,238,0.08);"
-            "border: 1px solid rgba(34,211,238,0.12);"
+            f"background: {C('success_dim_2')};"
+            f"border: 1px solid {C('success')};"
             "border-radius: 8px;"
             "}"
         )
@@ -262,7 +270,9 @@ class DashboardBottomPanelsMixin:
         pb_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         person_icon = QLabel("👤")
         person_icon.setText("AI")
-        person_icon.setStyleSheet("font-size: 18px; font-weight: 900; background: transparent; color: #22d3ee; border: none;")
+        person_icon.setStyleSheet(
+            f"font-size: 18px; font-weight: 900; background: transparent; color: {C('success')}; border: none;"
+        )
         person_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pb_lay.addWidget(person_icon)
         c_lay.addWidget(person_box)
@@ -277,35 +287,35 @@ class DashboardBottomPanelsMixin:
         self._ai_active = True
         self._ai_status_lbl = QLabel("Active")
         self._ai_status_lbl.setStyleSheet(
-            self._soft_status_style("#22d3ee", "rgba(34,211,238,0.10)")
+            self._soft_status_style(C('success'), C('success_dim_2'))
         )
         r_lay.addWidget(self._ai_status_lbl)
 
         self._ai_desc_lbl = QLabel("Smart detection is\nrunning smoothly.")
         self._ai_desc_lbl.setStyleSheet(
-            "color: #cbd5e1; font-size: 11px; background: transparent; border: none;"
+            f"color: {C('text_secondary')}; font-size: 11px; background: transparent; border: none;"
         )
         r_lay.addWidget(self._ai_desc_lbl)
 
         self._ai_health_lbl = QLabel("0 active cameras | waiting for model")
         self._ai_health_lbl.setStyleSheet(
-            "color: #94a3b8; font-size: 10px; background: transparent; border: none;"
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
         )
         r_lay.addWidget(self._ai_health_lbl)
 
         self._ai_toggle_btn = QPushButton("Pause AI")
         self._ai_toggle_btn.setFixedHeight(38)
-        self._ai_toggle_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(249,115,22,0.10);
-                color: #ffffff;
-                border: 1px solid rgba(249,115,22,0.55);
+        self._ai_toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {C('accent_dim_2')};
+                color: {C('text_primary')};
+                border: 1px solid {C('accent')};
                 border-radius: 8px;
                 font-size: 11px;
                 font-weight: 800;
                 padding: 0 20px;
-            }
-            QPushButton:hover { background: rgba(249,115,22,0.20); }
+            }}
+            QPushButton:hover {{ background: {C('accent_dim_3')}; color: {C('text_on_accent')}; }}
         """)
         self._ai_toggle_btn.clicked.connect(self._toggle_ai)
         r_lay.addWidget(self._ai_toggle_btn)
@@ -321,7 +331,7 @@ class DashboardBottomPanelsMixin:
         if self._ai_active:
             self._ai_status_lbl.setText("Active")
             self._ai_status_lbl.setStyleSheet(
-                self._soft_status_style("#22d3ee", "rgba(34,211,238,0.10)")
+                self._soft_status_style(C('success'), C('success_dim_2'))
             )
             self._ai_desc_lbl.setText("Smart detection is\nrunning smoothly.")
             self._ai_toggle_btn.setText("Pause AI")
@@ -329,7 +339,7 @@ class DashboardBottomPanelsMixin:
         else:
             self._ai_status_lbl.setText("Paused")
             self._ai_status_lbl.setStyleSheet(
-                self._soft_status_style("#94a3b8", "rgba(148,163,184,0.08)")
+                self._soft_status_style(C('text_secondary'), C('bg_hover'))
             )
             self._ai_desc_lbl.setText("Detection is paused\nfor review.")
             self._ai_toggle_btn.setText("Start AI")
@@ -454,17 +464,17 @@ class DashboardBottomPanelsMixin:
     @staticmethod
     def _department_health(percent: int, online: int) -> tuple[str, str, str]:
         if online <= 0:
-            return "Offline", "#f87171", "rgba(248,113,113,0.10)"
+            return "Offline", C('danger'), C('danger_dim_2')
         if percent >= 70:
-            return "Healthy", "#2dd4bf", "rgba(45,212,191,0.10)"
-        return "Partial", "#fbbf24", "rgba(251,191,36,0.10)"
+            return "Healthy", C('success'), C('success_dim_2')
+        return "Partial", C('warning'), C('warning_dim_2')
 
     @staticmethod
     def _department_chip(text: str, color: str, bg: str) -> QLabel:
         chip = QLabel(text)
         chip.setStyleSheet(
             f"color: {color}; background: {bg};"
-            "border: 1px solid rgba(148,163,184,0.12);"
+            f"border: 1px solid {C('border_light')};"
             "border-radius: 7px; padding: 2px 6px;"
             "font-size: 9px; font-weight: 800;"
         )
@@ -474,7 +484,7 @@ class DashboardBottomPanelsMixin:
     def _department_status_style(color: str, bg: str) -> str:
         return (
             f"color: {color}; background: {bg};"
-            "border: 1px solid rgba(148,163,184,0.12);"
+            f"border: 1px solid {C('border_light')};"
             "border-radius: 7px; padding: 2px 6px;"
             "font-size: 9px; font-weight: 900;"
         )
@@ -482,7 +492,7 @@ class DashboardBottomPanelsMixin:
     @staticmethod
     def _department_bar_style(color: str) -> str:
         return (
-            "QProgressBar { background: rgba(148,163,184,0.14); border: none; border-radius: 3px; }"
+            f"QProgressBar {{ background: {C('bg_hover')}; border: none; border-radius: 3px; }}"
             f"QProgressBar::chunk {{ background: {color}; border-radius: 3px; }}"
         )
 
@@ -499,9 +509,8 @@ class DashboardBottomPanelsMixin:
         row.setFixedHeight(62)
         row.setStyleSheet(
             "QFrame#deptStatRow {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 rgba(14,29,46,0.88), stop:1 rgba(10,21,32,0.88));"
-            "border: 1px solid rgba(30,95,168,0.28);"
+            f"background: {C('bg_panel_alt')};"
+            f"border: 1px solid {C('border_panel')};"
             "border-radius: 8px;"
             "}"
         )
@@ -520,7 +529,7 @@ class DashboardBottomPanelsMixin:
         title_row = QHBoxLayout()
         title_row.setSpacing(6)
         title = QLabel(str(dep.get("name", "Bo'lim")))
-        title.setStyleSheet("color: #f8fafc; font-size: 12px; font-weight: 800; background: transparent; border: none;")
+        title.setStyleSheet(f"color: {C('text_primary')}; font-size: 12px; font-weight: 800; background: transparent; border: none;")
         title_row.addWidget(title, 1)
 
         status_chip = QLabel(status)
@@ -530,9 +539,9 @@ class DashboardBottomPanelsMixin:
 
         chips = QHBoxLayout()
         chips.setSpacing(5)
-        total_chip = self._department_chip(f"{total} cam", "#cbd5e1", "rgba(148,163,184,0.08)")
-        online_chip = self._department_chip(f"{online} live", "#5eead4", "rgba(45,212,191,0.08)")
-        offline_chip = self._department_chip(f"{offline} offline", "#cbd5e1", "rgba(148,163,184,0.06)")
+        total_chip = self._department_chip(f"{total} cam", C('text_secondary'), C('bg_hover'))
+        online_chip = self._department_chip(f"{online} live", C('success'), C('success_dim_2'))
+        offline_chip = self._department_chip(f"{offline} offline", C('text_secondary'), C('bg_hover'))
         chips.addWidget(total_chip)
         chips.addWidget(online_chip)
         chips.addWidget(offline_chip)
@@ -544,7 +553,7 @@ class DashboardBottomPanelsMixin:
         health.setSpacing(4)
         pct = QLabel(f"{percent}% online")
         pct.setAlignment(Qt.AlignmentFlag.AlignRight)
-        pct.setStyleSheet("color: #94a3b8; font-size: 9px; font-weight: 800; background: transparent; border: none;")
+        pct.setStyleSheet(f"color: {C('text_secondary')}; font-size: 9px; font-weight: 800; background: transparent; border: none;")
         health.addWidget(pct)
 
         bar = QProgressBar()
@@ -560,8 +569,8 @@ class DashboardBottomPanelsMixin:
         det_box.setFixedSize(74, 46)
         det_box.setStyleSheet(
             "QFrame {"
-            "background: rgba(249,115,22,0.08);"
-            "border: 1px solid rgba(249,115,22,0.16);"
+            f"background: {C('accent_dim_2')};"
+            f"border: 1px solid {C('accent')};"
             "border-radius: 8px;"
             "}"
         )
@@ -571,13 +580,13 @@ class DashboardBottomPanelsMixin:
 
         det_label = QLabel("Today")
         det_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        det_label.setStyleSheet("color: #fed7aa; font-size: 9px; font-weight: 800; background: transparent; border: none;")
+        det_label.setStyleSheet(f"color: {C('accent')}; font-size: 9px; font-weight: 800; background: transparent; border: none;")
         det_lay.addWidget(det_label)
 
         det = QLabel(self._compact_count(detections))
         det.setAlignment(Qt.AlignmentFlag.AlignCenter)
         det.setToolTip(f"Bugungi detections: {detections}")
-        det.setStyleSheet("color: #fdba74; font-size: 18px; font-weight: 900; background: transparent; border: none;")
+        det.setStyleSheet(f"color: {C('accent_hover')}; font-size: 18px; font-weight: 900; background: transparent; border: none;")
         det_lay.addWidget(det)
         lay.addWidget(det_box)
         row._dept_widgets = {
@@ -621,8 +630,8 @@ class DashboardBottomPanelsMixin:
     def _event_row(self, v: dict) -> QWidget:
         w = QWidget()
         w.setStyleSheet(
-            "background: #0e1d2e;"
-            "border: 1px solid #1e5fa8;"
+            f"background: {C('bg_panel_alt')};"
+            f"border: 1px solid {C('border_panel')};"
             "border-radius: 8px;"
         )
         w.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -638,14 +647,14 @@ class DashboardBottomPanelsMixin:
         icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if has_helmet:
             icon.setStyleSheet(
-                "color: #34d399; font-size: 10px; font-weight: 900;"
-                " background: rgba(52,211,153,0.10); border: 1px solid rgba(52,211,153,0.18);"
+                f"color: {C('success')}; font-size: 10px; font-weight: 900;"
+                f" background: {C('success_dim_2')}; border: 1px solid {C('success')};"
                 " border-radius: 8px;"
             )
         else:
             icon.setStyleSheet(
-                "color: #fca5a5; font-size: 13px; font-weight: 900;"
-                " background: rgba(239,68,68,0.10); border: 1px solid rgba(239,68,68,0.18);"
+                f"color: {C('danger')}; font-size: 13px; font-weight: 900;"
+                f" background: {C('danger_dim_2')}; border: 1px solid {C('danger')};"
                 " border-radius: 8px;"
             )
         lay.addWidget(icon)
@@ -656,14 +665,14 @@ class DashboardBottomPanelsMixin:
         title = "Helmet Detected" if has_helmet else "No Helmet Detected"
         t_lbl = QLabel(title)
         t_lbl.setStyleSheet(
-            "color: #f8fafc; font-size: 12px; font-weight: 700; background: transparent;"
+            f"color: {C('text_primary')}; font-size: 12px; font-weight: 700; background: transparent;"
         )
         info_col.addWidget(t_lbl)
 
         cam_name = v.get("camera_name", v.get("camera_id", ""))
         c_lbl = QLabel(f"Camera {cam_name}")
         c_lbl.setStyleSheet(
-            "color: #94a3b8; font-size: 10px; background: transparent;"
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
         )
         info_col.addWidget(c_lbl)
         lay.addLayout(info_col, 1)
@@ -671,8 +680,8 @@ class DashboardBottomPanelsMixin:
         time_str = self._time_text(v)
         time_lbl = QLabel(time_str)
         time_lbl.setStyleSheet(
-            "color: #cbd5e1; font-size: 10px; background: rgba(148,163,184,0.08);"
-            "border: 1px solid rgba(148,163,184,0.10); border-radius: 7px; padding: 2px 6px;"
+            f"color: {C('text_secondary')}; font-size: 10px; background: {C('bg_hover')};"
+            f"border: 1px solid {C('border_light')}; border-radius: 7px; padding: 2px 6px;"
         )
         lay.addWidget(time_lbl)
         return w
@@ -706,8 +715,11 @@ class DashboardBottomPanelsMixin:
         card = QFrame()
         card.setFixedHeight(86)
         card.setStyleSheet(
-            "QFrame { background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.18);"
-            " border-radius: 8px; }"
+            "QFrame {"
+            f" background: {C('danger_dim_2')};"
+            f" border: 1px solid {C('danger')};"
+            " border-radius: 8px;"
+            " }"
         )
         card.setCursor(Qt.CursorShape.PointingHandCursor)
 
@@ -719,10 +731,10 @@ class DashboardBottomPanelsMixin:
         crop.setFixedSize(58, 58)
         crop.setAlignment(Qt.AlignmentFlag.AlignCenter)
         crop.setStyleSheet(
-            "background: #0a1520;"
-            "border: 1px solid #1e5fa8;"
+            f"background: {C('bg_panel_alt')};"
+            f"border: 1px solid {C('border_panel')};"
             "border-radius: 8px;"
-            "color: #60a5fa; font-size: 9px; font-weight: 800;"
+            f"color: {C('text_link')}; font-size: 9px; font-weight: 800;"
         )
         pix = v.get("_crop_pixmap")
         if pix is None:
@@ -751,8 +763,8 @@ class DashboardBottomPanelsMixin:
         top.setSpacing(5)
         badge = QLabel("NO HELMET")
         badge.setStyleSheet(
-            "background: rgba(239,68,68,0.18); color: #fecaca; font-size: 9px; font-weight: 900;"
-            " border: 1px solid rgba(239,68,68,0.26); border-radius: 6px; padding: 2px 6px;"
+            f"background: {C('danger_dim')}; color: {C('danger')}; font-size: 9px; font-weight: 900;"
+            f" border: 1px solid {C('danger')}; border-radius: 6px; padding: 2px 6px;"
         )
         top.addWidget(badge)
         top.addStretch()
@@ -760,8 +772,8 @@ class DashboardBottomPanelsMixin:
         time_str = self._time_text(v)
         time_lbl = QLabel(time_str)
         time_lbl.setStyleSheet(
-            "background: rgba(15,23,42,0.64); color: #cbd5e1; font-size: 9px;"
-            " border: 1px solid rgba(148,163,184,0.10); border-radius: 6px; padding: 2px 5px;"
+            f"background: {C('bg_hover')}; color: {C('text_secondary')}; font-size: 9px;"
+            f" border: 1px solid {C('border_light')}; border-radius: 6px; padding: 2px 5px;"
         )
         top.addWidget(time_lbl)
         info.addLayout(top)
@@ -772,12 +784,12 @@ class DashboardBottomPanelsMixin:
         person_id = v.get("track_id", v.get("person_id", "—"))
         id_str = f"ID: {person_id:04d}" if isinstance(person_id, int) else f"ID: {person_id}"
         id_lbl = QLabel(id_str)
-        id_lbl.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 800; background: transparent; border: none;")
+        id_lbl.setStyleSheet(f"color: {C('text_primary')}; font-size: 11px; font-weight: 800; background: transparent; border: none;")
         info.addWidget(id_lbl)
 
         cam = v.get("camera_name", v.get("camera_id", ""))
         cam_lbl = QLabel(str(cam) if cam else "Unknown camera")
-        cam_lbl.setStyleSheet("color: #cbd5e1; font-size: 10px; background: transparent; border: none;")
+        cam_lbl.setStyleSheet(f"color: {C('text_secondary')}; font-size: 10px; background: transparent; border: none;")
         info.addWidget(cam_lbl)
         lay.addLayout(info, 1)
 
@@ -788,8 +800,8 @@ class DashboardBottomPanelsMixin:
         w = QWidget()
         w.setFixedHeight(58)
         w.setStyleSheet(
-            "background: #0e1d2e;"
-            "border: 1px solid #1e5fa8;"
+            f"background: {C('bg_panel_alt')};"
+            f"border: 1px solid {C('border_panel')};"
             "border-radius: 8px;"
         )
         w.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -802,8 +814,8 @@ class DashboardBottomPanelsMixin:
         avatar.setFixedSize(40, 40)
         avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         avatar.setStyleSheet(
-            "background: rgba(249,115,22,0.14); border-radius: 8px; font-size: 10px;"
-            "font-weight: 900; color: #fb923c; border: 1px solid rgba(249,115,22,0.50);"
+            f"background: {C('accent_dim_2')}; border-radius: 8px; font-size: 10px;"
+            f"font-weight: 900; color: {C('accent')}; border: 1px solid {C('accent')};"
         )
         pix = v.get("_crop_pixmap")
         if pix is None:
@@ -829,14 +841,14 @@ class DashboardBottomPanelsMixin:
         id_str = f"ID: {person_id:04d}" if isinstance(person_id, int) else f"ID: {person_id}"
         id_lbl = QLabel(id_str)
         id_lbl.setStyleSheet(
-            "color: #fb923c; font-size: 12px; font-weight: 800; background: transparent;"
+            f"color: {C('accent')}; font-size: 12px; font-weight: 800; background: transparent;"
         )
         info.addWidget(id_lbl)
 
         cam_name = v.get("camera_name", v.get("camera_id", ""))
         name_lbl = QLabel(str(cam_name) if cam_name else "Unknown")
         name_lbl.setStyleSheet(
-            "color: #93c5fd; font-size: 11px; font-weight: 600; background: transparent;"
+            f"color: {C('info')}; font-size: 11px; font-weight: 600; background: transparent;"
         )
         info.addWidget(name_lbl)
         lay.addLayout(info, 1)
@@ -844,16 +856,16 @@ class DashboardBottomPanelsMixin:
         if has_helmet:
             status_lbl = QLabel("✓ Helmet")
             status_lbl.setStyleSheet(
-                "color: #34d399; background: rgba(52,211,153,0.12);"
-                "border: 1px solid rgba(52,211,153,0.55);"
+                f"color: {C('success')}; background: {C('success_dim_2')};"
+                f"border: 1px solid {C('success')};"
                 "border-radius: 7px; padding: 4px 10px;"
                 "font-size: 10px; font-weight: 800;"
             )
         else:
             status_lbl = QLabel("! No Helmet")
             status_lbl.setStyleSheet(
-                "color: #f87171; background: rgba(239,68,68,0.15);"
-                "border: 1px solid rgba(239,68,68,0.60);"
+                f"color: {C('danger')}; background: {C('danger_dim_2')};"
+                f"border: 1px solid {C('danger')};"
                 "border-radius: 7px; padding: 4px 10px;"
                 "font-size: 10px; font-weight: 800;"
             )

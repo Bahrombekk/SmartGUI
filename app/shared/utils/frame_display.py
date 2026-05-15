@@ -30,19 +30,20 @@ def frame_to_qimage(frame: np.ndarray) -> QImage:
 def draw_helmet_overlay(frame: np.ndarray, persons: list[dict]) -> np.ndarray:
     """Display frame ustiga odam boxlari va holat ranglarini chizadi."""
     height, width = frame.shape[:2]
-    for person in persons:
-        box = person.get("box", person.get("bbox_xyxy", []))
-        if len(box) < 4:
-            continue
-        x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-        has_helmet = person.get("has_helmet")
-        if has_helmet is True:
-            color = (0, 200, 0)
-        elif has_helmet is False:
-            color = (0, 0, 220)
-        else:
-            color = (0, 255, 255)
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+    if persons:
+        for person in persons:
+            box = person.get("box", person.get("bbox_xyxy", []))
+            if len(box) < 4:
+                continue
+            x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+            has_helmet = person.get("has_helmet")
+            if has_helmet is True:
+                color = (0, 200, 0)
+            elif has_helmet is False:
+                color = (0, 0, 220)
+            else:
+                color = (0, 255, 255)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
     cv2.rectangle(frame, (0, 0), (width, 36), (10, 14, 20), -1)
     cv2.rectangle(frame, (0, height - 32), (width, height), (10, 14, 20), -1)
