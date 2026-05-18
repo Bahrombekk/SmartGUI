@@ -45,7 +45,7 @@ def build_main_stylesheet() -> str:
     """
     parts: list[str] = []
     # Tartib: global → komponentlar → maxsus
-    for name in ("base", "inputs", "buttons", "lists", "misc"):
+    for name in ("base", "inputs", "buttons", "lists", "misc", "cameras"):
         chunk = load_qss(name)
         if chunk:
             parts.append(chunk)

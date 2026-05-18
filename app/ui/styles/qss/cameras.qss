@@ -1,0 +1,142 @@
+/* Camera operations page */
+
+QFrame#cameraInspector {
+    background: {{bg_panel}};
+    border-left: 3px solid {{border_accent}};
+    border-top: 1px solid {{border_light}};
+    border-bottom: 1px solid {{border_light}};
+}
+
+QWidget#cameraInspectorHeader {
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
+        stop:0 {{accent_subtle}},
+        stop:0.52 {{bg_panel}},
+        stop:1 {{bg_main}});
+    border-bottom: 1px solid {{border_light}};
+}
+
+QWidget#cameraInspectorAccent {
+    background: {{accent}};
+    border: none;
+}
+
+QLabel#cameraInspectorPill {
+    background: {{accent_dim_2}};
+    color: {{accent_light}};
+    border: 1px solid {{border_accent}};
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 0 8px;
+}
+
+QLabel#cameraInspectorSubtitle {
+    color: {{text_muted}};
+    font-size: 10px;
+    font-weight: 600;
+    background: transparent;
+}
+
+QPushButton#cameraInspectorIcon {
+    background: transparent;
+    color: {{text_muted}};
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 13px;
+}
+QPushButton#cameraInspectorIcon:hover {
+    background: {{accent_dim_2}};
+    color: {{accent_light}};
+    border-color: {{border_accent}};
+}
+
+QWidget#cameraPreviewBox {
+    background: {{bg_main}};
+    border-bottom: 1px solid {{border_light}};
+}
+
+QWidget#cameraInspectorControls {
+    background: {{bg_panel}};
+    border-bottom: 1px solid {{border_light}};
+}
+
+QPushButton#cameraPreviewButton {
+    background: {{success_dim_2}};
+    color: {{text_secondary}};
+    border: 1px solid {{border_panel}};
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 800;
+}
+QPushButton#cameraPreviewButton:hover,
+QPushButton#cameraPreviewButton:checked {
+    background: {{bg_hover}};
+    color: {{text_primary}};
+    border-color: {{border_hover}};
+}
+
+QPushButton#cameraSnapshotButton {
+    background: {{accent_dim_2}};
+    color: {{accent_light}};
+    border: 1px solid {{border_accent}};
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 800;
+}
+QPushButton#cameraSnapshotButton:hover {
+    background: {{accent_dim_3}};
+    color: {{text_primary}};
+}
+
+QWidget#cameraSectionHeader {
+    background: {{bg_panel}};
+}
+
+QWidget#cameraEventRow,
+QWidget#cameraInfoRow {
+    background: {{bg_main}};
+    border: none;
+    border-bottom: 1px solid {{border_light}};
+}
+
+QWidget#cameraEventRow {
+    border-left: 3px solid {{danger}};
+}
+
+QFrame#cameraInspectorChip {
+    background: {{bg_panel_alt}};
+    border: 1px solid {{border_light}};
+    border-radius: 9px;
+}
+
+QLabel#cameraCodePill {
+    background: {{success_dim_2}};
+    color: {{text_link}};
+    border: 1px solid {{border_panel}};
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 900;
+    padding: 2px 7px;
+}
+
+QFrame#cameraMetricBox {
+    background: {{bg_panel_alt}};
+    border: 1px solid {{border_light}};
+    border-radius: 7px;
+}
+
+QFrame#cameraInspectorChip QLabel,
+QFrame#cameraMetricBox QLabel,
+QWidget#cameraEventRow QLabel,
+QWidget#cameraInfoRow QLabel {
+    background: transparent;
+    border: none;
+}
+
+QLabel#cameraChipLabel,
+QLabel#cameraInfoKey,
+QLabel#cameraCardDepartment,
+QLabel#cameraCardUrl,
+QLabel#cameraEventTime {
+    color: {{text_dim}};
+}

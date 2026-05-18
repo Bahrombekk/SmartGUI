@@ -42,6 +42,7 @@ class DashboardPage(
         self._grid_columns = 4
         self._grid_btns: dict[int, QPushButton] = {}
         self._today_per_cam: dict[int, int]        = {}
+        self._detections_today_per_cam: dict[int, int] = {}
         self._department_rows: dict[str, QFrame]   = {}
         self._department_row_keys: tuple[str, ...] = ()
         self._recent_violations: list              = []
@@ -116,6 +117,7 @@ class DashboardPage(
             for idx, cam in enumerate(cameras)
         }
         self._today_per_cam.clear()
+        self._detections_today_per_cam.clear()
 
         while self._cam_grid.count():
             item = self._cam_grid.takeAt(0)
@@ -185,10 +187,7 @@ class DashboardPage(
         # Bir nechta event kelsa panel rebuild faqat bir marta bajariladi.
         if not self._viol_rebuild_timer.isActive():
             self._viol_rebuild_timer.start(250)
-        today = data.get("today_count")
         no_helmet = data.get("no_helmet_count")
-        if today is not None and hasattr(self, "_detections_today_lbl"):
-            self._detections_today_lbl.setText(str(today))
         if no_helmet is not None and hasattr(self, "_no_helmet_today_lbl"):
             self._no_helmet_today_lbl.setText(str(no_helmet))
 
@@ -204,10 +203,15 @@ class DashboardPage(
         fps     = stats.get("fps", 0.0)
         persons = stats.get("active_persons", 0)
         today   = stats.get("today_count", 0)
+        detections_today = stats.get("detections_today")
         conn    = stats.get("connected", False)
         old_status = self._cam_status.get(cam_id, "connecting")
         new_status = "live" if conn else "offline"
         p.set_stats(fps, persons, today, conn)
+        if detections_today is not None:
+            self._detections_today_per_cam[cam_id] = int(detections_today or 0)
+            if hasattr(self, "_detections_today_lbl"):
+                self._detections_today_lbl.setText(str(sum(self._detections_today_per_cam.values())))
 
         # Sidebar item statusini yangilash
         if old_status != new_status:
@@ -266,12 +270,11 @@ class DashboardPage(
 
     def _refresh_stats(self):
         try:
-            today = self.db.get_today_count()
             no_helmet = self.db.get_today_count("no_helmet")
             self._today_per_cam.update(self.db.get_today_counts_by_camera())
             self._ov_total.setText(str(self._total_count))
             if hasattr(self, "_detections_today_lbl"):
-                self._detections_today_lbl.setText(str(today))
+                self._detections_today_lbl.setText(str(sum(self._detections_today_per_cam.values())))
             if hasattr(self, "_no_helmet_today_lbl"):
                 self._no_helmet_today_lbl.setText(str(no_helmet))
             self._rebuild_recent_events()

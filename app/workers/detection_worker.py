@@ -98,6 +98,8 @@ class DetectionWorker(QThread):
 
         # Eski testlar/private chaqiruvlar sinmasligi uchun aliaslar qoldiriladi.
         self._today_count = 0
+        self._detections_today = 0
+        self._seen_detection_tracks: set[int] = set()
         self._saved_violations = self._violation_runtime.saved_violations
         self._spatial_violations = self._violation_runtime.spatial_violations
         self._no_helmet_frames = self._violation_runtime.no_helmet_frames
@@ -272,6 +274,16 @@ class DetectionWorker(QThread):
         self._violation_runtime.handle_violation(frame, person, violation_type)
         self._today_count = self._violation_runtime.today_count
 
+    def _update_detection_counter(self, persons: list[dict]) -> None:
+        for person in persons:
+            try:
+                track_id = int(person.get("track_id"))
+            except (TypeError, ValueError):
+                continue
+            if track_id not in self._seen_detection_tracks:
+                self._seen_detection_tracks.add(track_id)
+                self._detections_today += 1
+
     @staticmethod
     def _box_center_size(person: dict) -> tuple[float, float, float]:
         return ViolationRuntime.box_center_size(person)
@@ -396,6 +408,7 @@ class DetectionWorker(QThread):
                     if no_frame_count % 40 == 0:
                         self.stats_updated.emit({
                             "fps": 0.0, "today_count": self._violation_runtime.today_count,
+                            "detections_today": self._detections_today,
                             "active_persons": 0, "connected": False, "ping_ms": None,
                         })
                         self.status_changed.emit("Qayta ulanmoqda...")
@@ -424,6 +437,7 @@ class DetectionWorker(QThread):
                 if new_det:
                     self._last_result_ts = result.timestamp
                     persons = self._process_detections(result.detections)
+                    self._update_detection_counter(persons)
                     persons = self._check_violations(persons)
                     self._last_persons = persons
 
@@ -454,6 +468,7 @@ class DetectionWorker(QThread):
                     self.stats_updated.emit({
                         "fps":            self._fps,
                         "today_count":    self._violation_runtime.today_count,
+                        "detections_today": self._detections_today,
                         "active_persons": len(persons),
                         "connected":      connected,
                         "ping_ms":        self._ping_ms() if connected else None,
@@ -471,6 +486,7 @@ class DetectionWorker(QThread):
                     self.stats_updated.emit({
                         "fps":            self._fps,
                         "today_count":    self._violation_runtime.today_count,
+                        "detections_today": self._detections_today,
                         "active_persons": 0,
                         "connected":      connected,
                         "ping_ms":        self._ping_ms() if connected else None,

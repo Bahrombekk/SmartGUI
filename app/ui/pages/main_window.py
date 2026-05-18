@@ -4,6 +4,7 @@ SmartHelmet dizayni: maxsus top navbar + dashboard + violations + analytics.
 """
 
 import time
+import threading
 from pathlib import Path
 
 import cv2
@@ -134,6 +135,16 @@ class TopNavBar(QWidget):
         lay.addWidget(settings_btn)
         self._nav_btns[self.PAGE_SETTINGS] = settings_btn
 
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setFixedHeight(58)
+        self._refresh_btn.setMinimumWidth(86)
+        self._refresh_btn.setIcon(self._colored_icon("refresh.svg", C("text_primary"), 16))
+        self._refresh_btn.setIconSize(QSize(16, 16))
+        self._refresh_btn.setToolTip("Dastur interfeysini to'liq yangilash")
+        self._refresh_btn.setStyleSheet(self._nav_style())
+        self._refresh_btn.clicked.connect(self._refresh_requested)
+        lay.addWidget(self._refresh_btn)
+
         lay.addStretch()
 
         # тФАтФА O'ng tomon: qidiruv + bell + controls тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -177,14 +188,6 @@ class TopNavBar(QWidget):
         self._theme_btn.setStyleSheet(self._icon_btn_style())
         self._theme_btn.clicked.connect(self._toggle_theme)
         lay.addWidget(self._theme_btn)
-
-        self._refresh_btn = QPushButton("Refresh")
-        self._refresh_btn.setFixedHeight(30)
-        self._refresh_btn.setToolTip("Dastur interfeysini to'liq yangilash")
-        self._refresh_btn.setStyleSheet(self._action_btn_style())
-        self._refresh_btn.clicked.connect(self._refresh_requested)
-        lay.addWidget(self._refresh_btn)
-        lay.addSpacing(6)
 
         # Expand (fullscreen)
         self._expand_btn = QPushButton()
@@ -275,6 +278,24 @@ class TopNavBar(QWidget):
 
     def _icon(self, filename: str) -> QIcon:
         return QIcon(str(self._icon_dir / filename))
+
+    def _colored_icon(self, filename: str, color: str, size: int) -> QIcon:
+        src = QPixmap(str(self._icon_dir / filename))
+        if src.isNull():
+            return QIcon()
+        pix = src.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        tinted = QPixmap(pix.size())
+        tinted.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(tinted)
+        painter.drawPixmap(0, 0, pix)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(tinted.rect(), QColor(color))
+        painter.end()
+        return QIcon(tinted)
 
     @staticmethod
     def _icon_btn_style() -> str:
@@ -432,7 +453,8 @@ class TopNavBar(QWidget):
         self._search.setStyleSheet(self._search_style())
         for btn in (self._bell_btn, self._theme_btn, self._expand_btn):
             btn.setStyleSheet(self._icon_btn_style())
-        self._refresh_btn.setStyleSheet(self._action_btn_style())
+        self._refresh_btn.setIcon(self._colored_icon("refresh.svg", C("text_primary"), 16))
+        self._refresh_btn.setStyleSheet(self._nav_style())
         self._notif_badge.setStyleSheet(
             f"background: {C('accent_hover')}; color: white; border-radius: 9px;"
             " font-size: 10px; font-weight: bold;"
@@ -531,6 +553,9 @@ class MainWindow(QMainWindow):
         self._analytics = None
         self._users = None
         self._settings = None
+        self._restart_in_progress = False
+        self._restart_wait_cycles = 0
+        self._service_stop_done: threading.Event | None = None
 
         self.setWindowTitle("SafeZone - Live Safety Monitoring")
         self.setMinimumSize(1280, 760)
@@ -873,6 +898,50 @@ class MainWindow(QMainWindow):
         self._navbar.set_pause_enabled(False)
         svc_destroy()  # CameraService va barcha DetectorGroup'larni to'xtatadi
 
+    def _request_stop_all_cameras(self):
+        running = [w for w in self._workers.values() if w and w.isRunning()]
+        for w in running:
+            w._running = False
+        self._restart_wait_cycles = 0
+        self._sb_status.setText("Kameralar to'xtatilmoqda...")
+        self._navbar.set_pause_enabled(False)
+
+    def _finish_stop_all_cameras(self):
+        pending = [w for w in self._workers.values() if w and w.isRunning()]
+        if pending:
+            self._restart_wait_cycles += 1
+            if self._restart_wait_cycles >= 25:
+                for w in pending:
+                    w.terminate()
+                QTimer.singleShot(120, self._finish_stop_all_cameras)
+                return
+            QTimer.singleShot(120, self._finish_stop_all_cameras)
+            return
+        self._workers.clear()
+        self._persons_per_cam.clear()
+        self._stop_camera_service_for_restart()
+
+    def _stop_camera_service_for_restart(self):
+        done = threading.Event()
+        self._service_stop_done = done
+
+        def stop_service():
+            try:
+                svc_destroy()
+            finally:
+                done.set()
+
+        threading.Thread(target=stop_service, daemon=True).start()
+        QTimer.singleShot(100, self._wait_camera_service_stopped)
+
+    def _wait_camera_service_stopped(self):
+        if self._service_stop_done is not None and not self._service_stop_done.is_set():
+            self._sb_status.setText("AI servis to'xtatilmoqda...")
+            QTimer.singleShot(120, self._wait_camera_service_stopped)
+            return
+        self._service_stop_done = None
+        self._finish_restart_all_cameras()
+
     def _start_cleanup(self):
         if self._cleanup_worker and self._cleanup_worker.isRunning():
             return
@@ -893,12 +962,23 @@ class MainWindow(QMainWindow):
         self._cleanup_worker.start()
 
     def _restart_all_cameras(self):
-        self._stop_all_cameras()
+        if self._restart_in_progress:
+            return
+        self._restart_in_progress = True
+        self._request_stop_all_cameras()
+        QTimer.singleShot(150, self._finish_stop_all_cameras)
+
+    def _finish_restart_all_cameras(self):
         cameras = self.cfg.get_enabled_cameras()
         self._dashboard.setup_cameras(cameras)
         self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
-        QTimer.singleShot(500, self._start_all_cameras)
+        self._sb_status.setText("Kameralar qayta ishga tushirilmoqda...")
+        QTimer.singleShot(500, self._start_all_cameras_after_restart)
+
+    def _start_all_cameras_after_restart(self):
+        self._restart_in_progress = False
+        self._start_all_cameras()
 
     def _restart_camera(self, cam_id: int):
         worker = self._workers.pop(cam_id, None)

@@ -393,13 +393,8 @@ class CameraGridCard(QFrame):
         top = QHBoxLayout()
         top.setSpacing(7)
         self._cam_code = QLabel(f"CAM {self.cam_id:02d}")
+        self._cam_code.setObjectName("cameraCodePill")
         self._cam_code.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cam_code.setStyleSheet(
-            "background: rgba(30,95,168,0.30); color: #60a5fa;"
-            "border: 1px solid rgba(30,95,168,0.60);"
-            "border-radius: 5px; font-size: 10px; font-weight: 900;"
-            "padding: 2px 7px;"
-        )
         self._name = QLabel(self.camera.get("name", "Camera"))
         self._name.setStyleSheet(f"color: {TEXT}; font-size: 13px; font-weight: 900;")
         self._name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -414,10 +409,12 @@ class CameraGridCard(QFrame):
         meta = QHBoxLayout()
         meta.setSpacing(6)
         self._department = QLabel(self._department_name or "No department")
-        self._department.setStyleSheet("color: #7eb8d8; font-size: 10px; font-weight: 600;")
+        self._department.setObjectName("cameraCardDepartment")
+        self._department.setStyleSheet("font-size: 10px; font-weight: 600;")
         self._url = QLabel(self._masked_url(self.camera.get("rtsp_url", "")))
+        self._url.setObjectName("cameraCardUrl")
         self._url.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self._url.setStyleSheet("color: #2a4a62; font-size: 9px;")
+        self._url.setStyleSheet("font-size: 9px;")
         self._url.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         meta.addWidget(self._department, 1)
         meta.addWidget(self._url)
@@ -445,63 +442,35 @@ class CameraGridCard(QFrame):
             return
         self._style_key = style_key
         status_color = STATUS_COLORS.get(self._status, WARN)
-        if is_light():
-            palette = {
-                "live": {
-                    "border": "rgba(22,163,74,0.72)",
-                    "bg": C("bg_card"),
-                    "hover": C("success_dim"),
-                },
-                "offline": {
-                    "border": "rgba(220,38,38,0.72)",
-                    "bg": C("bg_card"),
-                    "hover": C("danger_dim"),
-                },
-                "error": {
-                    "border": "rgba(220,38,38,0.72)",
-                    "bg": C("bg_card"),
-                    "hover": C("danger_dim"),
-                },
-                "connecting": {
-                    "border": "rgba(249,115,22,0.72)",
-                    "bg": C("bg_card"),
-                    "hover": C("warning_dim"),
-                },
-            }.get(self._status, {
-                "border": C("border_panel"),
+        palette = {
+            "live": {
+                "border": C("success"),
                 "bg": C("bg_card"),
-                "hover": C("bg_hover"),
-            })
-        else:
-            palette = {
-                "live": {
-                    "border": "rgba(34,197,94,0.92)",
-                    "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #092516,stop:1 #04140d)",
-                    "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d351f,stop:1 #06190f)",
-                },
-                "offline": {
-                    "border": "rgba(128,0,32,0.96)",
-                    "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #24000a,stop:1 #0d0004)",
-                    "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #360010,stop:1 #140006)",
-                },
-                "error": {
-                    "border": "rgba(128,0,32,0.96)",
-                    "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #24000a,stop:1 #0d0004)",
-                    "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #360010,stop:1 #140006)",
-                },
-                "connecting": {
-                    "border": "rgba(245,158,11,0.92)",
-                    "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #281a07,stop:1 #100b04)",
-                    "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #362309,stop:1 #160f05)",
-                },
-            }.get(self._status, {
-                "border": "rgba(30,95,168,0.85)",
-                "bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0a1520,stop:1 #060e16)",
-                "hover": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0e1d2e,stop:1 #07101a)",
-            })
+                "hover": C("success_dim"),
+            },
+            "offline": {
+                "border": C("danger"),
+                "bg": C("bg_card"),
+                "hover": C("danger_dim"),
+            },
+            "error": {
+                "border": C("danger"),
+                "bg": C("bg_card"),
+                "hover": C("danger_dim"),
+            },
+            "connecting": {
+                "border": C("warning"),
+                "bg": C("bg_card"),
+                "hover": C("warning_dim"),
+            },
+        }.get(self._status, {
+            "border": C("border_panel"),
+            "bg": C("bg_card"),
+            "hover": C("bg_hover"),
+        })
         if selected:
             border = f"3px solid {ACCENT}"
-            bg = C("accent_subtle") if is_light() else "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #122012,stop:0.62 #07151f,stop:1 #120b04)"
+            bg = C("accent_subtle")
             top_color = ACCENT
         else:
             border = f"1px solid {palette['border']}"
@@ -644,15 +613,7 @@ class CameraGridCard(QFrame):
     @staticmethod
     def _metric(title: str, value: str) -> QFrame:
         box = QFrame()
-        box.setObjectName("metricBox")
-        box.setStyleSheet(
-            "QFrame#metricBox {"
-            f"background: {C('bg_panel_alt') if is_light() else 'rgba(5,14,24,0.85)'};"
-            f"border: 1px solid {C('border_light') if is_light() else 'rgba(30,95,168,0.42)'};"
-            "border-radius: 7px;"
-            "}"
-            "QLabel { background: transparent; border: none; }"
-        )
+        box.setObjectName("cameraMetricBox")
         lay = QVBoxLayout(box)
         lay.setContentsMargins(6, 6, 6, 5)
         lay.setSpacing(1)
@@ -712,14 +673,6 @@ class CameraDetailPanel(QFrame):
         self._expanded_preview_height = 560
         self.setFixedWidth(self._normal_width)
         self.setObjectName("cameraInspector")
-        self.setStyleSheet(
-            "QFrame#cameraInspector {"
-            "background: #05101c;"
-            "border-left: 3px solid #9b1b30;"
-            "border-top: 1px solid rgba(120,18,35,0.40);"
-            "border-bottom: 1px solid rgba(120,18,35,0.40);"
-            "}"
-        )
         self._build()
 
     def _build(self):
@@ -728,38 +681,24 @@ class CameraDetailPanel(QFrame):
         root.setSpacing(0)
 
         header = QWidget()
+        header.setObjectName("cameraInspectorHeader")
         header.setFixedHeight(64)
-        header.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #1e050b, stop:0.45 #120610, stop:1 #06101c);"
-            "border-bottom: 1px solid rgba(140,20,40,0.45);"
-        )
         h = QHBoxLayout(header)
         h.setContentsMargins(0, 0, 8, 0)
         h.setSpacing(0)
 
         # Burgundy-crimson left accent bar
         accent_bar = QWidget()
+        accent_bar.setObjectName("cameraInspectorAccent")
         accent_bar.setFixedSize(4, 64)
-        accent_bar.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            "stop:0 #e0203a, stop:0.5 #a81428, stop:1 #6b0f1a); border: none;"
-        )
         h.addWidget(accent_bar)
         h.addSpacing(12)
 
         # CAM pill — dark red tinted
         self._cam_pill = QLabel("CAM --")
+        self._cam_pill.setObjectName("cameraInspectorPill")
         self._cam_pill.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._cam_pill.setFixedHeight(24)
-        self._cam_pill.setStyleSheet(
-            "background: rgba(140,20,40,0.28);"
-            "color: #f87171;"
-            "border: 1px solid rgba(160,30,50,0.60);"
-            "border-radius: 5px;"
-            "font-size: 10px; font-weight: 900;"
-            "padding: 0 8px;"
-        )
         h.addWidget(self._cam_pill)
         h.addSpacing(10)
 
@@ -771,9 +710,7 @@ class CameraDetailPanel(QFrame):
             f"color: {TEXT}; font-size: 14px; font-weight: 900; background: transparent;"
         )
         self._sub = QLabel("--")
-        self._sub.setStyleSheet(
-            "color: #7a4050; font-size: 10px; font-weight: 600; background: transparent;"
-        )
+        self._sub.setObjectName("cameraInspectorSubtitle")
         title_col.addWidget(self._title)
         title_col.addWidget(self._sub)
         h.addLayout(title_col, 1)
@@ -787,26 +724,16 @@ class CameraDetailPanel(QFrame):
         h.addSpacing(4)
 
         self._expand_btn = QPushButton()
+        self._expand_btn.setObjectName("cameraInspectorIcon")
         self._expand_btn.setFixedSize(28, 28)
         self._expand_btn.setToolTip("Expand inspector")
-        self._expand_btn.setStyleSheet(
-            "QPushButton { background: transparent; color: #7a4050;"
-            "border: 1px solid transparent; border-radius: 6px; }"
-            "QPushButton:hover { background: rgba(140,20,40,0.20); color: #f87171;"
-            "border-color: rgba(160,30,50,0.50); }"
-        )
         self._set_button_icon(self._expand_btn, "expand.svg")
         self._expand_btn.clicked.connect(self.toggle_expanded)
         h.addWidget(self._expand_btn)
 
         close = QPushButton()
+        close.setObjectName("cameraInspectorIcon")
         close.setFixedSize(28, 28)
-        close.setStyleSheet(
-            "QPushButton { background: transparent; color: #7a4050;"
-            "border: 1px solid transparent; border-radius: 6px; font-size: 13px; }"
-            "QPushButton:hover { background: rgba(200,30,50,0.18); color: #f87171;"
-            "border-color: rgba(200,30,50,0.45); }"
-        )
         self._set_button_icon(close, "x.svg")
         close.clicked.connect(self.close_requested)
         h.addWidget(close)
@@ -827,12 +754,6 @@ class CameraDetailPanel(QFrame):
         self._preview_box = QWidget()
         self._preview_box.setObjectName("cameraPreviewBox")
         self._preview_box.setFixedHeight(self._normal_preview_height)
-        self._preview_box.setStyleSheet(
-            "QWidget#cameraPreviewBox {"
-            "background: #030810;"
-            "border-bottom: 1px solid rgba(30,95,168,0.25);"
-            "}"
-        )
         pv = QVBoxLayout(self._preview_box)
         pv.setContentsMargins(0, 0, 0, 0)
         self._video = VideoLabel()
@@ -841,35 +762,19 @@ class CameraDetailPanel(QFrame):
         lay.addWidget(self._preview_box)
 
         controls = QWidget()
+        controls.setObjectName("cameraInspectorControls")
         controls.setFixedHeight(58)
-        controls.setStyleSheet(
-            "background: rgba(4,11,19,0.96);"
-            "border-bottom: 1px solid rgba(30,95,168,0.20);"
-        )
         c = QHBoxLayout(controls)
         c.setContentsMargins(14, 11, 14, 11)
         c.setSpacing(10)
         self._prev_btn = QPushButton("Preview")
+        self._prev_btn.setObjectName("cameraPreviewButton")
         self._prev_btn.setFixedHeight(36)
-        self._prev_btn.setStyleSheet(
-            "QPushButton { background: rgba(30,95,168,0.15); color: #7eb8f7;"
-            "border: 1px solid rgba(30,95,168,0.42); border-radius: 8px;"
-            "font-size: 11px; font-weight: 800; }"
-            "QPushButton:hover { background: rgba(30,95,168,0.28); color: #e0f0ff;"
-            "border-color: rgba(45,128,200,0.72); }"
-            "QPushButton:checked { background: rgba(30,95,168,0.38); color: #fff; }"
-        )
         self._prev_btn.clicked.connect(self._toggle_preview)
 
         self._shot_btn = QPushButton("Snapshot")
+        self._shot_btn.setObjectName("cameraSnapshotButton")
         self._shot_btn.setFixedHeight(36)
-        self._shot_btn.setStyleSheet(
-            "QPushButton { background: rgba(249,115,22,0.10); color: #fb923c;"
-            "border: 1px solid rgba(249,115,22,0.38); border-radius: 8px;"
-            "font-size: 11px; font-weight: 800; }"
-            "QPushButton:hover { background: rgba(249,115,22,0.20); color: #fff;"
-            "border-color: rgba(249,115,22,0.68); }"
-        )
         self._shot_btn.clicked.connect(self._save_snapshot)
         c.addWidget(self._prev_btn, 1)
         c.addWidget(self._shot_btn, 1)
@@ -1136,24 +1041,18 @@ class CameraDetailPanel(QFrame):
 
         for event in events:
             row = QWidget()
+            row.setObjectName("cameraEventRow")
             row.setFixedHeight(36)
-            row.setStyleSheet(
-                "QWidget { background: rgba(5,13,22,0.65);"
-                "border: none; border-bottom: 1px solid rgba(239,68,68,0.12);"
-                "border-left: 3px solid rgba(239,68,68,0.75); }"
-                "QLabel { background: transparent; border: none; }"
-            )
             rl = QHBoxLayout(row)
             rl.setContentsMargins(12, 0, 12, 0)
             rl.setSpacing(10)
             badge = QLabel("⚠ NO HELMET")
             badge.setStyleSheet(
-                "color: #f87171; font-size: 10px; font-weight: 800;"
+                f"color: {OFFLINE}; font-size: 10px; font-weight: 800;"
             )
             ts = QLabel(str(event.get("created_at", ""))[-8:] or "--")
-            ts.setStyleSheet(
-                "color: #3d6a94; font-size: 10px; font-weight: 700;"
-            )
+            ts.setObjectName("cameraEventTime")
+            ts.setStyleSheet("font-size: 10px; font-weight: 700;")
             rl.addWidget(badge, 1)
             rl.addWidget(ts)
             self._ev_lay.addWidget(row)
@@ -1163,7 +1062,7 @@ class CameraDetailPanel(QFrame):
         btn = QPushButton(text)
         btn.setFixedHeight(30)
         btn.setStyleSheet(
-            "QPushButton { background: rgba(15,23,42,0.72);"
+            f"QPushButton {{ background: {C('bg_panel_alt')};"
             f"color: {TEXT_2}; border: 1px solid {BORDER}; border-radius: 6px;"
             "font-size: 11px; font-weight: 800; padding: 0 14px; }"
             f"QPushButton:hover {{ border-color: {ACCENT}; color: {ACCENT}; }}"
@@ -1181,11 +1080,7 @@ class CameraDetailPanel(QFrame):
     @staticmethod
     def _chip(title: str, value: str) -> QFrame:
         box = QFrame()
-        box.setStyleSheet(
-            "QFrame { background: rgba(4,12,22,0.90);"
-            "border: 1px solid rgba(30,95,168,0.32); border-radius: 9px; }"
-            "QLabel { background: transparent; border: none; }"
-        )
+        box.setObjectName("cameraInspectorChip")
         lay = QVBoxLayout(box)
         lay.setContentsMargins(10, 11, 10, 9)
         lay.setSpacing(3)
@@ -1194,8 +1089,9 @@ class CameraDetailPanel(QFrame):
         val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         val.setStyleSheet(f"color: {TEXT_2}; font-size: 19px; font-weight: 900;")
         lbl = QLabel(title)
+        lbl.setObjectName("cameraChipLabel")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet("color: #2d5070; font-size: 8px; font-weight: 900; letter-spacing: 1px;")
+        lbl.setStyleSheet("font-size: 8px; font-weight: 900; letter-spacing: 1px;")
         lay.addWidget(val)
         lay.addWidget(lbl)
         return box
@@ -1210,19 +1106,16 @@ class CameraDetailPanel(QFrame):
     @staticmethod
     def _info_row(key: str, value: str) -> QWidget:
         row = QWidget()
+        row.setObjectName("cameraInfoRow")
         row.setFixedHeight(36)
-        row.setStyleSheet(
-            "QWidget { background: rgba(5,13,22,0.65);"
-            "border: none; border-bottom: 1px solid rgba(30,95,168,0.14); }"
-            "QLabel { background: transparent; border: none; }"
-        )
         lay = QHBoxLayout(row)
         lay.setContentsMargins(16, 0, 16, 0)
         lay.setSpacing(14)
         k = QLabel(key)
+        k.setObjectName("cameraInfoKey")
         k.setFixedWidth(82)
         k.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        k.setStyleSheet("color: #2d5070; font-size: 10px; font-weight: 700;")
+        k.setStyleSheet("font-size: 10px; font-weight: 700;")
         v = QLabel(value)
         v.setObjectName("infoValue")
         v.setStyleSheet(f"color: {TEXT}; font-size: 11px; font-weight: 600;")
@@ -1238,10 +1131,11 @@ class CameraDetailPanel(QFrame):
             label.setText(text or "--")
 
     @staticmethod
-    def _section_header(text: str, color: str = "#2d80c8") -> QWidget:
+    def _section_header(text: str, color: str = "") -> QWidget:
         w = QWidget()
+        w.setObjectName("cameraSectionHeader")
         w.setFixedHeight(32)
-        w.setStyleSheet("background: rgba(4,11,20,0.75);")
+        color = color or ACCENT
         lay = QHBoxLayout(w)
         lay.setContentsMargins(14, 0, 14, 0)
         lay.setSpacing(7)
@@ -1264,14 +1158,14 @@ class CameraDetailPanel(QFrame):
     def _divider() -> QWidget:
         sep = QWidget()
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background: rgba(30,95,168,0.22); border: none;")
+        sep.setStyleSheet(f"background: {C('border_light')}; border: none;")
         return sep
 
     @staticmethod
     def _badge_css(status: str) -> str:
         color = STATUS_COLORS.get(status, WARN)
         return (
-            f"color: {color}; background: rgba(15,23,42,0.72);"
+            f"color: {color}; background: {C('bg_panel_alt')};"
             f"border: 1px solid {color}; border-radius: 7px;"
             "padding: 3px 9px; font-size: 10px; font-weight: 900;"
         )
@@ -1279,29 +1173,29 @@ class CameraDetailPanel(QFrame):
     @staticmethod
     def _primary_button_style() -> str:
         return (
-            f"QPushButton {{ background: {ACCENT}; color: #05090d; border: none;"
+            f"QPushButton {{ background: {ACCENT}; color: {C('text_on_accent')}; border: none;"
             "border-radius: 8px; font-size: 12px; font-weight: 900; }"
-            "QPushButton:hover { background: #fb923c; }"
+            f"QPushButton:hover {{ background: {C('accent_hover')}; }}"
         )
 
     @staticmethod
     def _secondary_button_style() -> str:
         return (
-            "QPushButton { background: rgba(30,95,168,0.14); color: #7eb8f7;"
-            "border: 1px solid rgba(30,95,168,0.45); border-radius: 8px;"
+            f"QPushButton {{ background: {C('success_dim_2')}; color: {TEXT_2};"
+            f"border: 1px solid {BORDER}; border-radius: 8px;"
             "font-size: 11px; font-weight: 800; }"
-            "QPushButton:hover { background: rgba(30,95,168,0.26); color: #e0f2fe;"
-            "border-color: rgba(45,128,200,0.72); }"
+            f"QPushButton:hover {{ background: {C('bg_hover')}; color: {TEXT};"
+            f"border-color: {C('border_hover')}; }}"
         )
 
     @staticmethod
     def _danger_button_style() -> str:
         return (
-            "QPushButton { background: rgba(239,68,68,0.08); color: #f87171;"
-            "border: 1px solid rgba(239,68,68,0.38); border-radius: 8px;"
+            f"QPushButton {{ background: {C('danger_dim_2')}; color: {OFFLINE};"
+            f"border: 1px solid {OFFLINE}; border-radius: 8px;"
             "font-size: 11px; font-weight: 800; }"
-            "QPushButton:hover { background: rgba(239,68,68,0.16); color: #ffffff;"
-            "border-color: rgba(239,68,68,0.65); }"
+            f"QPushButton:hover {{ background: {C('danger_dim')}; color: {TEXT};"
+            f"border-color: {OFFLINE}; }}"
         )
 
     @staticmethod
@@ -1310,7 +1204,7 @@ class CameraDetailPanel(QFrame):
             "QPushButton { background: transparent;"
             f"color: {MUTED}; border: none; border-radius: 6px;"
             "font-size: 13px; font-weight: 900; }"
-            f"QPushButton:hover {{ background: rgba(239,68,68,0.12); color: {OFFLINE}; }}"
+            f"QPushButton:hover {{ background: {C('danger_dim_2')}; color: {OFFLINE}; }}"
         )
 
 
