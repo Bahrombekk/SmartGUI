@@ -46,7 +46,7 @@ class TopNavBar(QWidget):
     PAGE_SETTINGS   = 6
 
     def __init__(self, on_page_change, on_settings, on_quit, on_search=None,
-                 on_notifications=None, on_theme_change=None, parent=None):
+                 on_notifications=None, on_theme_change=None, on_refresh=None, parent=None):
         super().__init__(parent)
         self._on_page_change = on_page_change
         self._on_settings    = on_settings
@@ -54,6 +54,7 @@ class TopNavBar(QWidget):
         self._on_search      = on_search
         self._on_notifications = on_notifications
         self._on_theme_change = on_theme_change
+        self._on_refresh = on_refresh
         self._nav_btns: dict[int, QPushButton] = {}
         self._icon_dir = Path(__file__).resolve().parents[3] / "images"
         self._notif_count = 0
@@ -80,14 +81,14 @@ class TopNavBar(QWidget):
         logo_lay.setSpacing(10)
 
         # Brand mark
-        logo_circle = QLabel("SZ")
-        logo_circle.setFixedSize(32, 32)
-        logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo_circle.setStyleSheet(
+        self._logo_circle = QLabel("SZ")
+        self._logo_circle.setFixedSize(32, 32)
+        self._logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._logo_circle.setStyleSheet(
             f"background: {C('accent')}; color: {C('text_on_accent')}; border-radius: 16px;"
             " font-size: 12px; font-weight: 900;"
         )
-        logo_lay.addWidget(logo_circle)
+        logo_lay.addWidget(self._logo_circle)
 
         self._logo_txt = QLabel()
         self._logo_txt.setTextFormat(Qt.TextFormat.RichText)
@@ -96,10 +97,10 @@ class TopNavBar(QWidget):
         logo_lay.addWidget(self._logo_txt)
         lay.addWidget(logo_w)
 
-        logo_sep = QWidget()
-        logo_sep.setFixedWidth(1)
-        logo_sep.setStyleSheet(f"background: {C('border')};")
-        lay.addWidget(logo_sep)
+        self._logo_sep = QWidget()
+        self._logo_sep.setFixedWidth(1)
+        self._logo_sep.setStyleSheet(f"background: {C('border')};")
+        lay.addWidget(self._logo_sep)
 
         # тФАтФА Nav tugmalari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         nav_items = [
@@ -176,6 +177,14 @@ class TopNavBar(QWidget):
         self._theme_btn.setStyleSheet(self._icon_btn_style())
         self._theme_btn.clicked.connect(self._toggle_theme)
         lay.addWidget(self._theme_btn)
+
+        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn.setFixedHeight(30)
+        self._refresh_btn.setToolTip("Dastur interfeysini to'liq yangilash")
+        self._refresh_btn.setStyleSheet(self._action_btn_style())
+        self._refresh_btn.clicked.connect(self._refresh_requested)
+        lay.addWidget(self._refresh_btn)
+        lay.addSpacing(6)
 
         # Expand (fullscreen)
         self._expand_btn = QPushButton()
@@ -396,6 +405,10 @@ class TopNavBar(QWidget):
         self._theme_btn.setToolTip("Dark mode" if is_light else "Light mode")
         self._apply_navbar_style()
 
+    def _refresh_requested(self):
+        if self._on_refresh:
+            self._on_refresh()
+
     def _apply_logo_text(self):
         """Logo matni — SafeZone brand text."""
         primary = C('text_primary')
@@ -409,11 +422,17 @@ class TopNavBar(QWidget):
 
     def _apply_navbar_style(self):
         self._apply_logo_text()
+        self._logo_circle.setStyleSheet(
+            f"background: {C('accent')}; color: {C('text_on_accent')}; border-radius: 16px;"
+            " font-size: 12px; font-weight: 900;"
+        )
+        self._logo_sep.setStyleSheet(f"background: {C('border')};")
         for btn in self._nav_btns.values():
             btn.setStyleSheet(self._nav_style())
         self._search.setStyleSheet(self._search_style())
         for btn in (self._bell_btn, self._theme_btn, self._expand_btn):
             btn.setStyleSheet(self._icon_btn_style())
+        self._refresh_btn.setStyleSheet(self._action_btn_style())
         self._notif_badge.setStyleSheet(
             f"background: {C('accent_hover')}; color: white; border-radius: 9px;"
             " font-size: 10px; font-weight: bold;"
@@ -548,6 +567,7 @@ class MainWindow(QMainWindow):
             on_search      = self._on_global_search,
             on_notifications = self._open_notifications_from_nav,
             on_theme_change = self._on_theme_changed,
+            on_refresh = self._refresh_application,
         )
         self._navbar._pause_btn.clicked.connect(self._toggle_pause_all)
         self._navbar._restart_btn.clicked.connect(self._restart_all_cameras)
@@ -555,10 +575,10 @@ class MainWindow(QMainWindow):
         v_lay.addWidget(self._navbar)
 
         # Aksent rang chizig'i — full width
-        _sep = QWidget()
-        _sep.setFixedHeight(2)
-        _sep.setStyleSheet(f"background: {C('accent')};")
-        v_lay.addWidget(_sep)
+        self._accent_sep = QWidget()
+        self._accent_sep.setFixedHeight(2)
+        self._accent_sep.setStyleSheet(f"background: {C('accent')};")
+        v_lay.addWidget(self._accent_sep)
 
         # Sahifalar
         self._stack = QStackedWidget()
@@ -574,14 +594,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._lazy_placeholder("Users"))      # 4
         self._stack.addWidget(self._lazy_placeholder("Settings"))   # 5
 
-        self._dashboard.go_violations.connect(
-            lambda: self._switch_page(self.PAGE_VIOLATIONS)
-        )
-        self._dashboard.add_camera_requested.connect(self._open_settings)
-        self._cameras.add_camera_requested.connect(self._open_settings)
-        self._cameras.departments_changed.connect(self._on_departments_changed)
-        self._cameras.reconnect_requested.connect(self._restart_camera)
-        self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
+        self._connect_primary_pages()
 
         cameras = self.cfg.get_enabled_cameras()
         self._dashboard.setup_cameras(cameras)
@@ -605,6 +618,64 @@ class MainWindow(QMainWindow):
         self._stack.removeWidget(old)
         old.deleteLater()
         self._stack.insertWidget(index, widget)
+
+    def _connect_primary_pages(self) -> None:
+        self._dashboard.go_violations.connect(
+            lambda: self._switch_page(self.PAGE_VIOLATIONS)
+        )
+        self._dashboard.add_camera_requested.connect(self._open_settings)
+        self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
+        self._cameras.add_camera_requested.connect(self._open_settings)
+        self._cameras.departments_changed.connect(self._on_departments_changed)
+        self._cameras.reconnect_requested.connect(self._restart_camera)
+
+    def _rebuild_stack_pages(self) -> None:
+        current = self._stack.currentIndex()
+        cameras = self.cfg.get_enabled_cameras()
+
+        self._dashboard = DashboardPage(self.db, self.cfg)
+        self._cameras = CamerasPage(self.db, self.cfg)
+        self._connect_primary_pages()
+        self._replace_stack_page(self.PAGE_DASHBOARD, self._dashboard)
+        self._replace_stack_page(self.PAGE_CAMERAS, self._cameras)
+
+        if self._violations is not None:
+            self._violations = ViolationsPage(self.db)
+            self._replace_stack_page(self.PAGE_VIOLATIONS, self._violations)
+        if self._analytics is not None:
+            self._analytics = AnalyticsPage(self.db, self.cfg)
+            self._analytics.go_cameras.connect(lambda: self._switch_page(self.PAGE_CAMERAS))
+            self._replace_stack_page(self.PAGE_ANALYTICS, self._analytics)
+        if self._users is not None:
+            self._users = UsersPage(self.cfg)
+            self._replace_stack_page(self.PAGE_USERS, self._users)
+            self._users_loaded = False
+        if self._settings is not None:
+            self._settings = SettingsPage(self.cfg)
+            self._settings.settings_saved.connect(self._on_settings_saved)
+            self._replace_stack_page(self.PAGE_SETTINGS, self._settings)
+
+        self._dashboard.setup_cameras(cameras)
+        self._cameras.setup_cameras(cameras)
+        self._stack.setCurrentIndex(current)
+
+        if current in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
+            self._apply_cached_camera_state(current)
+        elif current == self.PAGE_VIOLATIONS and self._violations is not None:
+            self._violations._load_violations()
+        elif current == self.PAGE_ANALYTICS and self._analytics is not None:
+            self._analytics.refresh()
+        elif current == self.PAGE_USERS and self._users is not None:
+            self._users.refresh()
+            self._users_loaded = True
+        elif current == self.PAGE_SETTINGS and self._settings is not None:
+            self._settings._load_values()
+
+        self._update_cam_badge()
+        self._refresh_sb_cams()
+        self._apply_frame_emission(current)
+        self.update()
+        self.repaint()
 
     def _ensure_page(self, page: int) -> QWidget:
         if page == self.PAGE_VIOLATIONS:
@@ -1008,12 +1079,26 @@ class MainWindow(QMainWindow):
         self._apply_theme_refresh(theme)
 
     def _apply_theme_refresh(self, theme: str):
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(get_main_stylesheet())
         self._navbar.apply_theme(theme)
+        if hasattr(self, "_accent_sep"):
+            self._accent_sep.setStyleSheet(f"background: {C('accent')};")
         self._apply_statusbar_style()
-        self._refresh_current()
-        self.update()
-        self.repaint()
+        self._rebuild_stack_pages()
         self._sb_status.setText("Theme yangilandi")
+
+    def _refresh_application(self):
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(get_main_stylesheet())
+        self._navbar.apply_theme(str(self.cfg.get("theme", "dark")).lower())
+        if hasattr(self, "_accent_sep"):
+            self._accent_sep.setStyleSheet(f"background: {C('accent')};")
+        self._apply_statusbar_style()
+        self._rebuild_stack_pages()
+        self._sb_status.setText("Dastur to'liq yangilandi")
 
     def _exit_fullscreen(self):
         if self.isFullScreen():
