@@ -575,7 +575,7 @@ class AnalyticsPage(QWidget):
         all_btn.setFixedHeight(26)
         all_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {_ORANGE};"
-            "border: none; font-size: 11px; font-weight: 800; text-align: right; }}"
+            "border: none; font-size: 11px; font-weight: 800; text-align: right; }"
             "QPushButton:hover { color: #fb923c; }"
         )
         all_btn.clicked.connect(self.go_cameras)
@@ -743,7 +743,7 @@ class AnalyticsPage(QWidget):
         refresh.setStyleSheet(
             f"QPushButton {{ background: rgba({_hex_rgb(_ORANGE)},0.14); color: {_ORANGE};"
             f"border: 1px solid rgba({_hex_rgb(_ORANGE)},0.38); border-radius: 7px;"
-            "font-size: 12px; font-weight: 800; }}"
+            "font-size: 12px; font-weight: 800; }"
             f"QPushButton:hover {{ background: rgba({_hex_rgb(_ORANGE)},0.26); color: #fff; }}"
         )
         refresh.clicked.connect(self._load_all)
@@ -978,12 +978,12 @@ class AnalyticsPage(QWidget):
         return (
             f"QComboBox {{ background: {_CARD}; color: {_TEXT2};"
             f"border: 1px solid {_BORDER}; border-radius: 7px;"
-            "padding: 0 10px; font-size: 12px; font-weight: 700; }}"
+            "padding: 0 10px; font-size: 12px; font-weight: 700; }"
             f"QComboBox:hover {{ border-color: rgba({_hex_rgb(_ORANGE)},0.55); }}"
             "QComboBox::drop-down { border: none; width: 22px; }"
             f"QDateEdit {{ background: {_CARD}; color: {_TEXT2};"
             f"border: 1px solid {_BORDER}; border-radius: 7px;"
-            "padding: 0 10px; font-size: 12px; font-weight: 700; }}"
+            "padding: 0 10px; font-size: 12px; font-weight: 700; }"
             f"QDateEdit:hover {{ border-color: rgba({_hex_rgb(_ORANGE)},0.55); }}"
             "QDateEdit::drop-down { border: none; width: 22px; }"
         )
@@ -999,7 +999,7 @@ class AnalyticsPage(QWidget):
         return (
             f"QPushButton {{ background: {_CARD}; color: {_MUTED};"
             f"border: 1px solid {_BORDER}; {r}"
-            "padding: 0 14px; font-size: 12px; font-weight: 800; }}"
+            "padding: 0 14px; font-size: 12px; font-weight: 800; }"
             f"QPushButton:hover {{ color: {_TEXT2}; background: {_CARD2}; }}"
             f"QPushButton:checked {{ background: {_ORANGE}; color: {C('text_on_accent')};"
             f"border-color: {_ORANGE}; }}"

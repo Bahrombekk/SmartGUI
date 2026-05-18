@@ -114,9 +114,11 @@ class CameraListItem(QWidget):
         self._menu_lbl = QLabel()
         self._menu_lbl.setFixedSize(20, 20)
         menu_path = Path(__file__).resolve().parents[3] / "images" / "more-vertical.svg"
-        self._menu_lbl.setPixmap(QPixmap(str(menu_path)).scaled(
-            15, 15, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-        ))
+        menu_pix = QPixmap(str(menu_path)) if menu_path.exists() else QPixmap()
+        if not menu_pix.isNull():
+            self._menu_lbl.setPixmap(menu_pix.scaled(
+                15, 15, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            ))
         self._menu_lbl.setStyleSheet("background: transparent; border: none;")
         self._menu_lbl.setVisible(self._active)
         content_lay.addWidget(self._menu_lbl, 0, Qt.AlignmentFlag.AlignCenter)
@@ -288,9 +290,12 @@ class DashboardSidebarMixin:
 
         cam_icon = QLabel()
         cam_icon.setFixedSize(22, 22)
-        cam_icon.setPixmap(QPixmap(str(Path(__file__).resolve().parents[3] / "images" / "camera-small.svg")).scaled(
-            16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-        ))
+        cam_icon_path = Path(__file__).resolve().parents[3] / "images" / "camera-small.svg"
+        cam_pix = QPixmap(str(cam_icon_path)) if cam_icon_path.exists() else QPixmap()
+        if not cam_pix.isNull():
+            cam_icon.setPixmap(cam_pix.scaled(
+                16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            ))
         cam_icon.setStyleSheet("background: transparent; border: none;")
         all_cam_lay.addWidget(cam_icon)
 

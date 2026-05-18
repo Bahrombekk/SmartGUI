@@ -461,7 +461,7 @@ class ViolationsPage(QWidget):
         apply_btn.setIconSize(QSize(14, 14))
         apply_btn.setStyleSheet(
             f"QPushButton {{ background: {_ORANGE}; color: {C('text_on_accent')};"
-            "border: none; border-radius: 8px; font-size: 12px; font-weight: 900; }}"
+            "border: none; border-radius: 8px; font-size: 12px; font-weight: 900; }"
             f"QPushButton:hover {{ background: #ea6c10; }}"
         )
         apply_btn.clicked.connect(self._on_apply)
@@ -474,7 +474,7 @@ class ViolationsPage(QWidget):
         refresh_btn.setStyleSheet(
             f"QPushButton {{ background: rgba({_rgb(_BDR)},0.20); color: {_TEXT2};"
             f"border: 1px solid rgba({_rgb(_BDR)},0.40); border-radius: 8px;"
-            "font-size: 12px; font-weight: 800; }}"
+            "font-size: 12px; font-weight: 800; }"
             f"QPushButton:hover {{ background: rgba({_rgb(_BDR)},0.35); color: {_TEXT}; }}"
         )
         refresh_btn.clicked.connect(self._load_violations)
@@ -652,11 +652,11 @@ class ViolationsPage(QWidget):
         if active:
             return (
                 f"QPushButton {{ background: {_ORANGE}; color: {C('text_on_accent')};"
-                "border: none; border-radius: 6px; font-size: 12px; font-weight: 900; }}"
+                "border: none; border-radius: 6px; font-size: 12px; font-weight: 900; }"
             )
         return (
             f"QPushButton {{ background: transparent; color: {_MUTED};"
-            "border: none; border-radius: 6px; font-size: 12px; font-weight: 700; }}"
+            "border: none; border-radius: 6px; font-size: 12px; font-weight: 700; }"
             f"QPushButton:hover {{ color: {_TEXT2}; background: rgba({_rgb(_BDR)},0.25); }}"
         )
 
@@ -666,12 +666,12 @@ class ViolationsPage(QWidget):
         return (
             f"QDateEdit {{ background: {_CARD}; color: {_TEXT2};"
             f"border: 1px solid {border}; border-radius: 7px;"
-            "padding: 0 10px; font-size: 12px; font-weight: 700; }}"
+            "padding: 0 10px; font-size: 12px; font-weight: 700; }"
             f"QDateEdit:hover {{ border-color: rgba({_rgb(_ORANGE)},0.45); }}"
             "QDateEdit::drop-down { border: none; width: 20px; }"
             f"QComboBox {{ background: {_CARD}; color: {_TEXT2};"
             f"border: 1px solid {border}; border-radius: 7px;"
-            "padding: 0 10px; font-size: 12px; font-weight: 700; }}"
+            "padding: 0 10px; font-size: 12px; font-weight: 700; }"
             f"QComboBox:hover {{ border-color: rgba({_rgb(_ORANGE)},0.45); }}"
             "QComboBox::drop-down { border: none; width: 20px; }"
         )
@@ -715,7 +715,7 @@ class ViolationsPage(QWidget):
         btn.setStyleSheet(
             f"QPushButton {{ background: rgba({rgb},0.08); color: {color};"
             f"border: 1px solid rgba({rgb},0.22); border-radius: 8px;"
-            "font-size: 12px; font-weight: 800; text-align: left; padding-left: 12px; }}"
+            "font-size: 12px; font-weight: 800; text-align: left; padding-left: 12px; }"
             f"QPushButton:hover {{ background: rgba({rgb},0.16); border-color: rgba({rgb},0.45); }}"
         )
         return btn

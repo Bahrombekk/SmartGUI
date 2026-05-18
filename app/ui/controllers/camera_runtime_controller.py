@@ -33,6 +33,7 @@ class CameraRuntimeController(QObject):
         self.db = db
 
         self._workers: dict[int, DetectionWorker] = {}
+        self._stopping_workers: list[DetectionWorker] = []
         self._cleanup_worker: CleanupWorker | None = None
         self.persons_per_cam: dict[int, int] = {}
         self.latest_stats: dict[int, dict] = {}
@@ -58,6 +59,7 @@ class CameraRuntimeController(QObject):
         worker.status_changed.connect(lambda text, cid=cam_id: self._on_status(cid, text))
         worker.error_occurred.connect(lambda msg, cid=cam_id: self._on_error(cid, msg))
         worker.model_loaded.connect(lambda cid=cam_id: self._on_model_loaded(cid))
+        worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
 
         worker.start()
         self._workers[cam_id] = worker
@@ -81,11 +83,15 @@ class CameraRuntimeController(QObject):
 
     def stop_all(self) -> None:
         running = [w for w in self._workers.values() if w and w.isRunning()]
-        # Avval hamma workerga stop bayrog'i beriladi, keyin qisqa kutamiz.
         for worker in running:
-            worker._running = False
+            if hasattr(worker, "request_stop"):
+                worker.request_stop()
+            else:
+                worker._running = False
         for worker in running:
-            worker.wait(600)
+            worker.wait(1200)
+        pending = [w for w in running if w.isRunning()]
+        self._stopping_workers.extend(w for w in pending if w not in self._stopping_workers)
 
         self._workers.clear()
         self.persons_per_cam.clear()
@@ -112,6 +118,8 @@ class CameraRuntimeController(QObject):
         worker = self._workers.pop(cam_id, None)
         if worker and worker.isRunning():
             worker.stop()
+            if worker.isRunning() and worker not in self._stopping_workers:
+                self._stopping_workers.append(worker)
 
         cam = self.cfg.get_camera_by_id(cam_id)
         if not cam or not cam.get("enabled", True):
@@ -178,3 +186,7 @@ class CameraRuntimeController(QObject):
     def _on_model_loaded(self, cam_id: int) -> None:
         self.model_loaded_cameras.add(cam_id)
         self.model_loaded.emit(cam_id)
+
+    def _forget_stopping_worker(self, worker: DetectionWorker) -> None:
+        if worker in self._stopping_workers:
+            self._stopping_workers.remove(worker)

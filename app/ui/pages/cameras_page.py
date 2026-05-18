@@ -667,9 +667,9 @@ class CameraDetailPanel(QFrame):
         self._events_loading = False
         self._stats_loaded.connect(self._on_stats_loaded)
         self._events_loaded.connect(self._on_events_loaded)
-        self._normal_width = 520
-        self._expanded_width = 1120
-        self._normal_preview_height = 320
+        self._normal_width = 460
+        self._expanded_width = 980
+        self._normal_preview_height = 260
         self._expanded_preview_height = 560
         self.setFixedWidth(self._normal_width)
         self.setObjectName("cameraInspector")
@@ -690,7 +690,7 @@ class CameraDetailPanel(QFrame):
         # Burgundy-crimson left accent bar
         accent_bar = QWidget()
         accent_bar.setObjectName("cameraInspectorAccent")
-        accent_bar.setFixedSize(4, 64)
+        accent_bar.setFixedSize(3, 64)
         h.addWidget(accent_bar)
         h.addSpacing(12)
 
@@ -1428,8 +1428,8 @@ class CamerasPage(QWidget):
         view_wrap = QWidget()
         view_wrap.setStyleSheet("background: transparent;")
         vw = QVBoxLayout(view_wrap)
-        vw.setContentsMargins(12, 2, 12, 10)
-        vw.setSpacing(3)
+        vw.setContentsMargins(12, 8, 12, 12)
+        vw.setSpacing(7)
         view_sec = QLabel("VIEW")
         view_sec.setFixedHeight(22)
         view_sec.setStyleSheet(
@@ -1449,7 +1449,7 @@ class CamerasPage(QWidget):
             ("offline", "Offline / Error", "alerts.svg"),
         ]:
             btn = QPushButton(f"  {label}")
-            btn.setFixedHeight(36)
+            btn.setFixedHeight(44)
             btn.setCheckable(True)
             btn.setStyleSheet(self._filter_style(False))
             icon_path = self._icon_dir / icon_name
@@ -1466,8 +1466,8 @@ class CamerasPage(QWidget):
         dept_wrap = QWidget()
         dept_wrap.setStyleSheet("background: transparent;")
         dw = QVBoxLayout(dept_wrap)
-        dw.setContentsMargins(12, 12, 12, 8)
-        dw.setSpacing(4)
+        dw.setContentsMargins(12, 14, 12, 8)
+        dw.setSpacing(8)
 
         dept_hdr = QHBoxLayout()
         dept_hdr.setSpacing(6)
@@ -1495,37 +1495,35 @@ class CamerasPage(QWidget):
         dw.addLayout(dept_hdr)
 
         self._loc_lay = QVBoxLayout()
-        self._loc_lay.setSpacing(3)
+        self._loc_lay.setSpacing(8)
         dw.addLayout(self._loc_lay)
         outer.addWidget(dept_wrap)
         outer.addStretch()
 
-        fleet_bar = QWidget()
-        fleet_bar.setStyleSheet(
-            f"background: {C('bg_panel_alt')};"
+        ops_bar = QWidget()
+        ops_bar.setStyleSheet(
+            f"background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            f"stop:0 {C('bg_panel')}, stop:1 {C('bg_sidebar')});"
             f"border-top: 1px solid {BORDER};"
         )
-        fb = QVBoxLayout(fleet_bar)
-        fb.setContentsMargins(12, 10, 12, 14)
-        fb.setSpacing(8)
-        fleet_hdr = QLabel("FLEET STATUS")
-        fleet_hdr.setStyleSheet(
+        ob = QVBoxLayout(ops_bar)
+        ob.setContentsMargins(12, 12, 12, 16)
+        ob.setSpacing(8)
+        ops_hdr = QLabel("OPERATIONS")
+        ops_hdr.setStyleSheet(
             f"color: {TEXT_2}; font-size: 9px; font-weight: 900;"
             "letter-spacing: 1px; background: transparent; border: none;"
         )
-        fb.addWidget(fleet_hdr)
-        stat_row = QHBoxLayout()
-        stat_row.setSpacing(5)
-        self._fs_total = self._fleet_stat("0", "TOTAL", TEXT_2)
-        self._fs_live = self._fleet_stat("0", "LIVE", LIVE)
-        self._fs_offline = self._fleet_stat("0", "OFF", OFFLINE)
-        self._fs_conn = self._fleet_stat("0", "CONN", WARN)
-        stat_row.addWidget(self._fs_total)
-        stat_row.addWidget(self._fs_live)
-        stat_row.addWidget(self._fs_offline)
-        stat_row.addWidget(self._fs_conn)
-        fb.addLayout(stat_row)
-        outer.addWidget(fleet_bar)
+        ob.addWidget(ops_hdr)
+        self._ops_health = self._ops_row("Online health", "0%", LIVE)
+        self._ops_events = self._ops_row("Today events", "0", ACCENT)
+        self._ops_risk = self._ops_row("Top activity", "--", WARN)
+        self._ops_ai = self._ops_row("AI model", "Off", C("text_link"))
+        ob.addWidget(self._ops_health)
+        ob.addWidget(self._ops_events)
+        ob.addWidget(self._ops_risk)
+        ob.addWidget(self._ops_ai)
+        outer.addWidget(ops_bar)
 
         return sidebar
 
@@ -1684,6 +1682,10 @@ class CamerasPage(QWidget):
         self._render_grid()
         self._update_counts()
         self._set_filter("all")
+        if self._cameras:
+            first_id = self._cameras[0].get("id")
+            if first_id is not None:
+                QTimer.singleShot(0, lambda cid=int(first_id): self._select_camera(cid))
 
     def set_search_text(self, text: str):
         self._search_text = (text or "").strip().lower()
@@ -1712,6 +1714,7 @@ class CamerasPage(QWidget):
             card.set_status(new_status, stats.get("fps", 0.0), stats.get("today_count", 0), stats.get("ping_ms"))
         if cam_id == self._selected:
             self._detail.update_status(new_status, stats)
+        self._update_operations_summary()
 
     def on_status(self, cam_id: int, text: str):
         text_l = (text or "").lower()
@@ -1931,37 +1934,55 @@ class CamerasPage(QWidget):
             active = self._filter == f"dep:{dep_id}"
 
             row = QWidget()
-            row.setFixedHeight(34)
+            row.setFixedHeight(48)
             row.setCursor(Qt.CursorShape.PointingHandCursor)
             row.setObjectName("deptRow")
-            active_bg = "rgba(249,115,22,0.14)" if active else "rgba(2,6,23,0.10)"
-            active_border = f"border: 1px solid rgba(249,115,22,0.55); border-left: 3px solid {ACCENT}; border-radius: 8px;" if active else "border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 8px;"
+            active_bg = C("accent_subtle") if active else C("bg_panel")
+            active_border = (
+                f"border: 1px solid {C('border_accent')}; border-left: 3px solid {ACCENT}; border-radius: 10px;"
+                if active
+                else f"border: 1px solid {C('border_light')}; border-left: 3px solid transparent; border-radius: 10px;"
+            )
             row.setStyleSheet(
                 f"QWidget#deptRow {{ background: {active_bg}; {active_border} }}"
-                "QWidget#deptRow:hover { background: rgba(7,27,43,0.96);"
+                f"QWidget#deptRow:hover {{ background: {C('bg_hover')};"
                 f"border-color: {BORDER}; border-left-color: {BORDER_STRONG}; }}"
                 "QLabel { background: transparent; border: none; }"
             )
             rl = QHBoxLayout(row)
-            rl.setContentsMargins(8, 0, 8, 0)
-            rl.setSpacing(6)
+            rl.setContentsMargins(10, 0, 10, 0)
+            rl.setSpacing(8)
 
             icon_lbl = QLabel()
             icon_lbl.setFixedSize(14, 14)
             if building_icon.exists():
-                pix = QPixmap(str(building_icon)).scaled(
-                    14, 14,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-                icon_lbl.setPixmap(pix)
+                pix = QPixmap(str(building_icon))
+                if not pix.isNull():
+                    icon_lbl.setPixmap(pix.scaled(
+                        14, 14,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    ))
             rl.addWidget(icon_lbl)
 
+            text_col = QVBoxLayout()
+            text_col.setSpacing(4)
             name_lbl = QLabel(dep.get("name", "Department"))
             name_lbl.setStyleSheet(
-                f"color: {ACCENT if active else TEXT_2}; font-size: 11px; font-weight: 700;"
+                f"color: {ACCENT if active else TEXT}; font-size: 12px; font-weight: 800;"
             )
-            rl.addWidget(name_lbl, 1)
+            progress = QWidget()
+            progress.setFixedHeight(4)
+            pct = 0 if total <= 0 else max(0, min(100, int(live * 100 / total)))
+            progress.setStyleSheet(
+                f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                f"stop:0 {LIVE}, stop:{pct / 100:.2f} {LIVE},"
+                f"stop:{pct / 100:.2f} {C('border_light')}, stop:1 {C('border_light')});"
+                "border: none; border-radius: 2px;"
+            )
+            text_col.addWidget(name_lbl)
+            text_col.addWidget(progress)
+            rl.addLayout(text_col, 1)
 
             badge = DeptProgressBadge(live, total)
             rl.addWidget(badge)
@@ -1989,11 +2010,6 @@ class CamerasPage(QWidget):
         live = sum(1 for c in self._cameras if self._status.get(c.get("id")) == "live")
         offline = sum(1 for c in self._cameras if self._status.get(c.get("id")) in {"offline", "error"})
         warn = sum(1 for c in self._cameras if self._status.get(c.get("id")) == "connecting")
-        if hasattr(self, "_fs_total"):
-            self._fleet_stat_set(self._fs_total, str(total))
-            self._fleet_stat_set(self._fs_live, str(live))
-            self._fleet_stat_set(self._fs_offline, str(offline))
-            self._fleet_stat_set(self._fs_conn, str(warn))
         if hasattr(self, "_hdr_total"):
             self._hdr_total.setText(f"{total} total")
             self._hdr_live.setText(f"{live} live")
@@ -2012,6 +2028,32 @@ class CamerasPage(QWidget):
                 base = self._filter_labels.get(key, btn.text().strip())
                 btn.setText(f"  {base}   {counts.get(key, 0)}")
         self._update_department_badges()
+        self._update_operations_summary()
+
+    def _update_operations_summary(self):
+        if not hasattr(self, "_ops_health"):
+            return
+        total = len(self._cameras)
+        live = sum(1 for c in self._cameras if self._status.get(c.get("id")) == "live")
+        health = 0 if total <= 0 else round(live * 100 / total)
+        today_events = sum(int(s.get("today_count", 0) or 0) for s in self._stats.values())
+        top_cam = "--"
+        if self._stats:
+            top_id, top_stats = max(
+                self._stats.items(),
+                key=lambda item: int(item[1].get("today_count", 0) or 0),
+            )
+            top_count = int(top_stats.get("today_count", 0) or 0)
+            if top_count:
+                cam = next((c for c in self._cameras if c.get("id") == top_id), None)
+                fallback_name = f"CAM {int(top_id):02d}" if isinstance(top_id, int) else "Camera"
+                cam_name = cam.get("name", fallback_name) if cam else fallback_name
+                top_cam = f"{cam_name}  {top_count}"
+        ai_on = bool(self.cfg and self.cfg.get("ai_model_enabled", False))
+        self._ops_row_set(self._ops_health, f"{health}%", LIVE if health >= 70 else WARN if health >= 40 else OFFLINE)
+        self._ops_row_set(self._ops_events, str(today_events), ACCENT if today_events else MUTED)
+        self._ops_row_set(self._ops_risk, top_cam, WARN if top_cam != "--" else MUTED)
+        self._ops_row_set(self._ops_ai, "On" if ai_on else "Off", LIVE if ai_on else MUTED)
 
     def _update_department_badges(self):
         if not self._dept_badges:
@@ -2105,20 +2147,62 @@ class CamerasPage(QWidget):
             label.setText(str(value))
 
     @staticmethod
+    def _ops_row(label: str, value: str, color: str) -> QFrame:
+        row = QFrame()
+        row.setStyleSheet(
+            f"QFrame {{ background: {C('bg_panel')}; border: 1px solid {C('border_light')};"
+            "border-radius: 10px; }}"
+            f"QFrame:hover {{ background: {C('bg_hover')}; border-color: {BORDER}; }}"
+            "QLabel { background: transparent; border: none; }"
+        )
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(8)
+
+        left = QVBoxLayout()
+        left.setSpacing(2)
+        title = QLabel(label)
+        title.setStyleSheet(f"color: {DIM}; font-size: 9px; font-weight: 900; letter-spacing: 0.6px;")
+        value_lbl = QLabel(value)
+        value_lbl.setObjectName("opsValue")
+        value_lbl.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 900;")
+        left.addWidget(title)
+        left.addWidget(value_lbl)
+        lay.addLayout(left, 1)
+
+        dot = QLabel("●")
+        dot.setObjectName("opsDot")
+        dot.setFixedWidth(12)
+        dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dot.setStyleSheet(f"color: {color}; font-size: 10px;")
+        lay.addWidget(dot)
+        return row
+
+    @staticmethod
+    def _ops_row_set(row: QFrame, value: str, color: str):
+        value_lbl = row.findChild(QLabel, "opsValue")
+        if value_lbl:
+            value_lbl.setText(str(value))
+            value_lbl.setStyleSheet(f"color: {color}; font-size: 13px; font-weight: 900;")
+        dot = row.findChild(QLabel, "opsDot")
+        if dot:
+            dot.setStyleSheet(f"color: {color}; font-size: 10px;")
+
+    @staticmethod
     def _filter_style(active: bool) -> str:
         if active:
             return (
                 f"QPushButton {{ background: {C('accent_subtle')}; color: {ACCENT};"
                 f"border: 1px solid {C('border_accent')};"
-                f"border-left: 3px solid {ACCENT}; border-radius: 8px;"
-                "font-size: 11px; font-weight: 800; text-align: left; padding: 0 10px; }"
+                f"border-left: 4px solid {ACCENT}; border-radius: 11px;"
+                "font-size: 12px; font-weight: 900; text-align: left; padding: 0 12px; }"
             )
         return (
-            f"QPushButton {{ background: transparent; color: {TEXT_2};"
-            "border: 1px solid transparent; border-left: 3px solid transparent; border-radius: 8px;"
-            "font-size: 11px; font-weight: 600; text-align: left; padding: 0 10px; }"
+            f"QPushButton {{ background: {C('bg_panel')}; color: {TEXT_2};"
+            f"border: 1px solid {C('border_light')}; border-left: 4px solid transparent; border-radius: 11px;"
+            "font-size: 12px; font-weight: 700; text-align: left; padding: 0 12px; }"
             f"QPushButton:hover {{ color: {TEXT}; background: {C('bg_hover')};"
-            f"border-left-color: {BORDER_STRONG}; }}"
+            f"border-color: {BORDER}; border-left-color: {BORDER_STRONG}; }}"
         )
 
     @staticmethod
@@ -2150,34 +2234,6 @@ class CamerasPage(QWidget):
             "font-size: 10px; font-weight: 600; padding: 0 9px; }"
             f"QPushButton:hover {{ color: {TEXT}; border-color: {BORDER_STRONG}; }}"
         )
-
-    @staticmethod
-    def _fleet_stat(value: str, label: str, color: str) -> QFrame:
-        box = QFrame()
-        box.setStyleSheet(
-            f"QFrame {{ background: {C('bg_panel') if is_light() else 'rgba(5,14,24,0.80)'};"
-            f"border: 1px solid {C('border_light') if is_light() else 'rgba(30,95,168,0.38)'}; border-radius: 7px; }}"
-            "QLabel { background: transparent; border: none; }"
-        )
-        lay = QVBoxLayout(box)
-        lay.setContentsMargins(4, 7, 4, 7)
-        lay.setSpacing(1)
-        val = QLabel(value)
-        val.setObjectName("fleetValue")
-        val.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        val.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: 900;")
-        lbl = QLabel(label)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setStyleSheet(f"color: {DIM}; font-size: 8px; font-weight: 900; letter-spacing: 0.5px;")
-        lay.addWidget(val)
-        lay.addWidget(lbl)
-        return box
-
-    @staticmethod
-    def _fleet_stat_set(chip: QFrame, value: str):
-        val = chip.findChild(QLabel, "fleetValue")
-        if val:
-            val.setText(value)
 
     @staticmethod
     def _hsep() -> QWidget:

@@ -377,6 +377,7 @@ class DetectionWorker(QThread):
         last_emit_ts   = 0.0
         last_frame_id  = -1
         no_frame_count = 0
+        last_no_frame_emit = 0.0
 
         while self._running:
             if self._paused:
@@ -397,6 +398,17 @@ class DetectionWorker(QThread):
             if is_stream:
                 current_id = getattr(self._reader, "frame_count", self._frame_count)
                 if current_id == last_frame_id:
+                    if (
+                        not self._reader.is_connected
+                        or getattr(self._reader, "latency_ms", 0.0) > 15_000
+                    ) and now - last_no_frame_emit >= 2.0:
+                        last_no_frame_emit = now
+                        self.stats_updated.emit({
+                            "fps": 0.0, "today_count": self._violation_runtime.today_count,
+                            "detections_today": self._detections_today,
+                            "active_persons": 0, "connected": False, "ping_ms": None,
+                        })
+                        self.status_changed.emit("Qayta ulanmoqda...")
                     # Yangi frame yo'q — video_interval yarmigacha kutish (busy-wait kamaytirish)
                     time.sleep(min(0.020, video_interval * 0.5))
                     continue
@@ -521,9 +533,14 @@ class DetectionWorker(QThread):
 
     # ── Tashqi boshqaruv ──────────────────────────────────────────────────
 
-    def stop(self):
+    def request_stop(self):
         self._running = False
-        self.wait(400)
+        if self._reader and hasattr(self._reader, "request_stop"):
+            self._reader.request_stop()
+
+    def stop(self):
+        self.request_stop()
+        self.wait(800)
 
     def reconnect(self):
         """Qayta ulash tugmasidan chaqiriladi — backoff ni reset qilib darhol qayta urinadi."""

@@ -743,7 +743,7 @@ class DashboardBottomPanelsMixin:
                 pix = QPixmap(crop_path) or None
                 if pix and pix.isNull():
                     pix = None
-        if pix is not None:
+        if pix is not None and not pix.isNull():
             crop.setPixmap(
                 pix.scaled(
                     crop.size(),
@@ -824,7 +824,7 @@ class DashboardBottomPanelsMixin:
                 pix = QPixmap(crop_path)
                 if pix and pix.isNull():
                     pix = None
-        if pix is not None:
+        if pix is not None and not pix.isNull():
             avatar.setPixmap(
                 pix.scaled(
                     avatar.size(),

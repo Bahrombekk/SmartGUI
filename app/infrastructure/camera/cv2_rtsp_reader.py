@@ -149,6 +149,23 @@ class CV2RTSPReader(threading.Thread):
         # CameraService (DetectorGroup) tomonidan set qilinadi
         self.cam_id: int = 0
 
+    @staticmethod
+    def _release_cap_async(cap: cv2.VideoCapture | None) -> None:
+        """
+        Kamera uzilganda FFmpeg release/grab ichida osilib qolishi mumkin.
+        Release alohida daemon threadda bajarilsa worker lifecycle qotmaydi.
+        """
+        if cap is None:
+            return
+
+        def _release():
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+        threading.Thread(target=_release, daemon=True, name="RTSPRelease").start()
+
     # ── VideoCapture ochish ───────────────────────────────────────────────
 
     def _try_open_cap(self, options: str = _RTSP_OPTIONS,
@@ -165,7 +182,7 @@ class CV2RTSPReader(threading.Thread):
             try:
                 cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
                 if not cap.isOpened():
-                    cap.release()
+                    self._release_cap_async(cap)
                     return
 
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -178,7 +195,7 @@ class CV2RTSPReader(threading.Thread):
                         result[0] = cap
                         return
 
-                cap.release()
+                self._release_cap_async(cap)
             except Exception:
                 pass
 
@@ -220,7 +237,7 @@ class CV2RTSPReader(threading.Thread):
             try:
                 cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
                 if not cap.isOpened():
-                    cap.release()
+                    self._release_cap_async(cap)
                     return
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 for _ in range(self.FIRST_FRAME_N):
@@ -229,7 +246,7 @@ class CV2RTSPReader(threading.Thread):
                         self._slot.put(frame)
                         result[0] = cap
                         return
-                cap.release()
+                self._release_cap_async(cap)
             except Exception:
                 pass
 
@@ -249,7 +266,7 @@ class CV2RTSPReader(threading.Thread):
             try:
                 cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_ANY)
                 if not cap.isOpened():
-                    cap.release()
+                    self._release_cap_async(cap)
                     return
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 for _ in range(self.FIRST_FRAME_N):
@@ -258,7 +275,7 @@ class CV2RTSPReader(threading.Thread):
                         self._slot.put(frame)
                         result2[0] = cap
                         return
-                cap.release()
+                self._release_cap_async(cap)
             except Exception:
                 pass
 
@@ -338,10 +355,7 @@ class CV2RTSPReader(threading.Thread):
 
             stop_evt.set()
             self._connected = False
-            try:
-                cap.release()
-            except Exception:
-                pass
+            self._release_cap_async(cap)
 
             if self._running:
                 # Muvaffaqiyatli ulanish uzilib ketdi — darhol qayta urinish
@@ -405,6 +419,11 @@ class CV2RTSPReader(threading.Thread):
         """Qayta ulanish tugmasidan chaqiriladi — backoff hisoblagichini nolga tushiradi."""
         self._fail_count = 0
 
-    def stop(self):
+    def request_stop(self):
         self._running = False
-        self.join(timeout=2.0)
+        self._connected = False
+
+    def stop(self):
+        self.request_stop()
+        if threading.current_thread() is not self:
+            self.join(timeout=2.0)

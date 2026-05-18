@@ -1917,11 +1917,11 @@ class SettingsPage(QWidget):
         g.addWidget(self._form_label("Helmet vote window / threshold:"))
         helmet_row = QHBoxLayout()
         self._helmet_window_spin = QSpinBox()
-        self._helmet_window_spin.setRange(3, 20)
+        self._helmet_window_spin.setRange(3, 100)
         self._helmet_window_spin.setFixedWidth(80)
         helmet_row.addWidget(self._helmet_window_spin)
         self._helmet_threshold_spin = QSpinBox()
-        self._helmet_threshold_spin.setRange(1, 20)
+        self._helmet_threshold_spin.setRange(1, 100)
         self._helmet_threshold_spin.setFixedWidth(80)
         helmet_row.addWidget(self._helmet_threshold_spin)
         note = QLabel("ko'pchilik vote = kamroq adashish")
@@ -2024,7 +2024,7 @@ class SettingsPage(QWidget):
         ids_raw  = self._tg_chat_ids.text()
         chat_ids = [x.strip() for x in ids_raw.split(",") if x.strip()]
 
-        self.cfg.update({
+        data = {
             "ai_model_enabled":  self._ai_enabled_check.isChecked(),
             "model_path":        self._model_edit.text().strip(),
             "confidence":        self._conf_spin.value(),
@@ -2056,16 +2056,30 @@ class SettingsPage(QWidget):
             "tracker_min_hits": self._tracker_hits_spin.value(),
             "helmet_status_window": self._helmet_window_spin.value(),
             "helmet_status_threshold": min(self._helmet_threshold_spin.value(), self._helmet_window_spin.value()),
-        })
+        }
+        changed_keys = [key for key, value in data.items() if self.cfg.get(key) != value]
+        if not changed_keys:
+            if hasattr(self, "_restart_indicator"):
+                self._restart_indicator.setText("O'zgarish yo'q")
+            return
+
+        restart_keys = {
+            "ai_model_enabled", "model_path", "confidence", "yolo_imgsz",
+            "use_gpu", "half_precision", "process_every_n", "ai_fps_limit",
+            "video_fps_limit", "inference_batch_size", "cameras_per_model",
+            "violation_save_queue_size", "tracking_strictness",
+            "tracker_max_age", "tracker_min_hits", "helmet_status_window",
+            "helmet_status_threshold", "faceid_enabled", "access_roster_enabled",
+            "faceid_threshold", "save_violations", "violations_dir",
+        }
+
+        self.cfg.update(data)
         self.cfg.save()
         if hasattr(self, "_restart_indicator"):
-            self._restart_indicator.setText("Saved | restart cameras")
-        self.settings_saved.emit()
-        QMessageBox.information(
-            self, "Saqlandi",
-            "Sozlamalar saqlandi.\n"
-            "O'zgarishlar kuchga kirishi uchun kameralar qayta ishga tushiriladi."
-        )
+            needs_restart = any(key in restart_keys for key in changed_keys)
+            self._restart_indicator.setText("Saved | restart cameras" if needs_restart else "Saved")
+        if any(key in restart_keys for key in changed_keys):
+            self.settings_saved.emit()
 
     # тФАтФА Utility actions тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 

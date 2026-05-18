@@ -63,9 +63,7 @@ class TopNavBar(QWidget):
         self._restore_maximized_after_fullscreen = True
 
         self.setFixedHeight(58)
-        self.setStyleSheet(
-            f"background: {C('bg_sidebar')};"
-        )
+        self.setStyleSheet("background: #0c1a2e;")
         self._setup_ui()
 
     def _setup_ui(self):
@@ -78,15 +76,17 @@ class TopNavBar(QWidget):
         logo_w.setStyleSheet("background: transparent;")
         logo_w.setFixedWidth(245)
         logo_lay = QHBoxLayout(logo_w)
-        logo_lay.setContentsMargins(16, 0, 16, 0)
-        logo_lay.setSpacing(10)
+        logo_lay.setContentsMargins(0, 0, 0, 0)
+        logo_lay.setSpacing(12)
+
+        logo_lay.addStretch(1)
 
         # Brand mark
         self._logo_circle = QLabel("SZ")
-        self._logo_circle.setFixedSize(32, 32)
+        self._logo_circle.setFixedSize(38, 38)
         self._logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._logo_circle.setStyleSheet(
-            f"background: {C('accent')}; color: {C('text_on_accent')}; border-radius: 16px;"
+            "background: #1a3a6e; color: #e2e8f0; border-radius: 19px;"
             " font-size: 12px; font-weight: 900;"
         )
         logo_lay.addWidget(self._logo_circle)
@@ -96,6 +96,10 @@ class TopNavBar(QWidget):
         self._apply_logo_text()
         self._logo_txt.setStyleSheet("background: transparent;")
         logo_lay.addWidget(self._logo_txt)
+
+        logo_lay.addStretch(1)
+
+        self._apply_logo_image()
         lay.addWidget(logo_w)
 
         self._logo_sep = QWidget()
@@ -422,7 +426,7 @@ class TopNavBar(QWidget):
         self._theme_btn.setChecked(is_light)
         if app:
             app.setStyleSheet(get_main_stylesheet())
-        self.setStyleSheet(f"background: {C('bg_sidebar')};")
+        self.setStyleSheet("background: #0c1a2e;")
         self._theme_btn.setToolTip("Dark mode" if is_light else "Light mode")
         self._apply_navbar_style()
 
@@ -441,10 +445,25 @@ class TopNavBar(QWidget):
             f'color:{accent};font-size:18px;font-weight:900;letter-spacing:.2px">Zone</span>'
         )
 
+    def _apply_logo_image(self):
+        logo_path = Path(__file__).resolve().parents[3] / "images" / "logs.png"
+        pix = QPixmap(str(logo_path)) if logo_path.exists() else QPixmap()
+        if not pix.isNull():
+            self._logo_circle.setPixmap(pix.scaled(
+                60, 60,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+            self._logo_circle.setText("")
+        else:
+            self._logo_circle.clear()
+            self._logo_circle.setText("SZ")
+
     def _apply_navbar_style(self):
         self._apply_logo_text()
+        self._apply_logo_image()
         self._logo_circle.setStyleSheet(
-            f"background: {C('accent')}; color: {C('text_on_accent')}; border-radius: 16px;"
+            "background: #1a3a6e; color: #e2e8f0; border-radius: 19px;"
             " font-size: 12px; font-weight: 900;"
         )
         self._logo_sep.setStyleSheet(f"background: {C('border')};")
@@ -540,6 +559,7 @@ class MainWindow(QMainWindow):
         self.db  = ViolationsDB()
 
         self._workers: dict[int, DetectionWorker] = {}
+        self._stopping_workers: list[DetectionWorker] = []
         self._cleanup_worker: CleanupWorker | None = None
         self._persons_per_cam: dict[int, int] = {}
         self._latest_stats: dict[int, dict] = {}
@@ -861,6 +881,7 @@ class MainWindow(QMainWindow):
         worker.model_loaded.connect(
             lambda cid=cam_id: self._on_model_loaded(cid)
         )
+        worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
 
         # Yangi worker uchun joriy sahifaga mos emit holatini sozlash
         page = self._stack.currentIndex()
@@ -888,11 +909,15 @@ class MainWindow(QMainWindow):
 
     def _stop_all_cameras(self):
         running = [w for w in self._workers.values() if w and w.isRunning()]
-        # Hammani bir vaqtda to'xtatish: avval bayroqni o'chiramiz, keyin parallel kutamiz
         for w in running:
-            w._running = False
+            if hasattr(w, "request_stop"):
+                w.request_stop()
+            else:
+                w._running = False
         for w in running:
-            w.wait(600)
+            w.wait(1200)
+        pending = [w for w in running if w.isRunning()]
+        self._stopping_workers.extend(w for w in pending if w not in self._stopping_workers)
         self._workers.clear()
         self._persons_per_cam.clear()
         self._navbar.set_pause_enabled(False)
@@ -901,7 +926,10 @@ class MainWindow(QMainWindow):
     def _request_stop_all_cameras(self):
         running = [w for w in self._workers.values() if w and w.isRunning()]
         for w in running:
-            w._running = False
+            if hasattr(w, "request_stop"):
+                w.request_stop()
+            else:
+                w._running = False
         self._restart_wait_cycles = 0
         self._sb_status.setText("Kameralar to'xtatilmoqda...")
         self._navbar.set_pause_enabled(False)
@@ -911,15 +939,19 @@ class MainWindow(QMainWindow):
         if pending:
             self._restart_wait_cycles += 1
             if self._restart_wait_cycles >= 25:
-                for w in pending:
-                    w.terminate()
+                self._stopping_workers.extend(w for w in pending if w not in self._stopping_workers)
+                self._workers = {cid: w for cid, w in self._workers.items() if not w.isRunning()}
+                self._sb_status.setText("Kameralar fon rejimida to'xtatilmoqda...")
+            else:
                 QTimer.singleShot(120, self._finish_stop_all_cameras)
                 return
-            QTimer.singleShot(120, self._finish_stop_all_cameras)
-            return
         self._workers.clear()
         self._persons_per_cam.clear()
         self._stop_camera_service_for_restart()
+
+    def _forget_stopping_worker(self, worker: DetectionWorker):
+        if worker in self._stopping_workers:
+            self._stopping_workers.remove(worker)
 
     def _stop_camera_service_for_restart(self):
         done = threading.Event()
@@ -984,6 +1016,8 @@ class MainWindow(QMainWindow):
         worker = self._workers.pop(cam_id, None)
         if worker and worker.isRunning():
             worker.stop()
+            if worker.isRunning() and worker not in self._stopping_workers:
+                self._stopping_workers.append(worker)
 
         cam = self.cfg.get_camera_by_id(cam_id)
         if not cam or not cam.get("enabled", True):

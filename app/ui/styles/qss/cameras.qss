@@ -1,18 +1,18 @@
 /* Camera operations page */
 
 QFrame#cameraInspector {
-    background: {{bg_panel}};
-    border-left: 3px solid {{border_accent}};
+    background: {{bg_main}};
+    border-left: 1px solid {{border_accent}};
     border-top: 1px solid {{border_light}};
     border-bottom: 1px solid {{border_light}};
 }
 
 QWidget#cameraInspectorHeader {
     background: qlineargradient(x1:0,y1:0,x2:1,y2:0,
-        stop:0 {{accent_subtle}},
-        stop:0.52 {{bg_panel}},
+        stop:0 {{bg_panel}},
+        stop:0.55 {{bg_main}},
         stop:1 {{bg_main}});
-    border-bottom: 1px solid {{border_light}};
+    border-bottom: 1px solid {{border}};
 }
 
 QWidget#cameraInspectorAccent {
@@ -51,17 +51,19 @@ QPushButton#cameraInspectorIcon:hover {
 }
 
 QWidget#cameraPreviewBox {
-    background: {{bg_main}};
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1,
+        stop:0 {{bg_panel_alt}},
+        stop:1 {{bg_main}});
     border-bottom: 1px solid {{border_light}};
 }
 
 QWidget#cameraInspectorControls {
-    background: {{bg_panel}};
+    background: {{bg_main}};
     border-bottom: 1px solid {{border_light}};
 }
 
 QPushButton#cameraPreviewButton {
-    background: {{success_dim_2}};
+    background: transparent;
     color: {{text_secondary}};
     border: 1px solid {{border_panel}};
     border-radius: 8px;
@@ -76,7 +78,7 @@ QPushButton#cameraPreviewButton:checked {
 }
 
 QPushButton#cameraSnapshotButton {
-    background: {{accent_dim_2}};
+    background: transparent;
     color: {{accent_light}};
     border: 1px solid {{border_accent}};
     border-radius: 8px;
