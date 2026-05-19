@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import os
 
 from PyQt6.QtCore import Qt
@@ -168,7 +169,6 @@ class DashboardBottomPanelsMixin:
 
         panels = [
             self._build_recent_events(),
-            self._build_detected_people(),
             self._build_ai_detection(),
             self._build_no_helmet_panel(),
         ]
@@ -244,67 +244,68 @@ class DashboardBottomPanelsMixin:
         w.setMinimumHeight(260)
         lay = QVBoxLayout(w)
         lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(12)
+        lay.setSpacing(8)
 
         lay.addLayout(self._section_header("AI Detection", "Healthy"))
 
-        # Content: person placeholder (left) + text stack (right)
-        content = QWidget()
-        content.setStyleSheet("background: transparent;")
-        c_lay = QHBoxLayout(content)
-        c_lay.setContentsMargins(0, 0, 0, 0)
-        c_lay.setSpacing(12)
-
-        # Left: person silhouette placeholder
-        person_box = QFrame()
-        person_box.setObjectName("aiPersonBox")
-        person_box.setFixedSize(78, 98)
-        person_box.setStyleSheet(
-            "QFrame#aiPersonBox {"
-            f"background: {C('success_dim_2')};"
-            f"border: 1px solid {C('success')};"
-            "border-radius: 8px;"
-            "}"
-        )
-        pb_lay = QVBoxLayout(person_box)
-        pb_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        person_icon = QLabel("👤")
-        person_icon.setText("AI")
-        person_icon.setStyleSheet(
-            f"font-size: 18px; font-weight: 900; background: transparent; color: {C('success')}; border: none;"
-        )
-        person_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pb_lay.addWidget(person_icon)
-        c_lay.addWidget(person_box)
-
-        # Right: status + description + button
-        right = QWidget()
-        right.setStyleSheet("background: transparent;")
-        r_lay = QVBoxLayout(right)
-        r_lay.setContentsMargins(0, 0, 0, 0)
-        r_lay.setSpacing(8)
-
+        # Status row
+        status_row = QHBoxLayout()
+        status_row.setSpacing(8)
         self._ai_active = True
         self._ai_status_lbl = QLabel("Active")
-        self._ai_status_lbl.setStyleSheet(
-            self._soft_status_style(C('success'), C('success_dim_2'))
-        )
-        r_lay.addWidget(self._ai_status_lbl)
-
-        self._ai_desc_lbl = QLabel("Smart detection is\nrunning smoothly.")
+        self._ai_status_lbl.setStyleSheet(self._soft_status_style(C('success'), C('success_dim_2')))
+        status_row.addWidget(self._ai_status_lbl)
+        self._ai_desc_lbl = QLabel("Face ID running")
         self._ai_desc_lbl.setStyleSheet(
-            f"color: {C('text_secondary')}; font-size: 11px; background: transparent; border: none;"
+            f"color: {C('text_secondary')}; font-size: 10px; background: transparent; border: none;"
         )
-        r_lay.addWidget(self._ai_desc_lbl)
+        status_row.addWidget(self._ai_desc_lbl, 1)
+        lay.addLayout(status_row)
 
-        self._ai_health_lbl = QLabel("0 active cameras | waiting for model")
+        # Face ID label
+        faceid_hdr = QLabel("Face ID — Recognized")
+        faceid_hdr.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 10px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+        lay.addWidget(faceid_hdr)
+
+        # Scrollable face recognition list
+        scroll = QScrollArea()
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent;")
+
+        self._faceid_container = QWidget()
+        self._faceid_container.setStyleSheet("background: transparent;")
+        self._faceid_layout = QVBoxLayout(self._faceid_container)
+        self._faceid_layout.setContentsMargins(0, 0, 0, 0)
+        self._faceid_layout.setSpacing(4)
+        self._faceid_layout.addStretch()
+
+        # Placeholder when no recognitions yet
+        self._faceid_empty_lbl = QLabel("Yuzlar hali aniqlanmadi...")
+        self._faceid_empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._faceid_empty_lbl.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
+        )
+        self._faceid_layout.insertWidget(0, self._faceid_empty_lbl)
+        self._faceid_rows: list = []
+
+        scroll.setWidget(self._faceid_container)
+        lay.addWidget(scroll, 1)
+
+        # Health + button row
+        self._ai_health_lbl = QLabel("0 cameras | waiting for model")
         self._ai_health_lbl.setStyleSheet(
             f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
         )
-        r_lay.addWidget(self._ai_health_lbl)
+        lay.addWidget(self._ai_health_lbl)
 
         self._ai_toggle_btn = QPushButton("Pause AI")
-        self._ai_toggle_btn.setFixedHeight(38)
+        self._ai_toggle_btn.setFixedHeight(34)
         self._ai_toggle_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {C('accent_dim_2')};
@@ -318,32 +319,126 @@ class DashboardBottomPanelsMixin:
             QPushButton:hover {{ background: {C('accent_dim_3')}; color: {C('text_on_accent')}; }}
         """)
         self._ai_toggle_btn.clicked.connect(self._toggle_ai)
-        r_lay.addWidget(self._ai_toggle_btn)
-        r_lay.addStretch()
-
-        c_lay.addWidget(right, 1)
-        lay.addWidget(content, 1)
+        lay.addWidget(self._ai_toggle_btn)
         return w
+
+    def _add_face_recognition(self, data: dict):
+        if not hasattr(self, "_faceid_layout"):
+            return
+        # Hide empty placeholder on first result
+        if hasattr(self, "_faceid_empty_lbl") and self._faceid_empty_lbl.isVisible():
+            self._faceid_empty_lbl.hide()
+
+        row = self._face_recog_row(data)
+        self._faceid_layout.insertWidget(0, row)
+        self._faceid_rows.insert(0, row)
+
+        # Keep only last 5 rows
+        while len(self._faceid_rows) > 5:
+            old = self._faceid_rows.pop()
+            self._faceid_layout.removeWidget(old)
+            old.deleteLater()
+
+    def _face_recog_row(self, data: dict) -> QWidget:
+        matched = data.get("matched", False)
+        name = data.get("employee_name") or "Unknown"
+        confidence = float(data.get("confidence") or 0.0)
+        cam_name = data.get("camera_name", "")
+        ts = data.get("timestamp")
+        if ts:
+            time_str = datetime.datetime.fromtimestamp(ts).strftime("%H:%M:%S")
+        else:
+            time_str = "--:--"
+
+        accent = C('success') if matched else C('warning')
+        accent_dim = C('success_dim_2') if matched else C('warning_dim_2')
+
+        row = QFrame()
+        row.setFixedHeight(54)
+        row.setStyleSheet(
+            "QFrame {"
+            f"background: {accent_dim};"
+            f"border: 1px solid {accent};"
+            "border-radius: 8px;"
+            "}"
+        )
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(8, 6, 8, 6)
+        lay.setSpacing(8)
+
+        # Avatar / face crop
+        avatar = QLabel()
+        avatar.setFixedSize(38, 38)
+        avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        avatar.setStyleSheet(
+            f"background: {C('bg_panel_alt')}; border-radius: 7px;"
+            f"border: 1px solid {accent}; font-size: 9px; font-weight: 800;"
+            f"color: {accent};"
+        )
+        pix = data.get("_crop_pixmap")
+        if pix is not None and not pix.isNull():
+            avatar.setPixmap(
+                pix.scaled(avatar.size(),
+                           Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                           Qt.TransformationMode.SmoothTransformation)
+            )
+        else:
+            avatar.setText("ID")
+        lay.addWidget(avatar)
+
+        # Name + camera
+        info = QVBoxLayout()
+        info.setSpacing(2)
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet(
+            f"color: {C('text_primary')}; font-size: 12px; font-weight: 800;"
+            " background: transparent; border: none;"
+        )
+        info.addWidget(name_lbl)
+        cam_lbl = QLabel(cam_name if cam_name else "Camera")
+        cam_lbl.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
+        )
+        info.addWidget(cam_lbl)
+        lay.addLayout(info, 1)
+
+        # Right: match badge + time
+        right = QVBoxLayout()
+        right.setSpacing(3)
+        right.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        badge_text = f"✓ {int(confidence * 100)}%" if matched else "? Unknown"
+        badge = QLabel(badge_text)
+        badge.setAlignment(Qt.AlignmentFlag.AlignRight)
+        badge.setStyleSheet(
+            f"color: {accent}; font-size: 10px; font-weight: 900;"
+            " background: transparent; border: none;"
+        )
+        right.addWidget(badge)
+
+        time_lbl = QLabel(time_str)
+        time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        time_lbl.setStyleSheet(
+            f"color: {C('text_muted')}; font-size: 9px; background: transparent; border: none;"
+        )
+        right.addWidget(time_lbl)
+        lay.addLayout(right)
+        return row
 
     def _toggle_ai(self):
         self._ai_active = not self._ai_active
         self.ai_pause_requested.emit(not self._ai_active)
         if self._ai_active:
             self._ai_status_lbl.setText("Active")
-            self._ai_status_lbl.setStyleSheet(
-                self._soft_status_style(C('success'), C('success_dim_2'))
-            )
-            self._ai_desc_lbl.setText("Smart detection is\nrunning smoothly.")
+            self._ai_status_lbl.setStyleSheet(self._soft_status_style(C('success'), C('success_dim_2')))
+            self._ai_desc_lbl.setText("Face ID running")
             self._ai_toggle_btn.setText("Pause AI")
-            self._update_ai_health()
         else:
             self._ai_status_lbl.setText("Paused")
-            self._ai_status_lbl.setStyleSheet(
-                self._soft_status_style(C('text_secondary'), C('bg_hover'))
-            )
-            self._ai_desc_lbl.setText("Detection is paused\nfor review.")
+            self._ai_status_lbl.setStyleSheet(self._soft_status_style(C('text_secondary'), C('bg_hover')))
+            self._ai_desc_lbl.setText("Detection paused")
             self._ai_toggle_btn.setText("Start AI")
-            self._update_ai_health()
+        self._update_ai_health()
 
     def _update_ai_health(self):
         if not hasattr(self, "_ai_health_lbl"):

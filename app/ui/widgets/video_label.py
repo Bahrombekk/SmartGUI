@@ -35,6 +35,7 @@ class VideoLabel(QLabel):
         self._mode       = "connecting"   # connecting | loading | offline | live
         self._anim_step  = 0
         self._qimage: QImage | None = None
+        self._offline    = False          # True bo'lsa frozen frame ustiga overlay
 
         self._anim_timer = QTimer(self)
         self._anim_timer.setInterval(700)
@@ -81,6 +82,22 @@ class VideoLabel(QLabel):
                 dx, dy = (sw - dw) // 2, (sh - dh) // 2
                 p.fillRect(0, 0, sw, sh, QColor("#0a0e14"))
                 p.drawImage(QRect(dx, dy, dw, dh), self._qimage)
+                if self._offline:
+                    # Frozen frame ustiga yarim shaffof overlay + OFFLINE badge
+                    p.fillRect(0, 0, sw, sh, QColor(10, 14, 20, 110))
+                    pad = 6
+                    badge_h = max(18, int(sh * 0.065))
+                    badge_w = badge_h * 4
+                    bx = sw - badge_w - pad
+                    by = pad
+                    p.setBrush(QBrush(QColor(160, 35, 35, 220)))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.drawRoundedRect(QRectF(bx, by, badge_w, badge_h), 4, 4)
+                    f = QFont("Segoe UI", max(7, int(badge_h * 0.55)), QFont.Weight.Bold)
+                    p.setFont(f)
+                    p.setPen(QColor("#ffffff"))
+                    p.drawText(QRect(bx, by, badge_w, badge_h),
+                               Qt.AlignmentFlag.AlignCenter, "● OFFLINE")
             p.end()
             return
         if self._mode == "offline" and not self._has_frame:
@@ -228,6 +245,9 @@ class VideoLabel(QLabel):
                 self._anim_timer.stop()
                 self._apply_base_style()
 
+            if self._offline:
+                self._offline = False  # yangi frame keldi — offline overlay olib tashlash
+
             self.update()
 
         except Exception as e:
@@ -237,6 +257,8 @@ class VideoLabel(QLabel):
 
     def show_connecting(self):
         self._has_frame = False
+        self._offline = False
+        self._qimage = None
         self._mode = "connecting"
         self.clear()
         self._apply_base_style()
@@ -253,12 +275,16 @@ class VideoLabel(QLabel):
             self._anim_timer.start()
 
     def show_error(self, msg: str = ""):
-        self._has_frame = False
+        self._offline = True
         self._mode = "offline"
         self._anim_timer.stop()
-        self.clear()
-        self._apply_base_style()
-        self.update()  # paintEvent orqali kamera belgisi chiziladi
+        if self._qimage is None:
+            # Hech qachon frame bo'lmagan — offline kamera ikonkasini ko'rsat
+            self._has_frame = False
+            self.clear()
+            self._apply_base_style()
+        # Frame mavjud bo'lsa — uni saqlab qoladi, overlay paintEvent'da chiziladi
+        self.update()
 
     def show_idle(self, text: str = "Preview"):
         """Kamera online, lekin preview hali yoqilmagan holat."""

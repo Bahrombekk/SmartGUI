@@ -194,7 +194,8 @@ class CameraPanel(QFrame):
         if self._stats_state == state:
             return
         self._stats_state = state
-        self._status_state = None
+        if connected:
+            self._status_state = None
         self._set_text(self._fps_lbl, f"{fps:.0f} fps")
 
         if persons > 0:

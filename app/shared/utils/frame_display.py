@@ -17,14 +17,25 @@ def resize_for_display(frame: np.ndarray, max_width: int) -> np.ndarray:
     return cv2.resize(frame, (max_width, new_height), interpolation=cv2.INTER_AREA)
 
 
-def frame_to_qimage(frame: np.ndarray) -> QImage:
+def frame_to_qimage(frame: np.ndarray) -> QImage | None:
     """OpenCV BGR frame'ni Qt ko'rsatadigan QImage formatiga o'tkazadi."""
+    if frame is None or frame.size == 0:
+        return None
+    if len(frame.shape) < 3 or frame.shape[2] != 3:
+        return None  # grayscale yoki buzilgan channel
     height, width = frame.shape[:2]
-    if hasattr(QImage.Format, "Format_BGR888"):
-        img = QImage(frame.data, width, height, 3 * width, QImage.Format.Format_BGR888)
-        return img.copy()
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return QImage(rgb.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+    if height < 4 or width < 4:
+        return None
+    try:
+        if hasattr(QImage.Format, "Format_BGR888"):
+            img = QImage(frame.data, width, height, 3 * width, QImage.Format.Format_BGR888)
+            copied = img.copy()
+            return copied if not copied.isNull() else None
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        img = QImage(rgb.tobytes(), width, height, 3 * width, QImage.Format.Format_RGB888)
+        return img if not img.isNull() else None
+    except Exception:
+        return None
 
 
 def draw_helmet_overlay(frame: np.ndarray, persons: list[dict]) -> np.ndarray:

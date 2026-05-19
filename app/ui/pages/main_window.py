@@ -71,42 +71,6 @@ class TopNavBar(QWidget):
         lay.setContentsMargins(0, 0, 12, 0)
         lay.setSpacing(0)
 
-        # тФАтФА Logo тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
-        logo_w = QWidget()
-        logo_w.setStyleSheet("background: transparent;")
-        logo_w.setFixedWidth(245)
-        logo_lay = QHBoxLayout(logo_w)
-        logo_lay.setContentsMargins(0, 0, 0, 0)
-        logo_lay.setSpacing(12)
-
-        logo_lay.addStretch(1)
-
-        # Brand mark
-        self._logo_circle = QLabel("SZ")
-        self._logo_circle.setFixedSize(38, 38)
-        self._logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._logo_circle.setStyleSheet(
-            "background: #1a3a6e; color: #e2e8f0; border-radius: 19px;"
-            " font-size: 12px; font-weight: 900;"
-        )
-        logo_lay.addWidget(self._logo_circle)
-
-        self._logo_txt = QLabel()
-        self._logo_txt.setTextFormat(Qt.TextFormat.RichText)
-        self._apply_logo_text()
-        self._logo_txt.setStyleSheet("background: transparent;")
-        logo_lay.addWidget(self._logo_txt)
-
-        logo_lay.addStretch(1)
-
-        self._apply_logo_image()
-        lay.addWidget(logo_w)
-
-        self._logo_sep = QWidget()
-        self._logo_sep.setFixedWidth(1)
-        self._logo_sep.setStyleSheet(f"background: {C('border')};")
-        lay.addWidget(self._logo_sep)
-
         # тФАтФА Nav tugmalari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         nav_items = [
             (self.PAGE_DASHBOARD, "Dashboard", "dashboard.svg"),
@@ -149,9 +113,39 @@ class TopNavBar(QWidget):
         self._refresh_btn.clicked.connect(self._refresh_requested)
         lay.addWidget(self._refresh_btn)
 
-        lay.addStretch()
+        # ── Logo (markaz) ─────────────────────────────────────────────────────
+        lay.addStretch(1)
 
-        # тФАтФА O'ng tomon: qidiruv + bell + controls тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
+        logo_w = QWidget()
+        logo_w.setStyleSheet("background: transparent;")
+        logo_lay = QHBoxLayout(logo_w)
+        logo_lay.setContentsMargins(0, 0, 0, 0)
+        logo_lay.setSpacing(12)
+
+        self._logo_circle = QLabel("SZ")
+        self._logo_circle.setFixedSize(38, 38)
+        self._logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._logo_circle.setStyleSheet(
+            "background: transparent; color: #e2e8f0; border-radius: 0px;"
+            " font-size: 12px; font-weight: 900; border: none;"
+        )
+        logo_lay.addWidget(self._logo_circle)
+
+        self._logo_txt = QLabel()
+        self._logo_txt.setTextFormat(Qt.TextFormat.RichText)
+        self._apply_logo_text()
+        self._logo_txt.setStyleSheet("background: transparent;")
+        logo_lay.addWidget(self._logo_txt)
+
+        self._apply_logo_image()
+        lay.addWidget(logo_w)
+
+        lay.addStretch(1)
+
+        self._logo_sep = QWidget()
+        self._logo_sep.setFixedSize(0, 0)
+
+        # ── O'ng tomon: qidiruv + bell + controls тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search...")
         self._search.setFixedWidth(190)
@@ -463,8 +457,8 @@ class TopNavBar(QWidget):
         self._apply_logo_text()
         self._apply_logo_image()
         self._logo_circle.setStyleSheet(
-            "background: #1a3a6e; color: #e2e8f0; border-radius: 19px;"
-            " font-size: 12px; font-weight: 900;"
+            "background: transparent; color: #e2e8f0; border-radius: 0px;"
+            " font-size: 12px; font-weight: 900; border: none;"
         )
         self._logo_sep.setStyleSheet(f"background: {C('border')};")
         for btn in self._nav_btns.values():
@@ -882,6 +876,9 @@ class MainWindow(QMainWindow):
             lambda cid=cam_id: self._on_model_loaded(cid)
         )
         worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
+        worker.face_recognized.connect(
+            lambda data, cid=cam_id: self._on_face_recognized(cid, data)
+        )
 
         # Yangi worker uchun joriy sahifaga mos emit holatini sozlash
         page = self._stack.currentIndex()
@@ -1096,6 +1093,22 @@ class MainWindow(QMainWindow):
         today = data.get("today_count")
         if today is not None:
             self._sb_today.setText(f"Bugun: {today} buzilish")
+
+    def _on_face_recognized(self, cam_id: int, data: dict):
+        crop_frame = data.get("crop_frame")
+        if crop_frame is not None and hasattr(crop_frame, "size") and crop_frame.size > 0:
+            try:
+                rgb = cv2.cvtColor(crop_frame, cv2.COLOR_BGR2RGB)
+                h, w = rgb.shape[:2]
+                img = QImage(rgb.tobytes(), w, h, 3 * w, QImage.Format.Format_RGB888)
+                data["_crop_pixmap"] = QPixmap.fromImage(img)
+            except Exception:
+                pass
+            data["crop_frame"] = None
+        cam = self.cfg.get_camera_by_id(cam_id)
+        data["camera_name"] = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
+        if self._stack.currentIndex() == self.PAGE_DASHBOARD:
+            self._dashboard.on_face_recognized(data)
 
     def _on_stats(self, cam_id: int, stats: dict):
         self._latest_stats[cam_id] = dict(stats)

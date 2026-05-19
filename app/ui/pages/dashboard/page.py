@@ -193,7 +193,6 @@ class DashboardPage(
 
     def _do_violation_rebuild(self):
         self._rebuild_recent_events()
-        self._rebuild_detected_people()
         self._rebuild_no_helmet()
 
     def on_stats(self, cam_id: int, stats: dict):
@@ -247,6 +246,10 @@ class DashboardPage(
             p.set_model_loading()
         if hasattr(self, "_update_ai_health"):
             self._update_ai_health()
+
+    def on_face_recognized(self, data: dict):
+        if hasattr(self, "_add_face_recognition"):
+            self._add_face_recognition(data)
 
     def set_total_persons(self, count: int):
         self._total_persons = max(0, int(count or 0))

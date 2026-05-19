@@ -58,6 +58,7 @@ class DetectionWorker(QThread):
     status_changed     = pyqtSignal(str)
     error_occurred     = pyqtSignal(str)
     model_loaded       = pyqtSignal()
+    face_recognized    = pyqtSignal(dict)
 
     def __init__(self, config_manager, db: ViolationsDB, parent=None):
         super().__init__(parent)
@@ -104,6 +105,8 @@ class DetectionWorker(QThread):
         self._spatial_violations = self._violation_runtime.spatial_violations
         self._no_helmet_frames = self._violation_runtime.no_helmet_frames
         self._access_frames = self._violation_runtime.access_frames
+
+        self._face_last_recog: dict[int, float] = {}
 
         # Notifiers
         self._notifier = None
@@ -165,15 +168,49 @@ class DetectionWorker(QThread):
                 _log.error("Backend yuklanmadi: %s", e)
 
     def _setup_faceid(self):
-        if not bool(self.cfg.get("faceid_enabled", False) or self.cfg.get("access_roster_enabled", False)):
-            return
         try:
-            svc = FaceIdService(self.db, self.cfg)
+            full_cfg = getattr(self.cfg, "_base", self.cfg)
+            svc = FaceIdService(self.db, full_cfg)
             svc.enroll_from_settings_users()
             self.faceid_service = svc
         except Exception as e:
             self.faceid_service = None
-            self.error_occurred.emit(f"FaceID tayyorlanmadi: {e}")
+            _log.warning("FaceID tayyorlanmadi: %s", e)
+
+    def _try_recognize_face(self, frame: np.ndarray, person: dict):
+        if self.faceid_service is None:
+            return
+        tid = person.get("track_id", -1)
+        now = time.perf_counter()
+        if now - self._face_last_recog.get(tid, 0) < 5.0:
+            return
+        self._face_last_recog[tid] = now
+        crop = self._crop_person(frame, person)
+        if crop is None:
+            return
+        # Upper 45% of bounding box — yuz shu qismda bo'ladi
+        h = crop.shape[0]
+        face_region = crop[:max(32, int(h * 0.45)), :]
+        face = self.faceid_service._extract_face(face_region)
+        if face is None:
+            face = self.faceid_service._extract_face(crop)
+        if face is None:
+            return
+        identity = self.faceid_service.match_person_crop(crop)
+        name = identity.employee_name or "Unknown" if identity else "Unknown"
+        confidence = identity.confidence if identity else 0.0
+        matched = identity.matched if identity else False
+        emp_id = identity.employee_id if identity else None
+        self.face_recognized.emit({
+            "track_id": tid,
+            "cam_id": self._cam_id,
+            "timestamp": time.time(),
+            "crop_frame": face_region,
+            "employee_name": name,
+            "employee_id": emp_id,
+            "confidence": confidence,
+            "matched": matched,
+        })
 
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 
@@ -307,11 +344,15 @@ class DetectionWorker(QThread):
         return frame_to_qimage(frame)
 
     def _emit_frame(self, frame: np.ndarray):
-        # Hech kim ko'rmaydigan sahifada bo'lsa — konversiya va signal yubormaymiz.
         if not self._emit_frames:
             return
+        if frame is None or frame.size == 0:
+            return
         display = self._resize_for_display(frame)
-        self.frame_ready.emit(self._to_qimage(display))
+        qimg = self._to_qimage(display)
+        if qimg is None or qimg.isNull():
+            return
+        self.frame_ready.emit(qimg)
 
     def _update_fps(self, now: float):
         if self._last_fps_ts is not None:
@@ -457,9 +498,8 @@ class DetectionWorker(QThread):
                     for p in persons:
                         if p.get("is_new_violation", False):
                             self._handle_violation(violation_frame, p, "no_helmet")
-                        access_type = self._check_access_violation(violation_frame, p)
-                        if access_type:
-                            self._handle_violation(violation_frame, p, access_type)
+                        if p.get("has_helmet") is False:
+                            self._try_recognize_face(violation_frame, p)
 
                 persons = self._last_persons
 

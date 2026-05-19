@@ -24,6 +24,7 @@ os.environ["OPENCV_LOG_LEVEL"]       = "ERROR"
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "quiet"
 
 # GPU (NVDEC) bilan dekodlash — CPU yukini sezilarli kamaytiradi
+# threads;1 — pthread_frame.c async_lock assertion crash ni to'xtatadi
 _RTSP_OPTIONS_GPU = (
     "rtsp_transport;tcp|"
     "stimeout;5000000|"
@@ -31,18 +32,20 @@ _RTSP_OPTIONS_GPU = (
     "flags;low_delay|"
     "analyzeduration;1000000|"
     "probesize;500000|"
+    "threads;1|"
     "hwaccel;cuda|"
     "hwaccel_device;0"
 )
 
-# CPU fallback
+# CPU fallback — threads;1 HEVC ko'p-threadli decoder crash ni oldini oladi
 _RTSP_OPTIONS = (
     "rtsp_transport;tcp|"
-    "stimeout;5000000|"      # socket timeout: 5s (RailSafeGUI dan)
+    "stimeout;5000000|"
     "fflags;nobuffer|"
     "flags;low_delay|"
     "analyzeduration;1000000|"
-    "probesize;500000"
+    "probesize;500000|"
+    "threads;1"
 )
 
 def _cuda_ffmpeg_available() -> bool:
@@ -80,6 +83,12 @@ class _FrameSlot:
         self._fps_ts   = time.perf_counter()
 
     def put(self, frame: np.ndarray):
+        if frame is None or frame.size == 0:
+            return
+        if len(frame.shape) < 3 or frame.shape[2] != 3:
+            return  # grayscale yoki buzilgan frame — o'tkazib yubor
+        if frame.shape[0] < 8 or frame.shape[1] < 8:
+            return  # juda kichik frame — buzilgan
         now = time.perf_counter()
         with self._lock:
             self._idx ^= 1
@@ -229,7 +238,7 @@ class CV2RTSPReader(threading.Thread):
         # 2-urinish: UDP
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
             "rtsp_transport;udp|stimeout;5000000|fflags;nobuffer|"
-            "analyzeduration;1000000|probesize;500000"
+            "analyzeduration;1000000|probesize;500000|threads;1"
         )
         result = [None]
 
@@ -258,7 +267,7 @@ class CV2RTSPReader(threading.Thread):
 
         # 3-urinish: CAP_ANY
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-            "rtsp_transport;tcp|stimeout;8000000|fflags;nobuffer"
+            "rtsp_transport;tcp|stimeout;8000000|fflags;nobuffer|threads;1"
         )
         result2 = [None]
 

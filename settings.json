@@ -191,7 +191,7 @@
   "cleanup_files": false,
   "faceid_enabled": true,
   "faceid_threshold": 0.72,
-  "access_roster_enabled": true,
+  "access_roster_enabled": false,
   "use_polygon": false,
   "polygon_points": [],
   "theme": "light",
