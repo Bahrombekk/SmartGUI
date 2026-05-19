@@ -91,6 +91,10 @@ class DetectionWorker(QThread):
         self._last_persons: list[dict] = []
         self._last_result_ts: float | None = None  # oxirgi qayta ishlangan result
 
+        # Polygon zone cache
+        self._poly_np: np.ndarray | None = None
+        self._poly_frame_size: tuple | None = None
+
         # FPS
         self._frame_count   = 0
         self._fps           = 0.0
@@ -290,11 +294,46 @@ class DetectionWorker(QThread):
             p["bbox_xyxy"] = box
         return p
 
-    # ── Overlay chizish ───────────────────────────────────────────────────
+    # ── Polygon zone filtrlash ────────────────────────────────────────────
+
+    def _get_poly_np(self, fw: int, fh: int) -> np.ndarray | None:
+        pts = self.cfg.polygon_points
+        if len(pts) < 3:
+            return None
+        key = (fw, fh)
+        if self._poly_frame_size != key:
+            self._poly_np = np.array(
+                [[p[0] * fw, p[1] * fh] for p in pts], dtype=np.float32
+            ).reshape(-1, 1, 2)
+            self._poly_frame_size = key
+        return self._poly_np
 
     @staticmethod
-    def _draw_overlay(frame: np.ndarray, persons: list[dict]) -> np.ndarray:
-        return draw_helmet_overlay(frame, persons)
+    def _in_zone(person: dict, poly: np.ndarray) -> bool:
+        box = person.get("box") or person.get("bbox_xyxy", [])
+        if len(box) < 4:
+            return True
+        cx = float((box[0] + box[2]) / 2.0)
+        cy = float(box[3])  # feet position
+        return cv2.pointPolygonTest(poly, (cx, cy), False) >= 0
+
+    def _filter_by_polygon(self, persons: list[dict], frame: np.ndarray) -> list[dict]:
+        if frame is None or frame.size == 0:
+            return persons
+        h, w = frame.shape[:2]
+        poly = self._get_poly_np(w, h)
+        if poly is None:
+            return persons
+        return [p for p in persons if self._in_zone(p, poly)]
+
+    # ── Overlay chizish ───────────────────────────────────────────────────
+
+    def _draw_overlay(self, frame: np.ndarray, persons: list[dict]) -> np.ndarray:
+        return draw_helmet_overlay(
+            frame, persons,
+            self.cfg.polygon_points,
+            getattr(self.cfg, "polygon_color", "#f97316"),
+        )
 
     # ── Buzilish saqlash ──────────────────────────────────────────────────
 
@@ -373,6 +412,8 @@ class DetectionWorker(QThread):
         self._today_count = self.db.get_today_count()
         self._violation_runtime.today_count = self._today_count
         self._violation_runtime.set_running(True)
+        # Oldingi sessiyada saqlangan deteksiya sonini yuklash
+        self._detections_today = self.db.get_daily_detections(self.cfg.camera_name)
 
         self.status_changed.emit("Yuklanmoqda...")
         has_ai = self._init_service()
@@ -492,6 +533,7 @@ class DetectionWorker(QThread):
                     persons = self._process_detections(result.detections)
                     self._update_detection_counter(persons)
                     persons = self._check_violations(persons)
+                    persons = self._filter_by_polygon(persons, frame)
                     self._last_persons = persons
 
                     violation_frame = result.raw_frame if result.raw_frame is not None else frame
@@ -529,6 +571,7 @@ class DetectionWorker(QThread):
                         f"Ulangan | FPS: {self._fps:.1f} | Bugun: {self._violation_runtime.today_count}"
                         if connected else "Qayta ulanmoqda..."
                     )
+                    self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
 
             else:
                 # ── Video-only rejim ──────────────────────────────────────
@@ -547,12 +590,19 @@ class DetectionWorker(QThread):
                         f"Ulangan | FPS: {self._fps:.1f}"
                         if connected else "Qayta ulanmoqda..."
                     )
+                    self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
 
         self._cleanup()
 
     # ── Tozalash ──────────────────────────────────────────────────────────
 
     def _cleanup(self):
+        # Deteksiya sonini saqlash (to'xtatishda ham)
+        try:
+            self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
+        except Exception:
+            pass
+
         # CameraService dan reader ni olib tashlaymiz
         if self._svc is not None:
             svc_unregister(self._cam_id)

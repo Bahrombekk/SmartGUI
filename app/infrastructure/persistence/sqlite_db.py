@@ -173,6 +173,14 @@ class ViolationsDB:
                 CREATE INDEX IF NOT EXISTS idx_notification_jobs_status
                 ON notification_jobs (status, created_at)
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS daily_stats (
+                    date        TEXT NOT NULL,
+                    camera_name TEXT NOT NULL,
+                    detections  INTEGER DEFAULT 0,
+                    PRIMARY KEY (date, camera_name)
+                )
+            """)
             conn.commit()
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, ddl: str):
@@ -467,6 +475,28 @@ class ViolationsDB:
             GROUP BY camera_id
         """, (ts_from, ts_to)).fetchall()
         return {int(row["camera_id"]): int(row["cnt"]) for row in rows}
+
+    # ── Kunlik deteksiya statistikasi ─────────────────────────────────────
+
+    def get_daily_detections(self, camera_name: str) -> int:
+        """Bugungi saqlangan deteksiya sonini qaytaradi."""
+        today_str = date.today().isoformat()
+        row = self._conn().execute(
+            "SELECT detections FROM daily_stats WHERE date = ? AND camera_name = ?",
+            (today_str, camera_name),
+        ).fetchone()
+        return int(row["detections"]) if row else 0
+
+    def set_daily_detections(self, camera_name: str, count: int):
+        """Bugungi deteksiya sonini saqlaydi (upsert)."""
+        today_str = date.today().isoformat()
+        with self._write_lock:
+            self._conn().execute(
+                "INSERT INTO daily_stats (date, camera_name, detections) VALUES (?, ?, ?)"
+                " ON CONFLICT(date, camera_name) DO UPDATE SET detections = excluded.detections",
+                (today_str, camera_name, int(count)),
+            )
+            self._conn().commit()
 
     def get_total_count(self) -> int:
         """Jami buzilishlar soni."""

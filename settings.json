@@ -28,7 +28,25 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [
+        [
+          0.1012396694214876,
+          0.19788797061524335
+        ],
+        [
+          0.6859504132231405,
+          0.18503213957759412
+        ],
+        [
+          0.9731404958677686,
+          0.4825528007346189
+        ],
+        [
+          0.1115702479338843,
+          0.7286501377410468
+        ]
+      ],
+      "polygon_color": "#f97316"
     },
     {
       "id": 1,
@@ -40,7 +58,8 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [],
+      "polygon_color": "#f97316"
     },
     {
       "id": 2,
@@ -52,7 +71,8 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [],
+      "polygon_color": "#f97316"
     },
     {
       "id": 4,
@@ -64,7 +84,8 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [],
+      "polygon_color": "#f97316"
     },
     {
       "id": 5,
@@ -76,7 +97,8 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [],
+      "polygon_color": "#f97316"
     },
     {
       "id": 6,
@@ -88,7 +110,8 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [],
+      "polygon_color": "#f97316"
     },
     {
       "id": 7,
@@ -100,7 +123,25 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [
+        [
+          0.2675619834710744,
+          0.20815162697081516
+        ],
+        [
+          0.01652892561983471,
+          0.5576377664603093
+        ],
+        [
+          0.8006198347107438,
+          0.6143606477387088
+        ],
+        [
+          0.6549586776859504,
+          0.23376841206428592
+        ]
+      ],
+      "polygon_color": "#f74701"
     },
     {
       "id": 8,
@@ -112,7 +153,37 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [
+        [
+          0.15392561983471073,
+          0.14646464646464646
+        ],
+        [
+          0.0010330578512396695,
+          0.41460055096418735
+        ],
+        [
+          0.03512396694214876,
+          0.9361799816345271
+        ],
+        [
+          0.5888429752066116,
+          0.9435261707988981
+        ],
+        [
+          0.9524793388429752,
+          0.9361799816345271
+        ],
+        [
+          0.8512396694214877,
+          0.26584022038567495
+        ],
+        [
+          0.42355371900826444,
+          0.13544536271809
+        ]
+      ],
+      "polygon_color": "#f97316"
     },
     {
       "id": 9,
@@ -124,7 +195,8 @@
       "access_mode": "department",
       "allowed_department_ids": [],
       "allowed_employee_ids": [],
-      "polygon_points": []
+      "polygon_points": [],
+      "polygon_color": "#f97316"
     }
   ],
   "users": [

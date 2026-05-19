@@ -90,6 +90,20 @@ QPushButton#cameraSnapshotButton:hover {
     color: {{text_primary}};
 }
 
+QPushButton#cameraZoneButton {
+    background: transparent;
+    color: #f97316;
+    border: 1px solid rgba(249, 115, 22, 0.45);
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 800;
+}
+QPushButton#cameraZoneButton:hover {
+    background: rgba(249, 115, 22, 0.12);
+    color: {{text_primary}};
+    border-color: #f97316;
+}
+
 QWidget#cameraSectionHeader {
     background: {{bg_panel}};
 }

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PyQt6.QtCore import QTimer, Qt, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QComboBox, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from app.ui.styles import C
@@ -371,12 +371,32 @@ class DashboardMonitorMixin:
         image = QLabel()
         image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         image.setStyleSheet("background: #000000; border: 1px solid #1e293b; border-radius: 8px;")
-        pixmap = panel._video.pixmap()
-        if pixmap and not pixmap.isNull():
-            image.setPixmap(pixmap.scaled(960, 560, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        else:
-            image.setText("Video frame hali mavjud emas")
-            image.setStyleSheet(image.styleSheet() + f"color: {C('text_muted')};")
         lay.addWidget(image, 1)
+
+        def _refresh_frame():
+            qimg = getattr(panel._video, "_qimage", None)
+            if qimg and not qimg.isNull():
+                pix = QPixmap.fromImage(qimg)
+                scaled = pix.scaled(
+                    image.width() or 960, image.height() or 560,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                image.setPixmap(scaled)
+                image.setStyleSheet("background: #000000; border: 1px solid #1e293b; border-radius: 8px;")
+            elif not image.pixmap() or image.pixmap().isNull():
+                image.setText("Video frame hali mavjud emas")
+                image.setStyleSheet(
+                    "background: #000000; border: 1px solid #1e293b; border-radius: 8px;"
+                    f" color: {C('text_muted')}; font-size: 13px;"
+                )
+
+        _refresh_frame()
+        _timer = QTimer(dlg)
+        _timer.setInterval(67)   # ~15 fps popup update
+        _timer.timeout.connect(_refresh_frame)
+        _timer.start()
+
         dlg.exec()
+        _timer.stop()
 

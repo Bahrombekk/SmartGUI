@@ -776,8 +776,15 @@ class CameraDetailPanel(QFrame):
         self._shot_btn.setObjectName("cameraSnapshotButton")
         self._shot_btn.setFixedHeight(36)
         self._shot_btn.clicked.connect(self._save_snapshot)
+
+        self._zone_btn = QPushButton("Draw Zone")
+        self._zone_btn.setObjectName("cameraZoneButton")
+        self._zone_btn.setFixedHeight(36)
+        self._zone_btn.clicked.connect(self._edit_zone)
+
         c.addWidget(self._prev_btn, 1)
         c.addWidget(self._shot_btn, 1)
+        c.addWidget(self._zone_btn, 1)
         lay.addWidget(controls)
 
         lay.addWidget(self._section_header("LIVE HEALTH", LIVE))
@@ -972,6 +979,42 @@ class CameraDetailPanel(QFrame):
             return
         self._set_info(self._row_last, "Restart requested")
         self.restart_requested.emit(self._cam_id)
+
+    def _edit_zone(self):
+        if self._cam_id is None:
+            return
+        cam = next((c for c in self._cameras if c.get("id") == self._cam_id), None)
+        if cam is None:
+            return
+        if self._last_frame is None or self._last_frame.isNull():
+            QMessageBox.information(
+                self, "Frame yo'q",
+                "Zona chizish uchun avval Preview tugmasini bosing va\n"
+                "kamera frameni kutib oling."
+            )
+            return
+        pixmap = QPixmap.fromImage(self._last_frame)
+        existing_pts = cam.get("polygon_points", [])
+        from app.ui.widgets.polygon_editor import PolygonEditorDialog
+        dlg = PolygonEditorDialog(
+            pixmap, existing_pts,
+            cam.get("name", f"Camera {self._cam_id}"),
+            existing_color=cam.get("polygon_color", "#f97316"),
+            parent=self,
+        )
+        if dlg.exec() == dlg.DialogCode.Accepted:
+            pts   = dlg.result_points()
+            color = dlg.result_color()
+            if pts is not None:
+                self.cfg.update_camera(self._cam_id, polygon_points=pts, polygon_color=color)
+                self.cfg.save()
+                for c in self._cameras:
+                    if c.get("id") == self._cam_id:
+                        c["polygon_points"] = pts
+                        c["polygon_color"]  = color
+                        break
+                self._zone_btn.setText("Zone Saved ✓")
+                QTimer.singleShot(1500, lambda: self._zone_btn.setText("Draw Zone"))
 
     def _update_health(self, stats: dict):
         fps = float(stats.get("fps") or 0)

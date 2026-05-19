@@ -25,6 +25,7 @@ _DEFAULT_CAMERA = {
     "allowed_department_ids": [],
     "allowed_employee_ids": [],
     "polygon_points": [],
+    "polygon_color": "#f97316",
 }
 
 _DEFAULT_DEPARTMENT = {
@@ -182,6 +183,8 @@ class ConfigManager:
                     cam["allowed_employee_ids"] = []
                 if "polygon_points" not in cam:
                     cam["polygon_points"] = []
+                if "polygon_color" not in cam:
+                    cam["polygon_color"] = "#f97316"
             return
 
         # Eski formatdan migration
@@ -595,11 +598,15 @@ class CameraConfigProxy:
 
     @property
     def use_polygon(self) -> bool:
-        return self._base.use_polygon
+        return len(self._cam.get("polygon_points", [])) >= 3
 
     @property
     def polygon_points(self) -> list:
-        return self._base.polygon_points
+        return self._cam.get("polygon_points", [])
+
+    @property
+    def polygon_color(self) -> str:
+        return self._cam.get("polygon_color", "#f97316")
 
     def get_tracker_config(self) -> str:
         return self._base.get_tracker_config()
