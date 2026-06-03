@@ -46,8 +46,13 @@ camera_snapshots/*.jpeg
 .DS_Store
 Thumbs.db
 
-# Settings (maxfiy ma'lumotlar: tokenlar, parollar)
-# settings.json — maxfiy emas, template sifatida yuklanadi
+# Settings (maxfiy ma'lumotlar: RTSP parollar, tokenlar, backend login)
+# Real konfiguratsiya commit qilinmaydi; namuna uchun settings.example.json bor.
+settings.json
+
+# Database backup / corrupt artefaktlari
+*.bak
+*.corrupt.*
 
 # PyInstaller
 dist/
