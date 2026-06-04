@@ -93,10 +93,15 @@ class ViolationService:
             full_path=full_path,
             crop_frame=crop_frame,
         )
-        self.notification_queue.enqueue_violation_jobs(
-            event,
-            telegram_enabled=notifier is not None,
-            backend_enabled=backend is not None,
-        )
-        self.dispatcher.dispatch(event, frame, notifier=notifier, backend=backend)
+        # Diskda rasm bo'lsa — navbatga qo'yamiz (NotificationWorker ishonchli
+        # yuboradi: retry + backoff + offline drain). Aks holda retry uchun rasm
+        # yo'q, shuning uchun darhol (retrysiz) yuboramiz.
+        if crop_path or full_path:
+            self.notification_queue.enqueue_violation_jobs(
+                event,
+                telegram_enabled=notifier is not None,
+                backend_enabled=backend is not None,
+            )
+        else:
+            self.dispatcher.dispatch(event, frame, notifier=notifier, backend=backend)
         return event

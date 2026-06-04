@@ -19,6 +19,7 @@ from app.config.settings_manager import CameraConfigProxy
 from app.workers.camera_service import svc_destroy
 from app.workers.cleanup_worker import CleanupWorker
 from app.workers.detection_worker import DetectionWorker
+from app.workers.notification_worker import NotificationWorker
 
 
 class CameraRuntimeController(QObject):
@@ -44,6 +45,7 @@ class CameraRuntimeController(QObject):
         self._workers: dict[int, DetectionWorker] = {}
         self._stopping_workers: list[DetectionWorker] = []
         self._cleanup_worker: CleanupWorker | None = None
+        self._notification_worker: NotificationWorker | None = None
         self.persons_per_cam: dict[int, int] = {}
         self.latest_stats: dict[int, dict] = {}
         self.latest_status: dict[int, str] = {}
@@ -126,6 +128,11 @@ class CameraRuntimeController(QObject):
         self._workers.clear()
         self.persons_per_cam.clear()
         self.pause_changed.emit(False)
+
+        if self._notification_worker is not None:
+            self._notification_worker.stop()
+            self._notification_worker = None
+
         svc_destroy()
 
     def _request_stop_all(self) -> None:
@@ -228,6 +235,17 @@ class CameraRuntimeController(QObject):
         return True
 
     # ── Cleanup ───────────────────────────────────────────────────────────────
+
+    def start_notifications(self) -> None:
+        """Notification queue drain worker'ini ishga tushiradi (ilova umrida 1 marta).
+
+        Kamera restart'larida to'xtatilmaydi — u mustaqil navbatni yuritadi va
+        startda offline to'plangan joblarni drain qiladi.
+        """
+        if self._notification_worker and self._notification_worker.isRunning():
+            return
+        self._notification_worker = NotificationWorker(self.db, self.cfg)
+        self._notification_worker.start()
 
     def start_cleanup(self) -> None:
         if self._cleanup_worker and self._cleanup_worker.isRunning():

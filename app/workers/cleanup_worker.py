@@ -22,6 +22,12 @@ class CleanupWorker(QThread):
         deleted_files = 0
         try:
             self.db.cleanup_old(self.keep_days)
+            # Yuborilgan/abadiy-xato notification joblarni ham tozalaymiz
+            # (pending joblar tegilmaydi).
+            try:
+                self.db.cleanup_notification_jobs(self.keep_days)
+            except Exception:
+                pass
             if self.cleanup_files:
                 deleted_files = self._cleanup_files()
             self.finished_cleanup.emit({"keep_days": self.keep_days, "deleted_files": deleted_files})

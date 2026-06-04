@@ -393,6 +393,44 @@ class ViolationsDB:
             conn.execute("DELETE FROM violations WHERE timestamp < ?", (cutoff,))
             conn.commit()
 
+    def cleanup_notification_jobs(self, keep_days: int = 7) -> int:
+        """Yuborilgan/abadiy xato joblarni keep_days kundan keyin o'chiradi.
+
+        'pending' joblar (hali navbatda) tegilmaydi. O'chirilgan qatorlar
+        sonini qaytaradi.
+        """
+        cutoff = int((datetime.now() - timedelta(days=keep_days)).timestamp())
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "DELETE FROM notification_jobs"
+                " WHERE status IN ('sent', 'failed') AND updated_at < ?",
+                (cutoff,),
+            )
+            conn.commit()
+            return cur.rowcount
+
+    def update_violation_sync_status(
+        self,
+        track_id: int,
+        timestamp: int,
+        camera_name: str,
+        sync_status: str,
+    ) -> None:
+        """Buzilish qatorining sync_status'ini yangilaydi (best-effort).
+
+        notification job payload'ida violation id yo'q, shuning uchun
+        (track_id, timestamp, camera_name) bo'yicha moslashtiriladi.
+        """
+        with self._write_lock:
+            conn = self._conn()
+            conn.execute(
+                "UPDATE violations SET sync_status=?"
+                " WHERE track_id=? AND timestamp=? AND camera_name=?",
+                (sync_status, track_id, timestamp, camera_name),
+            )
+            conn.commit()
+
     # ── O'qish (lock shart emas — WAL mode) ───────────────────────────────
 
     def get_violations(

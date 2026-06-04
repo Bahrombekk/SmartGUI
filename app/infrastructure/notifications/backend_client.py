@@ -43,3 +43,18 @@ class BackendClient:
             )
         except Exception as e:
             _log.error("Yuborish xatosi: %s", e)
+
+    def send_image_bytes(self, camera_name: str, company_id: str, image_bytes: bytes) -> None:
+        """Sinxron yuborish. Xatoda istisno ko'taradi — queue worker retry qiladi."""
+        if not self.api_url:
+            raise RuntimeError("Backend URL yo'q")
+        import requests
+
+        resp = requests.post(
+            self.api_url,
+            auth=(self.login, self.password),
+            files={"image": ("violation.jpg", image_bytes, "image/jpeg")},
+            data={"company_id": company_id, "camera_name": camera_name},
+            timeout=15,
+        )
+        resp.raise_for_status()

@@ -578,6 +578,7 @@ class MainWindow(QMainWindow):
 
         QTimer.singleShot(600, self._start_all_cameras)
         QTimer.singleShot(1200, self._runtime.start_cleanup)
+        QTimer.singleShot(1400, self._runtime.start_notifications)
 
     # тФАтФА UI тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
