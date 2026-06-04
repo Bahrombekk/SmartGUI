@@ -112,7 +112,7 @@ class IoUTracker:
         return 0.20
 
     @staticmethod
-    def _smooth_box(old: list, new: list, alpha: float = 0.72) -> list:
+    def _smooth_box(old: list, new: list, alpha: float = 0.88) -> list:
         return [
             old[i] * (1.0 - alpha) + new[i] * alpha
             for i in range(4)

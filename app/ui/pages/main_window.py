@@ -800,8 +800,12 @@ class MainWindow(QMainWindow):
     # тФАтФА Sahifa almashtirish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _switch_page(self, page: int, nav_page: int | None = None):
+        import time as _t
+        _t0 = _t.perf_counter()
         self._ensure_page(page)
+        _t_ensure = _t.perf_counter()
         self._stack.setCurrentIndex(page)
+        _t_stack = _t.perf_counter()
         if nav_page is None:
             nav_page = {
                 self.PAGE_DASHBOARD:  0,
@@ -813,6 +817,7 @@ class MainWindow(QMainWindow):
             }.get(page)
         if nav_page is not None:
             self._navbar.set_active_page(nav_page)
+        _t_nav = _t.perf_counter()
         if page == self.PAGE_ANALYTICS:
             self._analytics.refresh()
         elif page == self.PAGE_VIOLATIONS and self._violations_dirty:
@@ -821,9 +826,19 @@ class MainWindow(QMainWindow):
         elif page == self.PAGE_USERS and not self._users_loaded:
             self._users.refresh()
             self._users_loaded = True
+        _t_load = _t.perf_counter()
         if page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
             self._apply_cached_camera_state(page)
+        _t_cache = _t.perf_counter()
         self._apply_frame_emission(page)
+        _t_emit = _t.perf_counter()
+        print(
+            f"[SWITCH p={page}] ensure={(_t_ensure-_t0)*1000:.1f} "
+            f"stack={(_t_stack-_t_ensure)*1000:.1f} nav={(_t_nav-_t_stack)*1000:.1f} "
+            f"load={(_t_load-_t_nav)*1000:.1f} cache={(_t_cache-_t_load)*1000:.1f} "
+            f"emit={(_t_emit-_t_cache)*1000:.1f} | JAMI={(_t_emit-_t0)*1000:.1f} ms",
+            flush=True,
+        )
 
     def _apply_frame_emission(self, page: int):
         """Faqat Dashboard yoki Cameras sahifasida frame'larni UI ga uzatamiz.
