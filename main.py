@@ -206,4 +206,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Windows multiprocessing (subprocess kamera reader) uchun zarur
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

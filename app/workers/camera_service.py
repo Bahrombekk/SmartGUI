@@ -31,6 +31,7 @@ BOX_COLORS = [
 class DetectionResult:
     camera_id: int
     timestamp: float | None = None
+    completed_at: float | None = None
     fps: float = 0.0
     frame_width: int = 0
     frame_height: int = 0
@@ -218,6 +219,7 @@ class DetectorGroup(threading.Thread):
                         self._results[reader.cam_id] = DetectionResult(
                             camera_id=reader.cam_id,
                             timestamp=snap.timestamp,
+                            completed_at=time.perf_counter(),
                             fps=snap.fps,
                             frame_width=w,
                             frame_height=h,

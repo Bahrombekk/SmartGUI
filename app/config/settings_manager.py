@@ -13,12 +13,12 @@ _log = logging.getLogger(__name__)
 
 SMARTHELMET_DEFAULT = ""
 
-# Default bitta kamera
+# Default bitta kamera (namunaviy qiymatlar — real parol/IP yo'q)
 _DEFAULT_CAMERA = {
     "id": 1,
-    "name": "Elekravoz sex ichki",
-    "rtsp_url": "rtsp://admin:qwerty12345@192.168.25.114:554/Streaming/Channels/101",
-    "company_id": "61169935-7269-4782-a5d2-bdd42ef28bb0",
+    "name": "Kamera 1",
+    "rtsp_url": "rtsp://<login>:<parol>@<kamera-ip>:554/Streaming/Channels/101",
+    "company_id": "",
     "department_id": 1,
     "enabled": True,
     "access_mode": "department",

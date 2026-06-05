@@ -90,6 +90,10 @@ class DetectionWorker(QThread):
         self._track_statuses = self._detection_analyzer.track_statuses
         self._last_persons: list[dict] = []
         self._last_result_ts: float | None = None  # oxirgi qayta ishlangan result
+        self._last_result_completed_at: float | None = None
+        self._prev_result_ts: float | None = None      # bir oldingi result timestamp
+        self._det_interval_ema: float | None = None     # detection orasidagi real interval (sek)
+        self._last_display_emit_ts: float = 0.0
 
         # Polygon zone cache
         self._poly_np: np.ndarray | None = None
@@ -279,7 +283,7 @@ class DetectionWorker(QThread):
         return frame[y1:y2, x1:x2].copy()
 
     @staticmethod
-    def _extrapolate_box(p: dict, t: float) -> dict:
+    def _extrapolate_box(p: dict, t: float, frame_shape: tuple[int, int] | None = None) -> dict:
         """Box pozitsiyasini velocity asosida t detection-frame oldinga suradi."""
         vx = p.get("vx", 0.0)
         vy = p.get("vy", 0.0)
@@ -290,6 +294,14 @@ class DetectionWorker(QThread):
         if len(box) == 4:
             dx, dy = vx * t, vy * t
             box = [box[0]+dx, box[1]+dy, box[2]+dx, box[3]+dy]
+            if frame_shape is not None:
+                h, w = frame_shape[:2]
+                box = [
+                    max(0.0, min(float(w - 1), box[0])),
+                    max(0.0, min(float(h - 1), box[1])),
+                    max(0.0, min(float(w), box[2])),
+                    max(0.0, min(float(h), box[3])),
+                ]
             p["box"] = box
             p["bbox_xyxy"] = box
         return p
@@ -382,9 +394,24 @@ class DetectionWorker(QThread):
     def _to_qimage(frame: np.ndarray):
         return frame_to_qimage(frame)
 
-    def _emit_frame(self, frame: np.ndarray):
+    def _should_emit_frame(self) -> bool:
+        """display_fps_limit ga ko'ra frame emit qilish vaqti kelganini tekshiradi.
+        True qaytarsa — emit oynasini band qiladi (timestamp yangilanadi), shuning
+        uchun overlay chizish faqat haqiqatan emit qilinadigan framelar uchun bajariladi.
+        """
         if not self._emit_frames:
-            return
+            return False
+        now = time.perf_counter()
+        display_fps = max(1, int(self.cfg.get(
+            "display_fps_limit",
+            min(int(self.cfg.get("video_fps_limit", 25)), 18),
+        )))
+        if now - self._last_display_emit_ts < (1.0 / display_fps):
+            return False
+        self._last_display_emit_ts = now
+        return True
+
+    def _emit_frame(self, frame: np.ndarray):
         if frame is None or frame.size == 0:
             return
         display = self._resize_for_display(frame)
@@ -408,6 +435,16 @@ class DetectionWorker(QThread):
     # ── Asosiy loop ───────────────────────────────────────────────────────
 
     def run(self):
+        try:
+            self._run_body()
+        except Exception as e:
+            _log.error("DetectionWorker (%s) kutilmagan xato: %s",
+                       self.cfg.camera_name, e)
+            self.error_occurred.emit(f"Kamera xatoligi: {e}")
+        finally:
+            self._cleanup()
+
+    def _run_body(self):
         self._running     = True
         self._today_count = self.db.get_today_count()
         self._violation_runtime.today_count = self._today_count
@@ -529,7 +566,23 @@ class DetectionWorker(QThread):
                 new_det = result is not None and result.timestamp != self._last_result_ts
 
                 if new_det:
+                    # Detectionlar orasidagi REAL intervalni o'lchaymiz (capture
+                    # timestamplari bo'yicha). Velocity px/detection-update da
+                    # bo'lgani uchun extrapolyatsiya shu interval bilan to'g'ri
+                    # masshtablanadi — ai_fps_limit ga tayanmaymiz.
+                    self._prev_result_ts = self._last_result_ts
                     self._last_result_ts = result.timestamp
+                    self._last_result_completed_at = getattr(result, "completed_at", None) or time.perf_counter()
+                    if (
+                        self._prev_result_ts is not None
+                        and result.timestamp is not None
+                    ):
+                        di = result.timestamp - self._prev_result_ts
+                        if 0.0 < di < 2.0:
+                            self._det_interval_ema = (
+                                di if self._det_interval_ema is None
+                                else 0.6 * self._det_interval_ema + 0.4 * di
+                            )
                     persons = self._process_detections(result.detections)
                     self._update_detection_counter(persons)
                     persons = self._check_violations(persons)
@@ -545,18 +598,26 @@ class DetectionWorker(QThread):
 
                 persons = self._last_persons
 
-                # AI result kelmaganida velocity bilan box pozitsiyasini oldinlash
-                if persons and self._last_result_ts is not None:
-                    elapsed = now - self._last_result_ts
-                    ai_fps  = max(1, int(self.cfg.get("ai_fps_limit", 10)))
-                    t = min(elapsed * ai_fps, 2.5)
-                    if t > 0.1:
-                        persons = [self._extrapolate_box(p, t) for p in persons]
-
                 # Display doim live framedan quriladi; raw_frame faqat violation
-                # saqlash uchun ishlatiladi.
-                display_frame = self._draw_overlay(frame, persons)
-                self._emit_frame(display_frame)
+                # saqlash uchun ishlatiladi. Overlay/extrapolyatsiya faqat
+                # haqiqatan emit qilinadigan framelar uchun bajariladi (CPU tejash).
+                if self._should_emit_frame():
+                    draw_persons = persons
+                    # Detection eskirgan bo'lsa boxni velocity bilan oldinga suramiz.
+                    if persons and self._last_result_ts is not None:
+                        source_elapsed = max(0.0, now - self._last_result_ts)
+                        interval = self._det_interval_ema or (
+                            1.0 / max(1, int(self.cfg.get("ai_fps_limit", 10)))
+                        )
+                        interval = max(0.02, interval)
+                        # t = nechta detection-update oldinga (velocity birligi bilan mos)
+                        t = min(source_elapsed / interval, 2.0)
+                        if t > 0.1:
+                            draw_persons = [
+                                self._extrapolate_box(p, t, frame.shape) for p in persons
+                            ]
+                    display_frame = self._draw_overlay(frame, draw_persons)
+                    self._emit_frame(display_frame)
 
                 if self._frame_count % 30 == 0:
                     self.stats_updated.emit({
@@ -575,7 +636,8 @@ class DetectionWorker(QThread):
 
             else:
                 # ── Video-only rejim ──────────────────────────────────────
-                self._emit_frame(frame)
+                if self._should_emit_frame():
+                    self._emit_frame(frame)
 
                 if self._frame_count % max(1, video_fps) == 0:
                     self.stats_updated.emit({
@@ -591,8 +653,6 @@ class DetectionWorker(QThread):
                         if connected else "Qayta ulanmoqda..."
                     )
                     self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
-
-        self._cleanup()
 
     # ── Tozalash ──────────────────────────────────────────────────────────
 

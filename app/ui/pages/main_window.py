@@ -4,7 +4,6 @@ SmartHelmet dizayni: maxsus top navbar + dashboard + violations + analytics.
 """
 
 import time
-import threading
 from pathlib import Path
 
 import cv2
@@ -18,12 +17,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QImage, QPainter, QBrush, QShortcut
 
-from app.config.settings_manager import ConfigManager, CameraConfigProxy
+from app.config.settings_manager import ConfigManager
 from app.bootstrap.startup_checks import run_startup_checks
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
-from app.workers.detection_worker import DetectionWorker
-from app.workers.camera_service import svc_destroy
-from app.workers.cleanup_worker import CleanupWorker
+from app.ui.controllers.camera_runtime_controller import CameraRuntimeController
 from app.ui.pages.dashboard_page import DashboardPage
 from app.ui.pages.cameras_page import CamerasPage
 from app.ui.pages.violations_page import ViolationsPage
@@ -552,14 +549,10 @@ class MainWindow(QMainWindow):
         self.cfg = ConfigManager()
         self.db  = ViolationsDB()
 
-        self._workers: dict[int, DetectionWorker] = {}
-        self._stopping_workers: list[DetectionWorker] = []
-        self._cleanup_worker: CleanupWorker | None = None
-        self._persons_per_cam: dict[int, int] = {}
-        self._latest_stats: dict[int, dict] = {}
-        self._latest_status: dict[int, str] = {}
-        self._latest_errors: dict[int, str] = {}
-        self._model_loaded_cameras: set[int] = set()
+        # Barcha kamera workerlari shu controllerga tegishli; MainWindow faqat
+        # signallarga ulanib UI sahifalarini yangilaydi.
+        self._runtime = CameraRuntimeController(self.cfg, self.db, self)
+        self._last_total_persons = -1
         self._violation_count = 0
         self._violations_dirty = False
         self._users_loaded = False
@@ -567,9 +560,7 @@ class MainWindow(QMainWindow):
         self._analytics = None
         self._users = None
         self._settings = None
-        self._restart_in_progress = False
-        self._restart_wait_cycles = 0
-        self._service_stop_done: threading.Event | None = None
+        self._connect_runtime_signals()
 
         self.setWindowTitle("SafeZone - Live Safety Monitoring")
         self.setMinimumSize(1280, 760)
@@ -586,7 +577,8 @@ class MainWindow(QMainWindow):
         self.showMaximized()
 
         QTimer.singleShot(600, self._start_all_cameras)
-        QTimer.singleShot(1200, self._start_cleanup)
+        QTimer.singleShot(1200, self._runtime.start_cleanup)
+        QTimer.singleShot(1400, self._runtime.start_notifications)
 
     # тФАтФА UI тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
@@ -808,8 +800,12 @@ class MainWindow(QMainWindow):
     # тФАтФА Sahifa almashtirish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _switch_page(self, page: int, nav_page: int | None = None):
+        import time as _t
+        _t0 = _t.perf_counter()
         self._ensure_page(page)
+        _t_ensure = _t.perf_counter()
         self._stack.setCurrentIndex(page)
+        _t_stack = _t.perf_counter()
         if nav_page is None:
             nav_page = {
                 self.PAGE_DASHBOARD:  0,
@@ -821,6 +817,7 @@ class MainWindow(QMainWindow):
             }.get(page)
         if nav_page is not None:
             self._navbar.set_active_page(nav_page)
+        _t_nav = _t.perf_counter()
         if page == self.PAGE_ANALYTICS:
             self._analytics.refresh()
         elif page == self.PAGE_VIOLATIONS and self._violations_dirty:
@@ -829,17 +826,25 @@ class MainWindow(QMainWindow):
         elif page == self.PAGE_USERS and not self._users_loaded:
             self._users.refresh()
             self._users_loaded = True
+        _t_load = _t.perf_counter()
         if page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
             self._apply_cached_camera_state(page)
+        _t_cache = _t.perf_counter()
         self._apply_frame_emission(page)
+        _t_emit = _t.perf_counter()
+        print(
+            f"[SWITCH p={page}] ensure={(_t_ensure-_t0)*1000:.1f} "
+            f"stack={(_t_stack-_t_ensure)*1000:.1f} nav={(_t_nav-_t_stack)*1000:.1f} "
+            f"load={(_t_load-_t_nav)*1000:.1f} cache={(_t_cache-_t_load)*1000:.1f} "
+            f"emit={(_t_emit-_t_cache)*1000:.1f} | JAMI={(_t_emit-_t0)*1000:.1f} ms",
+            flush=True,
+        )
 
     def _apply_frame_emission(self, page: int):
         """Faqat Dashboard yoki Cameras sahifasida frame'larni UI ga uzatamiz.
         Boshqa sahifalarda QImage konversiyasi va signal trafigi to'xtatiladi."""
         emit = page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}
-        for worker in self._workers.values():
-            if hasattr(worker, "set_emit_frames"):
-                worker.set_emit_frames(emit)
+        self._runtime.set_frame_emission(emit)
 
     def _on_global_search(self, text: str):
         if self._stack.currentIndex() == self.PAGE_USERS and self._users is not None:
@@ -851,209 +856,62 @@ class MainWindow(QMainWindow):
 
     # тФАтФА Ko'p kamera worker boshqaruvi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
-    def _start_camera_worker(self, cam: dict) -> bool:
-        cam_id = cam.get("id")
-        if cam_id in self._workers and self._workers[cam_id].isRunning():
-            return False
+    def _connect_runtime_signals(self):
+        """CameraRuntimeController signallarini UI yangilash metodlariga ulaydi."""
+        r = self._runtime
+        r.frame_ready.connect(self._on_frame)
+        r.violation_detected.connect(self._on_violation)
+        r.face_recognized.connect(self._on_face_recognized)
+        r.stats_updated.connect(self._on_stats)
+        r.status_changed.connect(self._on_status)
+        r.error_occurred.connect(self._on_error)
+        r.model_loaded.connect(self._on_model_loaded)
+        r.runtime_status.connect(self._set_sb_status)
+        r.cleanup_status.connect(self._set_sb_status)
+        r.all_started.connect(self._on_all_started)
+        r.pause_changed.connect(self._on_pause_changed)
 
-        proxy = CameraConfigProxy(self.cfg, cam)
-        worker = DetectionWorker(proxy, self.db)
-
-        worker.frame_ready.connect(
-            lambda frame, cid=cam_id: self._on_frame(cid, frame)
-        )
-        worker.violation_detected.connect(self._on_violation)
-        worker.stats_updated.connect(
-            lambda stats, cid=cam_id: self._on_stats(cid, stats)
-        )
-        worker.status_changed.connect(
-            lambda text, cid=cam_id: self._on_status(cid, text)
-        )
-        worker.error_occurred.connect(
-            lambda msg, cid=cam_id: self._on_error(cid, msg)
-        )
-        worker.model_loaded.connect(
-            lambda cid=cam_id: self._on_model_loaded(cid)
-        )
-        worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
-        worker.face_recognized.connect(
-            lambda data, cid=cam_id: self._on_face_recognized(cid, data)
-        )
-
-        # Yangi worker uchun joriy sahifaga mos emit holatini sozlash
-        page = self._stack.currentIndex()
-        worker.set_emit_frames(page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS})
-        worker.start()
-        self._workers[cam_id] = worker
-        return True
+    def _set_sb_status(self, text: str):
+        self._sb_status.setText(text)
 
     def _start_all_cameras(self):
-        cameras = self.cfg.get_enabled_cameras()
-        if not cameras:
-            self._sb_status.setText("Faol kamera yo'q")
-            return
+        self._runtime.start_all()
 
-        if self.cfg.ai_model_enabled:
-            self._sb_status.setText(f"{len(cameras)} ta kamera uchun model yuklanmoqda...")
-        else:
-            self._sb_status.setText(f"{len(cameras)} ta kameraga ulanmoqda...")
-
-        for cam in cameras:
-            self._start_camera_worker(cam)
-
+    def _on_all_started(self):
         self._navbar.set_pause_enabled(True)
         self._update_cam_badge()
 
-    def _stop_all_cameras(self):
-        running = [w for w in self._workers.values() if w and w.isRunning()]
-        for w in running:
-            if hasattr(w, "request_stop"):
-                w.request_stop()
-            else:
-                w._running = False
-        for w in running:
-            w.wait(1200)
-        pending = [w for w in running if w.isRunning()]
-        self._stopping_workers.extend(w for w in pending if w not in self._stopping_workers)
-        self._workers.clear()
-        self._persons_per_cam.clear()
-        self._navbar.set_pause_enabled(False)
-        svc_destroy()  # CameraService va barcha DetectorGroup'larni to'xtatadi
+    def _on_pause_changed(self, paused: bool):
+        self._navbar._pause_btn.setText("Davom" if paused else "|| Pauza")
 
-    def _request_stop_all_cameras(self):
-        running = [w for w in self._workers.values() if w and w.isRunning()]
-        for w in running:
-            if hasattr(w, "request_stop"):
-                w.request_stop()
-            else:
-                w._running = False
-        self._restart_wait_cycles = 0
-        self._sb_status.setText("Kameralar to'xtatilmoqda...")
-        self._navbar.set_pause_enabled(False)
-
-    def _finish_stop_all_cameras(self):
-        pending = [w for w in self._workers.values() if w and w.isRunning()]
-        if pending:
-            self._restart_wait_cycles += 1
-            if self._restart_wait_cycles >= 25:
-                self._stopping_workers.extend(w for w in pending if w not in self._stopping_workers)
-                self._workers = {cid: w for cid, w in self._workers.items() if not w.isRunning()}
-                self._sb_status.setText("Kameralar fon rejimida to'xtatilmoqda...")
-            else:
-                QTimer.singleShot(120, self._finish_stop_all_cameras)
-                return
-        self._workers.clear()
-        self._persons_per_cam.clear()
-        self._stop_camera_service_for_restart()
-
-    def _forget_stopping_worker(self, worker: DetectionWorker):
-        if worker in self._stopping_workers:
-            self._stopping_workers.remove(worker)
-
-    def _stop_camera_service_for_restart(self):
-        done = threading.Event()
-        self._service_stop_done = done
-
-        def stop_service():
-            try:
-                svc_destroy()
-            finally:
-                done.set()
-
-        threading.Thread(target=stop_service, daemon=True).start()
-        QTimer.singleShot(100, self._wait_camera_service_stopped)
-
-    def _wait_camera_service_stopped(self):
-        if self._service_stop_done is not None and not self._service_stop_done.is_set():
-            self._sb_status.setText("AI servis to'xtatilmoqda...")
-            QTimer.singleShot(120, self._wait_camera_service_stopped)
-            return
-        self._service_stop_done = None
-        self._finish_restart_all_cameras()
-
-    def _start_cleanup(self):
-        if self._cleanup_worker and self._cleanup_worker.isRunning():
-            return
-        self._cleanup_worker = CleanupWorker(
-            self.db,
-            self.cfg,
-            keep_days=int(self.cfg.get("keep_files_days", 7)),
-            cleanup_files=bool(self.cfg.get("cleanup_files", False)),
-        )
-        self._cleanup_worker.finished_cleanup.connect(
-            lambda info: self._sb_status.setText(
-                f"Cleanup OK: {info.get('keep_days')} kun, {info.get('deleted_files')} fayl"
-            )
-        )
-        self._cleanup_worker.error_occurred.connect(
-            lambda msg: self._sb_status.setText(f"Cleanup xato: {msg[:60]}")
-        )
-        self._cleanup_worker.start()
-
-    def _restart_all_cameras(self):
-        if self._restart_in_progress:
-            return
-        self._restart_in_progress = True
-        self._request_stop_all_cameras()
-        QTimer.singleShot(150, self._finish_stop_all_cameras)
-
-    def _finish_restart_all_cameras(self):
+    def _rebuild_camera_pages(self):
+        """Restart paytida — to'xtagandan keyin, start dan oldin sahifalarni qayta quradi."""
         cameras = self.cfg.get_enabled_cameras()
         self._dashboard.setup_cameras(cameras)
         self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
-        self._sb_status.setText("Kameralar qayta ishga tushirilmoqda...")
-        QTimer.singleShot(500, self._start_all_cameras_after_restart)
 
-    def _start_all_cameras_after_restart(self):
-        self._restart_in_progress = False
-        self._start_all_cameras()
+    def _restart_all_cameras(self):
+        self._navbar.set_pause_enabled(False)
+        self._runtime.restart_all(self._rebuild_camera_pages)
 
     def _restart_camera(self, cam_id: int):
-        worker = self._workers.pop(cam_id, None)
-        if worker and worker.isRunning():
-            worker.stop()
-            if worker.isRunning() and worker not in self._stopping_workers:
-                self._stopping_workers.append(worker)
-
-        cam = self.cfg.get_camera_by_id(cam_id)
-        if not cam or not cam.get("enabled", True):
-            self._sb_status.setText(f"CAM {cam_id:02d}: kamera faol emas")
-            return
-
-        self._sb_status.setText(f"CAM {cam_id:02d}: qayta ulanmoqda...")
         self._cameras.on_status(cam_id, "Kameraga ulanmoqda...")
-        QTimer.singleShot(250, lambda c=cam: self._start_camera_worker(c))
+        self._runtime.restart_camera(cam_id)
 
     def _toggle_pause_all(self):
-        if not self._workers:
+        paused = self._runtime.toggle_pause_all()
+        if paused is None:
             return
-        first = next(iter(self._workers.values()), None)
-        if not first:
-            return
-
-        if first.is_paused():
-            for w in self._workers.values():
-                w.resume()
-            self._navbar._pause_btn.setText("|| Pauza")
-            self._sb_status.setText("Davom etmoqda")
-        else:
-            for w in self._workers.values():
-                w.pause()
-            self._navbar._pause_btn.setText("Davom")
-            self._sb_status.setText("Pauza")
+        # Tugma matni pause_changed signali orqali yangilanadi.
+        self._sb_status.setText("Pauza" if paused else "Davom etmoqda")
 
     # тФАтФА Worker signallari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _set_ai_paused(self, paused: bool):
-        if not self._workers:
+        if not self._runtime.has_workers():
             return
-        for worker in self._workers.values():
-            if paused:
-                worker.pause()
-            else:
-                worker.resume()
-        self._navbar._pause_btn.setText("Davom" if paused else "|| Pauza")
+        self._runtime.set_paused(paused)
         self._sb_status.setText("AI pauza" if paused else "AI davom etmoqda")
 
     def _on_frame(self, cam_id: int, frame):
@@ -1111,24 +969,19 @@ class MainWindow(QMainWindow):
             self._dashboard.on_face_recognized(data)
 
     def _on_stats(self, cam_id: int, stats: dict):
-        self._latest_stats[cam_id] = dict(stats)
-        if stats.get("connected", False):
-            self._latest_errors.pop(cam_id, None)
+        # Cache (latest_stats / persons_per_cam) controllerda yangilanadi;
+        # bu yerda faqat ko'rinib turgan sahifani yangilaymiz.
         page = self._stack.currentIndex()
         if page == self.PAGE_DASHBOARD:
             self._dashboard.on_stats(cam_id, stats)
+            total = sum(self._runtime.persons_per_cam.values())
+            if total != self._last_total_persons:
+                self._last_total_persons = total
+                self._dashboard.set_total_persons(total)
         elif page == self.PAGE_CAMERAS:
             self._cameras.on_stats(cam_id, stats)
-        persons = stats.get("active_persons", 0)
-        prev_persons = self._persons_per_cam.get(cam_id)
-        if prev_persons == persons:
-            return
-        self._persons_per_cam[cam_id] = persons
-        if page == self.PAGE_DASHBOARD:
-            self._dashboard.set_total_persons(sum(self._persons_per_cam.values()))
 
     def _on_status(self, cam_id: int, text: str):
-        self._latest_status[cam_id] = text
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] {text}")
@@ -1139,7 +992,6 @@ class MainWindow(QMainWindow):
             self._cameras.on_status(cam_id, text)
 
     def _on_error(self, cam_id: int, msg: str):
-        self._latest_errors[cam_id] = msg
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] XATOLIK: {msg[:50]}")
@@ -1150,7 +1002,6 @@ class MainWindow(QMainWindow):
             self._cameras.on_error(cam_id, msg)
 
     def _on_model_loaded(self, cam_id: int):
-        self._model_loaded_cameras.add(cam_id)
         page = self._stack.currentIndex()
         if page == self.PAGE_DASHBOARD:
             self._dashboard.on_model_loaded(cam_id)
@@ -1158,22 +1009,25 @@ class MainWindow(QMainWindow):
             self._cameras.on_model_loaded(cam_id)
 
     def _apply_cached_camera_state(self, page: int):
+        runtime = self._runtime
         if page == self.PAGE_DASHBOARD:
-            for cam_id in self._model_loaded_cameras:
+            for cam_id in runtime.model_loaded_cameras:
                 self._dashboard.on_model_loaded(cam_id)
-            for cam_id, stats in self._latest_stats.items():
+            for cam_id, stats in runtime.latest_stats.items():
                 self._dashboard.on_stats(cam_id, stats)
-            for cam_id, msg in self._latest_errors.items():
+            for cam_id, msg in runtime.latest_errors.items():
                 self._dashboard.on_error(cam_id, msg)
-            self._dashboard.set_total_persons(sum(self._persons_per_cam.values()))
+            total = sum(runtime.persons_per_cam.values())
+            self._last_total_persons = total
+            self._dashboard.set_total_persons(total)
         elif page == self.PAGE_CAMERAS:
-            for cam_id in self._model_loaded_cameras:
+            for cam_id in runtime.model_loaded_cameras:
                 self._cameras.on_model_loaded(cam_id)
-            for cam_id, status in self._latest_status.items():
+            for cam_id, status in runtime.latest_status.items():
                 self._cameras.on_status(cam_id, status)
-            for cam_id, stats in self._latest_stats.items():
+            for cam_id, stats in runtime.latest_stats.items():
                 self._cameras.on_stats(cam_id, stats)
-            for cam_id, msg in self._latest_errors.items():
+            for cam_id, msg in runtime.latest_errors.items():
                 self._cameras.on_error(cam_id, msg)
 
     # тФАтФА Yordamchi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -1283,7 +1137,7 @@ class MainWindow(QMainWindow):
     # тФАтФА Yopish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def closeEvent(self, event):
-        cam_count = len(self._workers)
+        cam_count = self._runtime.worker_count
         reply = QMessageBox.question(
             self, "Dasturdan chiqish",
             f"SafeZone tizimini to'xtatib chiqmoqchimisiz?\n"
@@ -1292,7 +1146,8 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self._stop_all_cameras()
+            self._runtime.stop_all_blocking()
+            self._navbar.set_pause_enabled(False)
             event.accept()
         else:
             event.ignore()

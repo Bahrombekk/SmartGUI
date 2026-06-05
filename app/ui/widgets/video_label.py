@@ -237,7 +237,7 @@ class VideoLabel(QLabel):
                 import cv2 as _cv2
                 rgb = _cv2.cvtColor(frame, _cv2.COLOR_BGR2RGB)
                 h, w, ch = rgb.shape
-                self._qimage = QImage(rgb.tobytes(), w, h, ch * w, QImage.Format.Format_RGB888)
+                self._qimage = QImage(rgb.tobytes(), w, h, ch * w, QImage.Format.Format_RGB888).copy()
 
             if not self._has_frame:
                 self._has_frame = True

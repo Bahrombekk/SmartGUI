@@ -46,3 +46,27 @@ class TelegramNotifier:
                 )
             except Exception as e:
                 _log.error("Telegram yuborish xatosi (chat_id=%s): %s", chat_id, e)
+
+    def send_photo_bytes(self, image_bytes: bytes, caption: str) -> None:
+        """Sinxron yuborish \u2014 barcha chat_id larga. Xatoda istisno (exception)
+        ko'taradi, shunda navbat (queue) worker'i retry/mark_failed qila oladi.
+        """
+        if not self.token or not self.chat_ids:
+            raise RuntimeError("Telegram token yoki chat_id yo'q")
+        import requests
+
+        url = f"https://api.telegram.org/bot{self.token}/sendPhoto"
+        errors = []
+        for chat_id in self.chat_ids:
+            try:
+                resp = requests.post(
+                    url,
+                    data={"chat_id": chat_id, "caption": caption},
+                    files={"photo": ("v.jpg", image_bytes, "image/jpeg")},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+            except Exception as e:
+                errors.append(f"{chat_id}: {e}")
+        if errors:
+            raise RuntimeError("; ".join(errors))
