@@ -2,9 +2,11 @@
 
 Backend JWT talab qiladi va faqat JSON qabul qiladi:
 
-    POST /api/auth/login        {login, password}          -> tempToken + accountRoles
-    POST /api/auth/select-role  {accountRoleId, tempToken} -> access + refresh
+    POST /api/auth/device-login {login, password}          -> access + refresh
     POST /api/camera/create     {cameraName, time, companyXId}
+
+Qurilma login'i ishlamasa brauzer oqimiga tushamiz:
+/api/auth/login -> /api/auth/select-role.
 
 DTO qat'iy whitelist bilan himoyalangan — faqat shu uch maydon o'tadi.
 Rasm yuborish qo'llab-quvvatlanmaydi (endpoint multipart body ni o'qimaydi),
@@ -19,11 +21,12 @@ import logging
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 _log = logging.getLogger(__name__)
 
 _CREATE_PATH = "/api/camera/create"
+_DEVICE_LOGIN_PATH = "/api/auth/device-login"
 _LOGIN_PATH = "/api/auth/login"
 _SELECT_ROLE_PATH = "/api/auth/select-role"
 _REFRESH_PATH = "/api/auth/refresh"
@@ -87,6 +90,9 @@ class BackendClient:
             return 0.0
 
     def _store_tokens(self, data: dict) -> None:
+        # device-login: {"data": {"token": {...}}}, qolganlari: {...}
+        data = data.get("data", data)
+        data = data.get("token", data)
         self._access = data.get("access", "")
         self._refresh = data.get("refresh", self._refresh)
         exp = self._jwt_expiry(self._access)
@@ -94,6 +100,19 @@ class BackendClient:
         self._access_exp = exp if exp else time.time() + 25 * 60
 
     def _full_login(self, requests) -> None:
+        try:
+            r = requests.post(
+                f"{self.base_url}{_DEVICE_LOGIN_PATH}",
+                json={"login": self.login, "password": self.password},
+                timeout=15,
+            )
+            r.raise_for_status()
+            self._store_tokens(r.json())
+            if self._access:
+                return
+        except Exception as e:
+            _log.info("device-login ishlamadi, oddiy login: %s", e)
+
         r = requests.post(
             f"{self.base_url}{_LOGIN_PATH}",
             json={"login": self.login, "password": self.password},
@@ -143,8 +162,11 @@ class BackendClient:
     # ── Payload ──────────────────────────────────────────────────────────────
 
     def _build_payload(self, camera_name: str, company_id: str, timestamp=None) -> dict:
-        when = datetime.fromtimestamp(float(timestamp)) if timestamp else datetime.now()
-        # Mahalliy vaqt (tz'siz) — backenddagi mavjud yozuvlar ham shu formatda.
+        when = (datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+                if timestamp else datetime.now(timezone.utc))
+        # UTC bilan yuboramiz: backend qiymatni Z deb saqlaydi va frontend uni
+        # mahalliy vaqtga o'giradi. Tz'siz yuborilsa ko'rsatilgan vaqt +5 soat
+        # siljib ketadi.
         payload = {"cameraName": camera_name or "", "time": when.isoformat()}
 
         cid = (company_id or "").strip()
