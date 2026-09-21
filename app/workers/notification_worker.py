@@ -5,9 +5,9 @@ o'qiydi, kanaliga qarab (telegram/backend) yuboradi va natijaga ko'ra
 'sent' / retry / 'failed' qiladi. Eksponensial backoff va max-retry bor.
 Ishga tushganda navbatdagi (offline to'plangan) joblarni darhol drain qiladi.
 
-Telegram uchun rasm joblar payload'idagi disk yo'lidan (crop_path/full_path)
-o'qiladi. Backend rasm qabul qilmaydi, shuning uchun backend joblari rasmsiz
-ham yuboriladi.
+Rasm joblar payload'idagi disk yo'lidan (crop_path/full_path) o'qiladi.
+Backend uchun u base64 sifatida JSON ichida ketadi; fayl topilmasa yozuv
+rasmsiz yuboriladi.
 
 Startda `_backfill_unsent()` bazadagi hech qachon yuborilmagan buzilishlarni
 (sync_status 'queued'/'synced' emas) navbatga qo'yadi va hammasi birdan
@@ -140,6 +140,8 @@ class NotificationWorker(QThread):
             payload.get("camera_name", ""),
             payload.get("company_id", ""),
             timestamp=payload.get("timestamp"),
+            crop_bytes=self._read_file(payload.get("crop_path", "")),
+            full_bytes=self._read_file(payload.get("full_path", "")),
         )
 
     # ── Backfill ─────────────────────────────────────────────────────────────
@@ -203,6 +205,13 @@ class NotificationWorker(QThread):
         return ""
 
     # ── Yordamchi ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _read_file(path: str) -> bytes | None:
+        """Rasmni o'qiydi; fayl yo'q bo'lsa None (yozuv rasmsiz ketaveradi)."""
+        if path and Path(path).is_file():
+            return Path(path).read_bytes()
+        return None
 
     @staticmethod
     def _load_image(payload: dict) -> bytes:

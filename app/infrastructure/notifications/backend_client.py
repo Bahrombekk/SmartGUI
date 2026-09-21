@@ -3,14 +3,15 @@
 Backend JWT talab qiladi va faqat JSON qabul qiladi:
 
     POST /api/auth/device-login {login, password}          -> access + refresh
-    POST /api/camera/create     {cameraName, time, companyXId}
+    POST /api/camera/create     {cameraName, time, companyXId,
+                                 definedImageBase64, fullPictureBase64}
+
+Rasmlar JSON ichida base64 sifatida ketadi — endpoint multipart o'qimaydi.
 
 Qurilma login'i ishlamasa brauzer oqimiga tushamiz:
 /api/auth/login -> /api/auth/select-role.
 
-DTO qat'iy whitelist bilan himoyalangan — faqat shu uch maydon o'tadi.
-Rasm yuborish qo'llab-quvvatlanmaydi (endpoint multipart body ni o'qimaydi),
-shuning uchun frame/bytes argumentlari qabul qilinadi-yu, yuborilmaydi.
+DTO qat'iy whitelist bilan himoyalangan — boshqa maydon nomlari 400 qaytaradi.
 """
 from __future__ import annotations
 
@@ -161,7 +162,9 @@ class BackendClient:
 
     # ── Payload ──────────────────────────────────────────────────────────────
 
-    def _build_payload(self, camera_name: str, company_id: str, timestamp=None) -> dict:
+    def _build_payload(self, camera_name: str, company_id: str, timestamp=None,
+                       crop_bytes: bytes | None = None,
+                       full_bytes: bytes | None = None) -> dict:
         when = (datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
                 if timestamp else datetime.now(timezone.utc))
         # UTC bilan yuboramiz: backend qiymatni Z deb saqlaydi va frontend uni
@@ -179,6 +182,11 @@ class BackendClient:
                 "yozuv kompaniyaga bog'lanmaydi.",
                 camera_name, cid,
             )
+
+        if crop_bytes:
+            payload["definedImageBase64"] = base64.b64encode(crop_bytes).decode()
+        if full_bytes:
+            payload["fullPictureBase64"] = base64.b64encode(full_bytes).decode()
         return payload
 
     def _post_event(self, requests, payload: dict):
@@ -198,37 +206,53 @@ class BackendClient:
 
     # ── Ommaviy API ──────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _jpeg(frame) -> bytes | None:
+        """Kadrni JPEG baytlariga o'giradi."""
+        if frame is None or getattr(frame, "size", 0) == 0:
+            return None
+        import cv2
+
+        ok, buf = cv2.imencode(".jpg", frame)
+        return buf.tobytes() if ok else None
+
     def send_violation(self, camera_name: str, company_id: str, crop_frame, full_frame,
                        timestamp=None):
-        """Fon rejimida yuboradi (xatolar faqat logga tushadi).
-
-        crop_frame/full_frame ishlatilmaydi: backend rasm qabul qilmaydi.
-        """
+        """Fon rejimida yuboradi (xatolar faqat logga tushadi)."""
         if not self.base_url:
             return
         threading.Thread(
             target=self._send_quiet,
-            args=(camera_name, company_id, timestamp),
+            args=(camera_name, company_id, timestamp,
+                  self._jpeg(crop_frame), self._jpeg(full_frame)),
             daemon=True,
         ).start()
 
-    def _send_quiet(self, camera_name, company_id, timestamp=None):
+    def _send_quiet(self, camera_name, company_id, timestamp=None,
+                    crop_bytes=None, full_bytes=None):
         try:
-            self.send_event(camera_name, company_id, timestamp)
+            self.send_event(camera_name, company_id, timestamp, crop_bytes, full_bytes)
         except Exception as e:
             _log.error("Yuborish xatosi: %s", e)
 
-    def send_event(self, camera_name: str, company_id: str, timestamp=None) -> None:
+    def send_event(self, camera_name: str, company_id: str, timestamp=None,
+                   crop_bytes: bytes | None = None,
+                   full_bytes: bytes | None = None) -> None:
         """Sinxron yuborish. Xatoda istisno ko'taradi — queue worker retry qiladi."""
         if not self.base_url:
             raise RuntimeError("Backend URL yo'q")
         import requests
 
-        payload = self._build_payload(camera_name, company_id, timestamp)
+        payload = self._build_payload(camera_name, company_id, timestamp,
+                                      crop_bytes, full_bytes)
         resp = self._post_event(requests, payload)
-        _log.info("Backend'ga yuborildi: %s (%s)", payload["cameraName"], resp.status_code)
+        _log.info(
+            "Backend'ga yuborildi: %s (%s)%s",
+            payload["cameraName"], resp.status_code,
+            "" if crop_bytes or full_bytes else " [rasmsiz]",
+        )
 
     def send_image_bytes(self, camera_name: str, company_id: str, image_bytes: bytes,
                          timestamp=None) -> None:
-        """Navbat worker'i chaqiradi. Rasm yuborilmaydi — endpoint qo'llamaydi."""
-        self.send_event(camera_name, company_id, timestamp)
+        """Bitta rasm bilan sinxron yuborish (eski chaqiruvlar uchun)."""
+        self.send_event(camera_name, company_id, timestamp, crop_bytes=image_bytes)
