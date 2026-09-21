@@ -60,6 +60,9 @@ class BackendClient:
         url = (api_url or "").strip().rstrip("/")
         if not url:
             return ""
+        if "://" not in url:
+            # Foydalanuvchi ko'pincha sxemasiz yozadi ("ai-project.das-uty.uz").
+            url = "https://" + url
         if url.endswith(_CREATE_PATH):
             url = url[: -len(_CREATE_PATH)]
         elif url.endswith("/api"):
