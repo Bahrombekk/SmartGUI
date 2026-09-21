@@ -2071,6 +2071,8 @@ class SettingsPage(QWidget):
             "tracker_max_age", "tracker_min_hits", "helmet_status_window",
             "helmet_status_threshold", "faceid_enabled", "access_roster_enabled",
             "faceid_threshold", "save_violations", "violations_dir",
+            "telegram_enabled", "telegram_token", "telegram_chat_ids",
+            "backend_enabled", "backend_url", "backend_login", "backend_password",
         }
 
         self.cfg.update(data)

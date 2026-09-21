@@ -431,6 +431,21 @@ class ViolationsDB:
             )
             conn.commit()
 
+    def get_unsynced_violations(self, limit: int = 1000) -> list[dict]:
+        """Hech qachon navbatga qo'yilmagan buzilishlar (eng eskisidan boshlab).
+
+        'queued' — job yaratilgan, 'synced' — yuborilgan. Qolgani (odatda
+        'local': o'sha paytda backend/telegram o'chiq bo'lgan) backfill uchun.
+        """
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT * FROM violations"
+            " WHERE COALESCE(sync_status, '') NOT IN ('queued', 'synced')"
+            " ORDER BY timestamp ASC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     # ── O'qish (lock shart emas — WAL mode) ───────────────────────────────
 
     def get_violations(

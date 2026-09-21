@@ -40,14 +40,10 @@ class NotificationDispatcher:
 
             def _send_backend():
                 try:
-                    if crop_frame is not None and crop_frame.size > 0:
-                        backend.send_violation(
-                            event.camera_name, event.company_id, crop_frame, full_copy
-                        )
-                    else:
-                        backend.send_violation(
-                            event.camera_name, event.company_id, full_copy, full_copy
-                        )
+                    backend.send_violation(
+                        event.camera_name, event.company_id, crop_frame, full_copy,
+                        timestamp=event.timestamp,
+                    )
                 except Exception as exc:
                     _log.error("Backend xato: %s", exc)
 
