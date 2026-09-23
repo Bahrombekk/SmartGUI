@@ -27,7 +27,8 @@ class ViolationRuntime:
         self.emit_payload = emit_payload
         self.emit_error = emit_error
 
-        self.today_count = 0
+        self.today_count = 0      # butun tizim bo'yicha (status satri uchun)
+        self.camera_today = 0     # faqat shu kamera (kamera kartalari/statistika uchun)
         self.saved_violations: set[tuple[int, str]] = set()
         self.spatial_violations: deque[dict] = deque(maxlen=256)
         self.no_helmet_frames: dict[int, int] = {}
@@ -189,6 +190,7 @@ class ViolationRuntime:
                     if item.get("violation_type", "no_helmet") == "no_helmet":
                         self._cached_no_helmet += 1
                 self.today_count = self._cached_today
+                self.camera_today += 1
                 payload = event.to_payload()
                 payload["today_count"] = self._cached_today
                 payload["no_helmet_count"] = self._cached_no_helmet

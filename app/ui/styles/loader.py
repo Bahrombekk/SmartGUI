@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from app.shared.paths import resource_path
 from app.ui.styles.tokens import active_palette
 
 
@@ -35,7 +36,10 @@ def load_qss(name: str) -> str:
     if not path.exists():
         return ""
     raw = path.read_text(encoding="utf-8")
-    return _substitute(raw, active_palette())
+    tokens = dict(active_palette())
+    # Rasm yo'llari (QSS url() uchun oldinga slash)
+    tokens["icon_check"] = resource_path("images", "check_on_accent.svg").as_posix()
+    return _substitute(raw, tokens)
 
 
 def build_main_stylesheet() -> str:

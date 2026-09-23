@@ -13,7 +13,7 @@ from PyQt6.QtGui import QFont
 
 from app.ui.theme import C
 
-APP_VERSION = "1.0.0"
+from app import __version__ as APP_VERSION
 APP_NAME    = "SmartHelmet GUI"
 DEVELOPER   = "SmartHelmet Team"
 
@@ -166,14 +166,14 @@ class AboutPage(QWidget):
         d_layout = QVBoxLayout(det_card)
         d_layout.setContentsMargins(16, 14, 16, 14)
         d_layout.setSpacing(8)
-        d_layout.addWidget(_section_title("Detection arxitekturasi"))
+        d_layout.addWidget(_section_title("Aniqlash arxitekturasi"))
 
         for lbl, val in [
             ("Model",         "YOLOv8 (Ultralytics)"),
-            ("Tracker",       "BoT-SORT"),
-            ("Klasslar",      "PERSON (0) · HEAD (1) · NO_HEAD (2)"),
-            ("Frame pipe",    "FFmpeg → BGR24 pipe → YOLO"),
-            ("HW decode",     "Intel QSV → D3D11VA → Software fallback"),
+            ("Treker",        "BoT-SORT"),
+            ("Sinflar",       "PERSON (0) · HEAD (1) · NO_HEAD (2)"),
+            ("Kadr oqimi",    "FFmpeg → BGR24 pipe → YOLO"),
+            ("Apparat dekodlash", "Intel QSV → D3D11VA → dasturiy zaxira"),
             ("Xabarnoma",     "Telegram Bot API"),
         ]:
             d_layout.addLayout(_info_row(lbl, val))
@@ -188,13 +188,13 @@ class AboutPage(QWidget):
         k_layout.addWidget(_section_title("Klaviatura yorliqlari"))
 
         for key, desc in [
-            ("Ctrl+1",   "Dashboard sahifasi"),
+            ("Ctrl+1",   "Bosh sahifa"),
             ("Ctrl+2",   "Buzilishlar sahifasi"),
-            ("Ctrl+3",   "Analitika sahifasi"),
+            ("Ctrl+3",   "Tahlil sahifasi"),
             ("Ctrl+,",   "Sozlamalar"),
             ("F5",       "Yangilash"),
             ("Space",    "Pauza / Davom ettirish"),
-            ("Ctrl+S",   "Screenshot saqlash"),
+            ("Ctrl+S",   "Skrinshot saqlash"),
             ("Ctrl+Q",   "Dasturdan chiqish"),
         ]:
             row = _info_row(key, desc)

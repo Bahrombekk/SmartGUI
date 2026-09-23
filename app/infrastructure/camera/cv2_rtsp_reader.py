@@ -18,6 +18,8 @@ import cv2
 
 import logging
 
+from app.infrastructure.camera.rtsp_probe import blocking_reason, diagnose
+
 _log = logging.getLogger(__name__)
 
 os.environ["OPENCV_LOG_LEVEL"]       = "ERROR"
@@ -147,13 +149,14 @@ class CV2RTSPReader(threading.Thread):
         self.reconnect_delay = reconnect_delay
         self.max_reconnects  = max_reconnects
         self._target_fps     = max(1, target_fps)
-        self._on_reconnect_attempt = on_reconnect_attempt  # (attempt: int, wait_sec: float) -> None
+        self._on_reconnect_attempt = on_reconnect_attempt  # (attempt, wait_sec, reason) -> None
         self._on_max_retries       = on_max_retries        # () -> None
 
         self._slot       = _FrameSlot()
         self._running    = True
         self._connected  = False
         self._fail_count = 0
+        self.last_error  = ""   # oxirgi ulanish xatosining tushunarli sababi
 
         # CameraService (DetectorGroup) tomonidan set qilinadi
         self.cam_id: int = 0
@@ -186,12 +189,14 @@ class CV2RTSPReader(threading.Thread):
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = options
 
         result = [None]
+        lock = threading.Lock()
+        abandoned = [False]
 
         def _worker():
             try:
                 cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
                 if not cap.isOpened():
-                    self._release_cap_async(cap)
+                    cap.release()
                     return
 
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -200,11 +205,13 @@ class CV2RTSPReader(threading.Thread):
                 for _ in range(self.FIRST_FRAME_N):
                     ok, frame = cap.read()
                     if ok and frame is not None:
-                        self._slot.put(frame)
-                        result[0] = cap
-                        return
-
-                self._release_cap_async(cap)
+                        with lock:
+                            if not abandoned[0]:
+                                self._slot.put(frame)
+                                result[0] = cap
+                                return
+                        break  # kutish vaqti o'tib ketgan — hech kim olmaydi
+                cap.release()  # shu threadda — parallel foydalanish yo'q
             except Exception:
                 pass
 
@@ -212,7 +219,10 @@ class CV2RTSPReader(threading.Thread):
         t.start()
         t.join(timeout=self.OPEN_TIMEOUT)
 
-        return result[0]
+        with lock:
+            if result[0] is None:
+                abandoned[0] = True  # kech ochilsa worker o'zi yopadi (leak yo'q)
+            return result[0]
 
     def _open(self) -> cv2.VideoCapture | None:
         """
@@ -297,11 +307,27 @@ class CV2RTSPReader(threading.Thread):
 
     def run(self):
         while self._running:
-            cap = self._open()
+            # Tezkor tekshiruv (~3 s): kamera aniq ishlamasa sabab darhol ko'rinadi,
+            # 4 usulli FFmpeg urinishlari (~50 s) kutilmaydi
+            quick = None
+            if self.rtsp_url.lower().startswith(("rtsp://", "rtsps://")):
+                try:
+                    quick = blocking_reason(self.rtsp_url)
+                except Exception:
+                    quick = None
+            cap = None if quick else self._open()
 
             if cap is None or not cap.isOpened():
                 self._connected = False
                 self._fail_count += 1
+                if quick:
+                    self.last_error = quick
+                # Sabab: birinchi urinishda va keyin har 3-urinishda (kamera ortiqcha bezovta qilinmasin)
+                elif self._fail_count == 1 or self._fail_count % 3 == 0 or not self.last_error:
+                    try:
+                        self.last_error = diagnose(self.rtsp_url) or "Video oqim ochilmadi"
+                    except Exception:
+                        self.last_error = "Video oqim ochilmadi"
                 if 0 < self.max_reconnects < self._fail_count:
                     if callable(self._on_max_retries):
                         self._on_max_retries()
@@ -309,16 +335,30 @@ class CV2RTSPReader(threading.Thread):
                     break
                 wait = float(self._BACKOFF[min(self._fail_count - 1, len(self._BACKOFF) - 1)])
                 if callable(self._on_reconnect_attempt):
-                    self._on_reconnect_attempt(self._fail_count, wait)
+                    self._on_reconnect_attempt(self._fail_count, wait, self.last_error)
                 self._interruptible_sleep(wait)
                 continue
 
             self._connected  = True
             self._fail_count = 0
+            self.last_error  = ""
             last_frame_t = time.time()
             stop_evt     = threading.Event()
 
             def _read_loop():
+                # cap faqat shu threadda yopiladi: grab()/retrieve() davom
+                # etayotganda boshqa threaddan release() qilish FFmpeg'da
+                # "pthread_frame.c async_lock" assertion bilan butun jarayonni
+                # yiqitadi (kamera restart/o'chirishda).
+                try:
+                    _grab_loop()
+                finally:
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+
+            def _grab_loop():
                 nonlocal last_frame_t
                 _interval = 1.0 / self._target_fps
                 _last_retrieve = 0.0
@@ -364,7 +404,8 @@ class CV2RTSPReader(threading.Thread):
 
             stop_evt.set()
             self._connected = False
-            self._release_cap_async(cap)
+            # release() ni _read_loop o'zi bajaradi (grab tugagach) — bu yerda
+            # parallel release qilinmaydi.
 
             if self._running:
                 # Muvaffaqiyatli ulanish uzilib ketdi — darhol qayta urinish
@@ -375,8 +416,9 @@ class CV2RTSPReader(threading.Thread):
                     self._running = False
                     break
                 wait = float(self._BACKOFF[min(self._fail_count - 1, len(self._BACKOFF) - 1)])
+                self.last_error = "Oqim uzilib qoldi — qayta ulanmoqda"
                 if callable(self._on_reconnect_attempt):
-                    self._on_reconnect_attempt(self._fail_count, wait)
+                    self._on_reconnect_attempt(self._fail_count, wait, self.last_error)
                 self._interruptible_sleep(wait)
 
     def _interruptible_sleep(self, seconds: float):

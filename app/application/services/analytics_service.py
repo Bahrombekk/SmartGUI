@@ -177,10 +177,11 @@ class AnalyticsService:
             limit=5,
         )
         labels = {
-            "no_helmet": "No Helmet",
-            "access_denied": "Access Denied",
-            "unknown_person": "Unknown Worker",
-            "low_confidence": "Low Confidence",
+            "no_helmet": "Shlemsiz",
+            "access_denied": "Ruxsat yo'q",
+            "unauthorized_area": "Ruxsatsiz hudud",
+            "unknown_person": "Noma'lum shaxs",
+            "low_confidence": "Past ishonch",
         }
         result = []
         for row in rows:
@@ -190,7 +191,7 @@ class AnalyticsService:
                 "label": labels.get(key, key.replace("_", " ").title()),
                 "count": int(row.get("count", 0) or 0),
             })
-        return result or [{"type": "no_helmet", "label": "No Helmet", "count": 0}]
+        return result or [{"type": "no_helmet", "label": "Shlemsiz", "count": 0}]
 
     def peak_insights(
         self,

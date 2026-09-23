@@ -32,6 +32,9 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from app.ui.widgets.toast import persist_config
+from app.ui.widgets.app_dialog import AppInputDialog, AppMessageBox
+from app.shared.paths import data_path
 from app.ui.styles import C, is_light, on_theme_change
 from app.ui.widgets.video_label import VideoLabel
 
@@ -79,7 +82,7 @@ on_theme_change(_refresh_module_colors)
 
 
 def _status_label(status: str) -> str:
-    return {"live": "Live", "connecting": "Connecting", "error": "Error"}.get(status, "Offline")
+    return {"live": "Jonli", "connecting": "Ulanmoqda", "error": "Xato"}.get(status, "Oflayn")
 
 
 class FleetStatusBar(QWidget):
@@ -97,7 +100,7 @@ class FleetStatusBar(QWidget):
         self._segments: list[str] = []
         self.setFixedHeight(5)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setToolTip("Fleet status — each segment = one camera")
+        self.setToolTip("Kameralar holati — har bir bo'lak = bitta kamera")
 
     def set_segments(self, segments: list[str]):
         self._segments = segments
@@ -195,7 +198,7 @@ class CameraBanner(QLabel):
             painter.fillRect(self.rect(), QColor(2, 8, 16, 82))
         else:
             painter.setPen(QColor("#49647f"))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "CAMERA AREA")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "KAMERA HUDUDI")
         painter.setClipping(False)
         painter.setPen(QPen(QColor("#17283b"), 1))
         painter.drawPath(path)
@@ -229,7 +232,7 @@ class BannerWithOverlay(QWidget):
         )
         self._viol_thumb.hide()
 
-        self._reconnect_btn = QPushButton("Reconnect", self)
+        self._reconnect_btn = QPushButton("Qayta ulash", self)
         self._reconnect_btn.setFixedHeight(32)
         self._reconnect_btn.setMinimumWidth(110)
         self._reconnect_btn.setStyleSheet(
@@ -241,7 +244,7 @@ class BannerWithOverlay(QWidget):
         self._reconnect_btn.clicked.connect(self.reconnect_clicked)
         self._reconnect_btn.hide()
 
-        self._offline_badge = QLabel("OFFLINE", self)
+        self._offline_badge = QLabel("OFLAYN", self)
         self._offline_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._offline_badge.setStyleSheet(
             "background: rgba(239,68,68,0.88); color: #fff;"
@@ -255,7 +258,7 @@ class BannerWithOverlay(QWidget):
         self._hover_bar.setStyleSheet(
             "background: rgba(0,0,0,0.48); border-radius: 6px;"
         )
-        _hlbl = QLabel("INSPECT", self._hover_bar)
+        _hlbl = QLabel("KO'RISH", self._hover_bar)
         _hlbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         _hlbl.setStyleSheet(
             "color: rgba(255,255,255,0.90); font-size: 11px; font-weight: 900;"
@@ -278,11 +281,14 @@ class BannerWithOverlay(QWidget):
         self._viol_thumb.move(max(0, w - 64), 6)
         bw = max(self._reconnect_btn.sizeHint().width(), 110)
         self._reconnect_btn.resize(bw, 32)
-        self._reconnect_btn.move((w - bw) // 2, (h - 32) // 2)
         self._offline_badge.adjustSize()
         ow = max(self._offline_badge.width(), 104)
         self._offline_badge.resize(ow, 30)
-        self._offline_badge.move((w - ow) // 2, max(8, (h - 30) // 2 - 22))
+        both = not self._reconnect_btn.isHidden()
+        # Ikkalasi bo'lsa — markazdan yuqorida belgi, pastida tugma (6 px oraliq)
+        badge_y = h // 2 - 30 - 3 if both else (h - 30) // 2
+        self._offline_badge.move((w - ow) // 2, max(4, badge_y))
+        self._reconnect_btn.move((w - bw) // 2, min(h - 34, h // 2 + 3) if both else (h - 32) // 2)
         self._hover_bar.setGeometry(0, 0, w, h)
 
     def set_hover(self, hovered: bool):
@@ -296,7 +302,7 @@ class BannerWithOverlay(QWidget):
     def set_image(self, pixmap: QPixmap):
         self._banner.set_image(pixmap)
 
-    def set_offline_visible(self, visible: bool, text: str = "OFFLINE"):
+    def set_offline_visible(self, visible: bool, text: str = "OFLAYN"):
         self._offline_badge.setText(text)
         if visible:
             self._offline_badge.show()
@@ -395,10 +401,10 @@ class CameraGridCard(QFrame):
         self._cam_code = QLabel(f"CAM {self.cam_id:02d}")
         self._cam_code.setObjectName("cameraCodePill")
         self._cam_code.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._name = QLabel(self.camera.get("name", "Camera"))
+        self._name = QLabel(self.camera.get("name", "Kamera"))
         self._name.setStyleSheet(f"color: {TEXT}; font-size: 13px; font-weight: 900;")
         self._name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self._badge = QLabel("Connecting")
+        self._badge = QLabel("Ulanmoqda")
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         top.addWidget(self._cam_code)
         top.addWidget(self._name, 1)
@@ -408,7 +414,7 @@ class CameraGridCard(QFrame):
         # Department + URL
         meta = QHBoxLayout()
         meta.setSpacing(6)
-        self._department = QLabel(self._department_name or "No department")
+        self._department = QLabel(self._department_name or "Bo'limsiz")
         self._department.setObjectName("cameraCardDepartment")
         self._department.setStyleSheet("font-size: 10px; font-weight: 600;")
         self._url = QLabel(self._masked_url(self.camera.get("rtsp_url", "")))
@@ -425,8 +431,8 @@ class CameraGridCard(QFrame):
         metrics.setSpacing(5)
         self._fps   = self._metric("FPS",    "--")
         self._ping  = self._metric("PING",   "--")
-        self._today = self._metric("EVENTS", "0")
-        self._ai    = self._metric("AI",     "Idle")
+        self._today = self._metric("HODISA", "0")
+        self._ai    = self._metric("AI",     "Kutish")
         metrics.addWidget(self._fps)
         metrics.addWidget(self._ping)
         metrics.addWidget(self._today)
@@ -500,10 +506,10 @@ class CameraGridCard(QFrame):
         self._metric_value(self._fps, f"{fps:.0f}" if status == "live" else "--", LIVE if status == "live" else MUTED)
         self._metric_value(self._ping, "--" if ping_ms is None else f"{max(0, int(ping_ms))}", TEXT_2)
         self._metric_value(self._today, str(detections or 0), ACCENT if detections else TEXT_2)
-        self._metric_value(self._ai, "Run" if status == "live" else _status_label(status), LIVE if status == "live" else STATUS_COLORS.get(status, MUTED))
+        self._metric_value(self._ai, "Ishda" if status == "live" else _status_label(status), LIVE if status == "live" else STATUS_COLORS.get(status, MUTED))
         self._banner.set_count(detections or 0)
         offline_like = status in {"offline", "error", "connecting"}
-        self._banner.set_offline_visible(offline_like, "OFFLINE" if status in {"offline", "error"} else "NO SIGNAL")
+        self._banner.set_offline_visible(offline_like, "OFLAYN" if status in {"offline", "error"} else "SIGNAL YO'Q")
         self._banner.set_reconnect_visible(status in {"offline", "error"})
         if status == "live":
             if not self._pulse_timer.isActive():
@@ -571,7 +577,7 @@ class CameraGridCard(QFrame):
     @staticmethod
     def _masked_url(url: str) -> str:
         if not url:
-            return "No RTSP"
+            return "RTSP yo'q"
         safe = url
         if "@" in safe:
             safe = "rtsp://***@" + safe.split("@", 1)[1]
@@ -585,7 +591,7 @@ class CameraGridCard(QFrame):
                 CameraGridCard._shared_banner_pixmap = QPixmap(str(requested))
             if not CameraGridCard._shared_banner_pixmap.isNull():
                 return CameraGridCard._shared_banner_pixmap
-        snapshots = sorted((root / "screenshots" / "camera_snapshots").glob("*.jpg"))
+        snapshots = sorted(data_path("screenshots", "camera_snapshots").glob("*.jpg"))
         if snapshots:
             index = max(0, self.cam_id - 1) % len(snapshots)
             pix = QPixmap(str(snapshots[index]))
@@ -705,7 +711,7 @@ class CameraDetailPanel(QFrame):
         title_col = QVBoxLayout()
         title_col.setSpacing(1)
         title_col.setContentsMargins(0, 0, 0, 0)
-        self._title = QLabel("Camera")
+        self._title = QLabel("Kamera")
         self._title.setStyleSheet(
             f"color: {TEXT}; font-size: 14px; font-weight: 900; background: transparent;"
         )
@@ -717,7 +723,7 @@ class CameraDetailPanel(QFrame):
 
         h.addSpacing(6)
 
-        self._badge = QLabel("Offline")
+        self._badge = QLabel("Oflayn")
         self._badge.setFixedHeight(26)
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         h.addWidget(self._badge)
@@ -726,7 +732,7 @@ class CameraDetailPanel(QFrame):
         self._expand_btn = QPushButton()
         self._expand_btn.setObjectName("cameraInspectorIcon")
         self._expand_btn.setFixedSize(28, 28)
-        self._expand_btn.setToolTip("Expand inspector")
+        self._expand_btn.setToolTip("Panelni kengaytirish")
         self._set_button_icon(self._expand_btn, "expand.svg")
         self._expand_btn.clicked.connect(self.toggle_expanded)
         h.addWidget(self._expand_btn)
@@ -767,17 +773,17 @@ class CameraDetailPanel(QFrame):
         c = QHBoxLayout(controls)
         c.setContentsMargins(14, 11, 14, 11)
         c.setSpacing(10)
-        self._prev_btn = QPushButton("Preview")
+        self._prev_btn = QPushButton("Ko'rish")
         self._prev_btn.setObjectName("cameraPreviewButton")
         self._prev_btn.setFixedHeight(36)
         self._prev_btn.clicked.connect(self._toggle_preview)
 
-        self._shot_btn = QPushButton("Snapshot")
+        self._shot_btn = QPushButton("Surat olish")
         self._shot_btn.setObjectName("cameraSnapshotButton")
         self._shot_btn.setFixedHeight(36)
         self._shot_btn.clicked.connect(self._save_snapshot)
 
-        self._zone_btn = QPushButton("Draw Zone")
+        self._zone_btn = QPushButton("Zona chizish")
         self._zone_btn.setObjectName("cameraZoneButton")
         self._zone_btn.setFixedHeight(36)
         self._zone_btn.clicked.connect(self._edit_zone)
@@ -787,7 +793,7 @@ class CameraDetailPanel(QFrame):
         c.addWidget(self._zone_btn, 1)
         lay.addWidget(controls)
 
-        lay.addWidget(self._section_header("LIVE HEALTH", LIVE))
+        lay.addWidget(self._section_header("JONLI HOLAT", LIVE))
         health = QWidget()
         health.setStyleSheet("background: transparent;")
         hl = QHBoxLayout(health)
@@ -795,39 +801,39 @@ class CameraDetailPanel(QFrame):
         hl.setSpacing(8)
         self._fps_chip = self._chip("FPS", "--")
         self._ping_chip = self._chip("PING", "--")
-        self._status_chip = self._chip("STATUS", "--")
+        self._status_chip = self._chip("HOLAT", "--")
         hl.addWidget(self._fps_chip)
         hl.addWidget(self._ping_chip)
         hl.addWidget(self._status_chip)
         lay.addWidget(health)
         lay.addWidget(self._divider())
 
-        lay.addWidget(self._section_header("TODAY'S ACTIVITY", "#3b82f6"))
+        lay.addWidget(self._section_header("BUGUNGI FAOLLIK", "#3b82f6"))
         activity = QWidget()
         activity.setStyleSheet("background: transparent;")
         al = QHBoxLayout(activity)
         al.setContentsMargins(14, 6, 14, 12)
         al.setSpacing(8)
-        self._today_chip = self._chip("TODAY", "0")
-        self._total_chip = self._chip("TOTAL", "0")
-        self._uptime_chip = self._chip("HEALTH", "--")
+        self._today_chip = self._chip("BUGUN", "0")
+        self._total_chip = self._chip("JAMI", "0")
+        self._uptime_chip = self._chip("ALOQA", "--")
         al.addWidget(self._today_chip)
         al.addWidget(self._total_chip)
         al.addWidget(self._uptime_chip)
         lay.addWidget(activity)
         lay.addWidget(self._divider())
 
-        lay.addWidget(self._section_header("CAMERA CONFIG", ACCENT))
+        lay.addWidget(self._section_header("KAMERA SOZLAMALARI", ACCENT))
         config = QWidget()
         config.setStyleSheet("background: transparent;")
         cl = QVBoxLayout(config)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(0)
-        self._row_name = self._info_row("Name", "--")
-        self._row_loc = self._info_row("Department", "--")
+        self._row_name = self._info_row("Nomi", "--")
+        self._row_loc = self._info_row("Bo'lim", "--")
         self._row_url = self._info_row("RTSP", "--")
-        self._row_access = self._info_row("Access", "--")
-        self._row_last = self._info_row("Last signal", "--")
+        self._row_access = self._info_row("Ruxsat", "--")
+        self._row_last = self._info_row("Oxirgi signal", "--")
         cl.addWidget(self._row_name)
         cl.addWidget(self._row_loc)
         cl.addWidget(self._row_url)
@@ -841,11 +847,11 @@ class CameraDetailPanel(QFrame):
         bwl.setSpacing(8)
         actions = QHBoxLayout()
         actions.setSpacing(8)
-        copy_rtsp = QPushButton("Copy RTSP")
+        copy_rtsp = QPushButton("RTSP nusxalash")
         copy_rtsp.setFixedHeight(34)
         copy_rtsp.setStyleSheet(self._secondary_button_style())
         copy_rtsp.clicked.connect(self._copy_rtsp)
-        restart = QPushButton("Restart Camera")
+        restart = QPushButton("Qayta ulash")
         restart.setFixedHeight(34)
         restart.setStyleSheet(self._danger_button_style())
         restart.clicked.connect(self._restart_camera)
@@ -853,7 +859,7 @@ class CameraDetailPanel(QFrame):
         actions.addWidget(restart)
         bwl.addLayout(actions)
 
-        edit = QPushButton("Edit Settings")
+        edit = QPushButton("Sozlamalarni tahrirlash")
         edit.setFixedHeight(38)
         edit.setStyleSheet(self._primary_button_style())
         self._set_button_icon(edit, "settings.svg", light=False)
@@ -863,7 +869,7 @@ class CameraDetailPanel(QFrame):
         lay.addWidget(config)
         lay.addWidget(self._divider())
 
-        lay.addWidget(self._section_header("RECENT EVENTS", WARN))
+        lay.addWidget(self._section_header("SO'NGGI HODISALAR", WARN))
         events = QWidget()
         events.setStyleSheet("background: transparent;")
         self._ev_lay = QVBoxLayout(events)
@@ -879,13 +885,13 @@ class CameraDetailPanel(QFrame):
         self._cam_id = cam_id
         self._cameras = cameras
         self._preview_active = False
-        self._prev_btn.setText("Preview")
+        self._prev_btn.setText("Ko'rish")
         cam = next((c for c in cameras if c.get("id") == cam_id), None)
         if not cam:
             return
 
-        name = cam.get("name", f"Camera {cam_id}")
-        loc = dept_fn(cam.get("department_id")) or "No department"
+        name = cam.get("name", f"Kamera {cam_id}")
+        loc = dept_fn(cam.get("department_id")) or "Bo'limsiz"
         url = cam.get("rtsp_url", "")
         self._current_rtsp = url
         self._cam_pill.setText(f"CAM {cam_id:02d}")
@@ -896,13 +902,17 @@ class CameraDetailPanel(QFrame):
         self._set_info(self._row_name, name)
         self._set_info(self._row_loc, loc)
         self._set_info(self._row_url, CameraGridCard._masked_url(url))
-        self._set_info(self._row_access, str(cam.get("access_mode", "department")))
-        self._set_info(self._row_last, "Waiting for stream")
+        mode = str(cam.get("access_mode", "department") or "department")
+        self._set_info(self._row_access, {
+            "department": "Bo'lim xodimlari",
+            "employees": "Tanlangan xodimlar",
+        }.get(mode, mode))
+        self._set_info(self._row_last, "Oqim kutilmoqda")
         self._update_health(stats)
-        self._chip_value(self._uptime_chip, "Online" if stats.get("connected") else "Offline",
+        self._chip_value(self._uptime_chip, "Onlayn" if stats.get("connected") else "Oflayn",
                          LIVE if stats.get("connected") else OFFLINE)
         if status == "live":
-            self._video.show_idle("Preview available")
+            self._video.show_idle("Ko'rish mumkin")
         elif status == "connecting":
             self._video.show_connecting()
         else:
@@ -919,18 +929,18 @@ class CameraDetailPanel(QFrame):
         self._preview_box.setFixedHeight(preview_height)
         self._video.setMinimumHeight(preview_height)
         self._expand_btn.setText("<" if self._expanded else ">")
-        self._expand_btn.setToolTip("Collapse inspector" if self._expanded else "Expand inspector")
+        self._expand_btn.setToolTip("Panelni yig'ish" if self._expanded else "Panelni kengaytirish")
 
     def update_status(self, status: str, stats: dict):
         self._badge.setText(_status_label(status))
         self._badge.setStyleSheet(self._badge_css(status))
         self._update_health(stats)
-        self._chip_value(self._uptime_chip, "Online" if stats.get("connected") else "Offline",
+        self._chip_value(self._uptime_chip, "Onlayn" if stats.get("connected") else "Oflayn",
                          LIVE if stats.get("connected") else OFFLINE)
         if self._preview_active:
             return
         if status == "live":
-            self._video.show_idle("Preview available")
+            self._video.show_idle("Ko'rish mumkin")
         elif status == "connecting":
             self._video.show_connecting()
         elif status in {"offline", "error"}:
@@ -945,39 +955,38 @@ class CameraDetailPanel(QFrame):
     def _toggle_preview(self):
         self._preview_active = not self._preview_active
         if self._preview_active:
-            self._prev_btn.setText("Stop")
+            self._prev_btn.setText("To'xtatish")
             self._video._has_frame = True
             self._video.clear()
-            self._video.setText("Waiting for frame...")
+            self._video.setText("Kadr kutilmoqda...")
         else:
-            self._prev_btn.setText("Preview")
-            self._video.show_idle("Preview available")
+            self._prev_btn.setText("Ko'rish")
+            self._video.show_idle("Ko'rish mumkin")
 
     def _save_snapshot(self):
         if self._cam_id is None or self._last_frame is None or self._last_frame.isNull():
-            self._shot_btn.setText("No frame")
-            QTimer.singleShot(1200, lambda: self._shot_btn.setText("Snapshot"))
+            self._shot_btn.setText("Kadr yo'q")
+            QTimer.singleShot(1200, lambda: self._shot_btn.setText("Surat olish"))
             return
 
-        root = Path(__file__).resolve().parents[3]
-        shot_dir = root / "screenshots" / "camera_snapshots"
+        shot_dir = data_path("screenshots", "camera_snapshots")
         shot_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         path = shot_dir / f"camera_{self._cam_id}_{ts}.jpg"
-        self._shot_btn.setText("Saved" if self._last_frame.save(str(path), "JPEG", 95) else "Save failed")
-        QTimer.singleShot(1400, lambda: self._shot_btn.setText("Snapshot"))
+        self._shot_btn.setText("Saqlandi" if self._last_frame.save(str(path), "JPEG", 95) else "Saqlanmadi")
+        QTimer.singleShot(1400, lambda: self._shot_btn.setText("Surat olish"))
 
     def _copy_rtsp(self):
         if not self._current_rtsp:
             return
         QApplication.clipboard().setText(self._current_rtsp)
-        self._set_info(self._row_last, "RTSP copied")
-        QTimer.singleShot(1400, lambda: self._set_info(self._row_last, "Now"))
+        self._set_info(self._row_last, "RTSP nusxalandi")
+        QTimer.singleShot(1400, lambda: self._set_info(self._row_last, "Hozir"))
 
     def _restart_camera(self):
         if self._cam_id is None:
             return
-        self._set_info(self._row_last, "Restart requested")
+        self._set_info(self._row_last, "Qayta ulanmoqda")
         self.restart_requested.emit(self._cam_id)
 
     def _edit_zone(self):
@@ -987,10 +996,10 @@ class CameraDetailPanel(QFrame):
         if cam is None:
             return
         if self._last_frame is None or self._last_frame.isNull():
-            QMessageBox.information(
-                self, "Frame yo'q",
-                "Zona chizish uchun avval Preview tugmasini bosing va\n"
-                "kamera frameni kutib oling."
+            AppMessageBox.information(
+                self, "Kadr yo'q",
+                "Zona chizish uchun avval Ko'rish tugmasini bosing va\n"
+                "kameradan kadr kelishini kuting."
             )
             return
         pixmap = QPixmap.fromImage(self._last_frame)
@@ -998,7 +1007,7 @@ class CameraDetailPanel(QFrame):
         from app.ui.widgets.polygon_editor import PolygonEditorDialog
         dlg = PolygonEditorDialog(
             pixmap, existing_pts,
-            cam.get("name", f"Camera {self._cam_id}"),
+            cam.get("name", f"Kamera {self._cam_id}"),
             existing_color=cam.get("polygon_color", "#f97316"),
             parent=self,
         )
@@ -1007,14 +1016,14 @@ class CameraDetailPanel(QFrame):
             color = dlg.result_color()
             if pts is not None:
                 self.cfg.update_camera(self._cam_id, polygon_points=pts, polygon_color=color)
-                self.cfg.save()
+                persist_config(self, self.cfg, "Zona saqlandi" if pts else "Zona o'chirildi")
                 for c in self._cameras:
                     if c.get("id") == self._cam_id:
                         c["polygon_points"] = pts
                         c["polygon_color"]  = color
                         break
-                self._zone_btn.setText("Zone Saved ✓")
-                QTimer.singleShot(1500, lambda: self._zone_btn.setText("Draw Zone"))
+                self._zone_btn.setText("Zona saqlandi ✓")
+                QTimer.singleShot(1500, lambda: self._zone_btn.setText("Zona chizish"))
 
     def _update_health(self, stats: dict):
         fps = float(stats.get("fps") or 0)
@@ -1022,8 +1031,8 @@ class CameraDetailPanel(QFrame):
         ok = bool(stats.get("connected", False))
         self._chip_value(self._fps_chip, f"{fps:.0f}", LIVE if ok else MUTED)
         self._chip_value(self._ping_chip, "--" if ping is None else f"{max(0, int(ping))} ms", TEXT_2)
-        self._chip_value(self._status_chip, "Online" if ok else "Offline", LIVE if ok else OFFLINE)
-        self._set_info(self._row_last, "Now" if ok else "No signal")
+        self._chip_value(self._status_chip, "Onlayn" if ok else "Oflayn", LIVE if ok else OFFLINE)
+        self._set_info(self._row_last, "Hozir" if ok else "Signal yo'q")
 
     def _rebuild_stats(self):
         if self._stats_loading:
@@ -1077,7 +1086,7 @@ class CameraDetailPanel(QFrame):
                 item.widget().deleteLater()
 
         if not events:
-            empty = QLabel("No recent events for this camera")
+            empty = QLabel("Bu kamerada so'nggi hodisalar yo'q")
             empty.setStyleSheet(f"color: {DIM}; font-size: 11px; padding: 8px 0;")
             self._ev_lay.addWidget(empty)
             return
@@ -1089,7 +1098,7 @@ class CameraDetailPanel(QFrame):
             rl = QHBoxLayout(row)
             rl.setContentsMargins(12, 0, 12, 0)
             rl.setSpacing(10)
-            badge = QLabel("⚠ NO HELMET")
+            badge = QLabel("⚠ SHLEMSIZ")
             badge.setStyleSheet(
                 f"color: {OFFLINE}; font-size: 10px; font-weight: 800;"
             )
@@ -1414,7 +1423,7 @@ class CamerasPage(QWidget):
 
         menu_btn = QPushButton("☰")
         menu_btn.setFixedSize(36, 36)
-        menu_btn.setToolTip("Toggle sidebar")
+        menu_btn.setToolTip("Yon panelni ko'rsatish/yashirish")
         menu_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {TEXT_2};"
             "border: 1px solid transparent; border-radius: 8px; font-size: 16px; }"
@@ -1426,26 +1435,26 @@ class CamerasPage(QWidget):
 
         title_col = QVBoxLayout()
         title_col.setSpacing(1)
-        title = QLabel("Camera Operations")
+        title = QLabel("Kameralar boshqaruvi")
         title.setStyleSheet(f"color: {TEXT}; font-size: 17px; font-weight: 900;")
-        sub = QLabel("Fleet health, access roster status, and on-demand diagnostics")
+        sub = QLabel("Kameralar holati, ruxsatlar va tezkor diagnostika")
         sub.setStyleSheet(f"color: {MUTED}; font-size: 11px; font-weight: 600;")
         title_col.addWidget(title)
         title_col.addWidget(sub)
         lay.addLayout(title_col, 1)
 
-        self._hdr_total = self._header_chip("0 total", C("text_link"))
-        self._hdr_live = self._header_chip("0 live", LIVE)
-        self._hdr_offline = self._header_chip("0 off", OFFLINE)
-        self._hdr_updated = self._header_chip("Updated --", TEXT_2)
+        self._hdr_total = self._header_chip("0 jami", C("text_link"))
+        self._hdr_live = self._header_chip("0 jonli", LIVE)
+        self._hdr_offline = self._header_chip("0 oflayn", OFFLINE)
+        self._hdr_updated = self._header_chip("Yangilandi --", TEXT_2)
         lay.addWidget(self._hdr_total)
         lay.addWidget(self._hdr_live)
         lay.addWidget(self._hdr_offline)
         lay.addWidget(self._hdr_updated)
         lay.addSpacing(8)
 
-        add = QPushButton("+ Add Camera")
-        add.setFixedSize(126, 34)
+        add = QPushButton("Kamera qo'shish")
+        add.setFixedSize(150, 34)
         add.setStyleSheet(self._primary_button_style())
         self._set_button_icon(add, "plus.svg", light=False)
         add.clicked.connect(self.add_camera_requested)
@@ -1473,7 +1482,7 @@ class CamerasPage(QWidget):
         vw = QVBoxLayout(view_wrap)
         vw.setContentsMargins(12, 8, 12, 12)
         vw.setSpacing(7)
-        view_sec = QLabel("VIEW")
+        view_sec = QLabel("KO'RINISH")
         view_sec.setFixedHeight(22)
         view_sec.setStyleSheet(
             f"color: {TEXT_2}; font-size: 9px; font-weight: 900; letter-spacing: 1px;"
@@ -1482,14 +1491,14 @@ class CamerasPage(QWidget):
 
         self._fbtn: dict[str, QPushButton] = {}
         self._filter_labels = {
-            "all": "All Cameras",
-            "live": "Live",
-            "offline": "Offline / Error",
+            "all": "Barcha kameralar",
+            "live": "Jonli",
+            "offline": "Oflayn / Xato",
         }
         for key, label, icon_name in [
-            ("all", "All Cameras", "camera.svg"),
-            ("live", "Live", "wifi.svg"),
-            ("offline", "Offline / Error", "alerts.svg"),
+            ("all", "Barcha kameralar", "camera.svg"),
+            ("live", "Jonli", "wifi.svg"),
+            ("offline", "Oflayn / Xato", "alerts.svg"),
         ]:
             btn = QPushButton(f"  {label}")
             btn.setFixedHeight(44)
@@ -1514,14 +1523,14 @@ class CamerasPage(QWidget):
 
         dept_hdr = QHBoxLayout()
         dept_hdr.setSpacing(6)
-        dep_lbl = QLabel("DEPARTMENTS")
+        dep_lbl = QLabel("BO'LIMLAR")
         dep_lbl.setStyleSheet(
             f"color: {TEXT_2}; font-size: 9px; font-weight: 900; letter-spacing: 1px;"
         )
         dept_hdr.addWidget(dep_lbl, 1)
         add_dep = QPushButton()
         add_dep.setFixedSize(22, 22)
-        add_dep.setToolTip("Add department")
+        add_dep.setToolTip("Bo'lim qo'shish")
         add_dep.setStyleSheet(
             f"QPushButton {{ background: {C('bg_panel_alt')}; color: {TEXT_2};"
             f"border: 1px solid {BORDER}; border-radius: 6px; font-size: 14px; font-weight: 900; }}"
@@ -1552,16 +1561,16 @@ class CamerasPage(QWidget):
         ob = QVBoxLayout(ops_bar)
         ob.setContentsMargins(12, 12, 12, 16)
         ob.setSpacing(8)
-        ops_hdr = QLabel("OPERATIONS")
+        ops_hdr = QLabel("BOSHQARUV")
         ops_hdr.setStyleSheet(
             f"color: {TEXT_2}; font-size: 9px; font-weight: 900;"
             "letter-spacing: 1px; background: transparent; border: none;"
         )
         ob.addWidget(ops_hdr)
-        self._ops_health = self._ops_row("Online health", "0%", LIVE)
-        self._ops_events = self._ops_row("Today events", "0", ACCENT)
-        self._ops_risk = self._ops_row("Top activity", "--", WARN)
-        self._ops_ai = self._ops_row("AI model", "Off", C("text_link"))
+        self._ops_health = self._ops_row("Onlayn darajasi", "0%", LIVE)
+        self._ops_events = self._ops_row("Bugungi hodisalar", "0", ACCENT)
+        self._ops_risk = self._ops_row("Eng faol", "--", WARN)
+        self._ops_ai = self._ops_row("AI model", "O'chiq", C("text_link"))
         ob.addWidget(self._ops_health)
         ob.addWidget(self._ops_events)
         ob.addWidget(self._ops_risk)
@@ -1591,7 +1600,7 @@ class CamerasPage(QWidget):
         sb.setSpacing(8)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search camera...")
+        self._search.setPlaceholderText("Kamerani qidirish...")
         self._search.setFixedHeight(34)
         self._search.setMinimumWidth(80)
         self._search.setMaximumWidth(200)
@@ -1613,11 +1622,11 @@ class CamerasPage(QWidget):
         _vsep.setStyleSheet(f"background: {BORDER_SOFT}; border: none;")
         sb.addWidget(_vsep)
 
-        sort_lbl = QLabel("Sort:")
+        sort_lbl = QLabel("Saralash:")
         sort_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; font-weight: 700;")
         sb.addWidget(sort_lbl)
         self._sort_btns: dict[str, QPushButton] = {}
-        for key, label in [("default", "Default"), ("events", "Events"), ("offline", "Health"), ("az", "A–Z")]:
+        for key, label in [("default", "Standart"), ("events", "Hodisalar"), ("offline", "Holat"), ("az", "A–Z")]:
             btn = QPushButton(label)
             btn.setFixedHeight(30)
             btn.setCheckable(True)
@@ -1646,7 +1655,7 @@ class CamerasPage(QWidget):
             btn = QPushButton()
             btn.setFixedSize(30, 28)
             btn.setCheckable(True)
-            btn.setToolTip(f"{col} columns")
+            btn.setToolTip(f"{col} ustun")
             icon_path = self._icon_dir / _layout_icons[col]
             if icon_path.exists():
                 btn.setIcon(QIcon(str(icon_path)))
@@ -1666,7 +1675,7 @@ class CamerasPage(QWidget):
         # ── Section title strip ───────────────────────────────────────────
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
-        self._grid_title = QLabel("All Cameras")
+        self._grid_title = QLabel("Barcha kameralar")
         self._grid_title.setStyleSheet(f"color: {TEXT}; font-size: 13px; font-weight: 900;")
         self._count_lbl = QLabel("0")
         self._count_lbl.setFixedHeight(22)
@@ -1676,7 +1685,7 @@ class CamerasPage(QWidget):
             f"border: 1px solid {C('border_light')};"
             "border-radius: 6px; font-size: 10px; font-weight: 900; padding: 0 8px;"
         )
-        self._hint_lbl = QLabel("Showing 0 of 0 cameras")
+        self._hint_lbl = QLabel("0 tadan 0 ta kamera ko'rsatilmoqda")
         self._hint_lbl.setStyleSheet(f"color: {MUTED}; font-size: 10px; font-weight: 600;")
         title_row.addWidget(self._grid_title)
         title_row.addWidget(self._count_lbl)
@@ -1827,13 +1836,13 @@ class CamerasPage(QWidget):
             active = k == key
             btn.setChecked(active)
             btn.setStyleSheet(self._filter_style(active))
-        titles = {"all": "All Cameras", "live": "Live Cameras", "offline": "Offline / Error"}
+        titles = {"all": "Barcha kameralar", "live": "Jonli kameralar", "offline": "Oflayn / Xato"}
         if key.startswith("dep:"):
             dep_id = key.split(":", 1)[1]
             dep = self.cfg.get_department_by_id(int(dep_id)) if dep_id.isdigit() and self.cfg else None
-            self._grid_title.setText(dep.get("name", "Department") if dep else "Department")
+            self._grid_title.setText(dep.get("name", "Bo'lim") if dep else "Bo'lim")
         else:
-            self._grid_title.setText(titles.get(key, "Cameras"))
+            self._grid_title.setText(titles.get(key, "Kameralar"))
         self._rebuild_locations()
         self._render_grid()
 
@@ -1910,12 +1919,12 @@ class CamerasPage(QWidget):
             )
             self._grid_lay.setRowStretch(rows, 1)
         self._count_lbl.setText(str(n))
-        visible_text = f"Showing {n} of {len(self._cameras)} cameras"
+        visible_text = f"{len(self._cameras)} tadan {n} ta kamera ko'rsatilmoqda"
         self._hint_lbl.setText(visible_text)
         self._foot.setText(visible_text)
         if hasattr(self, "_updated_lbl"):
-            updated = datetime.datetime.now().strftime("Updated %H:%M:%S")
-            self._updated_lbl.setText(f"Last {updated}")
+            updated = datetime.datetime.now().strftime("Yangilandi %H:%M:%S")
+            self._updated_lbl.setText(f"Oxirgi: {updated}")
             if hasattr(self, "_hdr_updated"):
                 self._hdr_updated.setText(updated)
 
@@ -2010,7 +2019,7 @@ class CamerasPage(QWidget):
 
             text_col = QVBoxLayout()
             text_col.setSpacing(4)
-            name_lbl = QLabel(dep.get("name", "Department"))
+            name_lbl = QLabel(dep.get("name", "Bo'lim"))
             name_lbl.setStyleSheet(
                 f"color: {ACCENT if active else TEXT}; font-size: 12px; font-weight: 800;"
             )
@@ -2036,15 +2045,15 @@ class CamerasPage(QWidget):
             self._loc_lay.addWidget(row)
 
     def _add_department(self):
-        name, ok = QInputDialog.getText(self, "Yangi bo'lim", "Bo'lim nomi:")
+        name, ok = AppInputDialog.get_text(self, "Yangi bo'lim", "Bo'lim nomi:", placeholder="Masalan: Sex 2, Ombor")
         if not ok or not name.strip():
             return
         try:
             self.cfg.add_department(name.strip())
-            self.cfg.save()
         except ValueError as exc:
-            QMessageBox.warning(self, "Xatolik", str(exc))
+            AppMessageBox.warning(self, "Xatolik", str(exc))
             return
+        persist_config(self, self.cfg, f"Bo'lim qo'shildi: \"{name.strip()}\"")
         self._rebuild_locations()
         self.departments_changed.emit()
 
@@ -2054,9 +2063,9 @@ class CamerasPage(QWidget):
         offline = sum(1 for c in self._cameras if self._status.get(c.get("id")) in {"offline", "error"})
         warn = sum(1 for c in self._cameras if self._status.get(c.get("id")) == "connecting")
         if hasattr(self, "_hdr_total"):
-            self._hdr_total.setText(f"{total} total")
-            self._hdr_live.setText(f"{live} live")
-            self._hdr_offline.setText(f"{offline + warn} off")
+            self._hdr_total.setText(f"{total} jami")
+            self._hdr_live.setText(f"{live} jonli")
+            self._hdr_offline.setText(f"{offline + warn} oflayn")
         if hasattr(self, "_fleet_bar"):
             self._fleet_bar.set_segments(
                 [self._status.get(c.get("id"), "connecting") for c in self._cameras]
@@ -2089,14 +2098,14 @@ class CamerasPage(QWidget):
             top_count = int(top_stats.get("today_count", 0) or 0)
             if top_count:
                 cam = next((c for c in self._cameras if c.get("id") == top_id), None)
-                fallback_name = f"CAM {int(top_id):02d}" if isinstance(top_id, int) else "Camera"
+                fallback_name = f"CAM {int(top_id):02d}" if isinstance(top_id, int) else "Kamera"
                 cam_name = cam.get("name", fallback_name) if cam else fallback_name
                 top_cam = f"{cam_name}  {top_count}"
         ai_on = bool(self.cfg and self.cfg.get("ai_model_enabled", False))
         self._ops_row_set(self._ops_health, f"{health}%", LIVE if health >= 70 else WARN if health >= 40 else OFFLINE)
         self._ops_row_set(self._ops_events, str(today_events), ACCENT if today_events else MUTED)
         self._ops_row_set(self._ops_risk, top_cam, WARN if top_cam != "--" else MUTED)
-        self._ops_row_set(self._ops_ai, "On" if ai_on else "Off", LIVE if ai_on else MUTED)
+        self._ops_row_set(self._ops_ai, "Yoqilgan" if ai_on else "O'chiq", LIVE if ai_on else MUTED)
 
     def _update_department_badges(self):
         if not self._dept_badges:

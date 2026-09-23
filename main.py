@@ -15,17 +15,34 @@ import os
 import json
 from pathlib import Path
 
-# ── Venv Python ni majburan ishlatish ────────────────────────────────────
-# Agar boshqa Python bilan ishga tushirilsa, venv Python'iga o'tadi
-_BASE = Path(__file__).parent.resolve()
-_VENV_PYTHON = _BASE / "venv" / "Scripts" / "python.exe"
-if _VENV_PYTHON.exists() and Path(sys.executable).resolve() != _VENV_PYTHON.resolve():
-    os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON)] + sys.argv)
+_FROZEN = bool(getattr(sys, "frozen", False))
 
-# ── SmartGUI papkasini sys.path ga qo'shish ──────────────────────────────
-BASE_DIR = Path(__file__).parent.resolve()
-if str(BASE_DIR) not in sys.path:
-    sys.path.insert(0, str(BASE_DIR))
+# ── Venv Python ni majburan ishlatish ────────────────────────────────────
+# Agar boshqa Python bilan ishga tushirilsa, venv Python'iga o'tadi (exe'da emas)
+if not _FROZEN:
+    _BASE = Path(__file__).parent.resolve()
+    _VENV_PYTHON = _BASE / "venv" / "Scripts" / "python.exe"
+    if _VENV_PYTHON.exists() and Path(sys.executable).resolve() != _VENV_PYTHON.resolve():
+        os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON)] + sys.argv)
+
+    # ── SmartGUI papkasini sys.path ga qo'shish ──────────────────────────
+    _src_dir = str(Path(__file__).parent.resolve())
+    if _src_dir not in sys.path:
+        sys.path.insert(0, _src_dir)
+
+# ── --windowed exe'da stdout/stderr None bo'ladi — print/tqdm yiqilmasin ──
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+from app import __version__
+from app.shared.paths import DATA_DIR, resource_path
+
+# Barcha nisbiy yo'llar (settings.json, smartgui.db, violations) DATA_DIR ga
+# bog'lanadi — yorliq yoki service qaysi papkadan ishga tushirsa ham.
+BASE_DIR = DATA_DIR
+os.chdir(BASE_DIR)
 
 # ── torch va ultralytics AVVAL import — PyQt6 dan oldin ──────────────────
 # Windows da Qt DLL'lari CUDA DLL yuklashiga to'sqinlik qiladi.
@@ -35,7 +52,7 @@ def _ai_model_enabled() -> bool:
         settings_path = BASE_DIR / "settings.json"
         if not settings_path.exists():
             return False
-        with open(settings_path, "r", encoding="utf-8") as f:
+        with open(settings_path, "r", encoding="utf-8-sig") as f:
             return bool(json.load(f).get("ai_model_enabled", False))
     except Exception:
         return False
@@ -46,7 +63,7 @@ def _ui_theme() -> str:
         settings_path = BASE_DIR / "settings.json"
         if not settings_path.exists():
             return "dark"
-        with open(settings_path, "r", encoding="utf-8") as f:
+        with open(settings_path, "r", encoding="utf-8-sig") as f:
             return str(json.load(f).get("theme", "dark")).lower()
     except Exception:
         return "dark"
@@ -66,7 +83,7 @@ if _ai_model_enabled():
 try:
     from PyQt6.QtWidgets import QApplication, QMessageBox, QSplashScreen
     from PyQt6.QtCore import Qt, QTimer
-    from PyQt6.QtGui import QPixmap, QFont, QColor
+    from PyQt6.QtGui import QPixmap, QFont, QColor, QIcon
 except ImportError:
     print("PyQt6 o'rnatilmagan. Quyidagi buyruqni bajaring:\n  pip install PyQt6",
           file=sys.stderr)
@@ -149,10 +166,19 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
 
+    # Windows taskbar python.exe ikonkasini emas, ilova ikonkasini ko'rsatsin
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("SafeZone.SmartGUI")
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     app.setApplicationName("SafeZone")
     app.setOrganizationName("SafeZone")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion(__version__)
+    app.setWindowIcon(QIcon(str(resource_path("images", "app.ico"))))
 
     # Font
     font = QFont("Segoe UI", 10)

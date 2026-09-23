@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 
 from PyQt6.QtCore import QDateTime, QTimer, Qt
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
+from PyQt6.QtGui import QBrush, QColor, QFont, QLinearGradient, QPainter, QPen
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from app.ui.theme import C

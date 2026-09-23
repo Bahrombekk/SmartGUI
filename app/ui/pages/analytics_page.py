@@ -62,7 +62,7 @@ def _hex_rgb(h: str) -> str:
 # ── Design tokens ──────────────────────────────────────────────────────────────
 _BG = _CARD = _CARD2 = _CARD3 = _BORDER = _BSOFT = ""
 _TEXT = _TEXT2 = _MUTED = ""
-_RED = _ORANGE = _AMBER = _GREEN = _BLUE = _LBLUE = _PURPLE = _TEAL = ""
+_RED = _ORANGE = _AMBER = _GREEN = _BLUE = _LBLUE = _PURPLE = _TEAL = _MUTED_ICON = ""
 
 
 def _refresh_theme_tokens() -> None:
@@ -84,6 +84,7 @@ def _refresh_theme_tokens() -> None:
     g["_LBLUE"] = C("text_link")
     g["_PURPLE"] = "#8b5cf6"
     g["_TEAL"] = C("info")
+    g["_MUTED_ICON"] = C("text_secondary")
 
 
 on_theme_change(_refresh_theme_tokens)
@@ -157,10 +158,8 @@ class _MetricCard(QFrame):
         self.setMinimumHeight(118)
         self.setStyleSheet(
             "QFrame {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            f"stop:0 rgba({rgb},0.10),stop:0.55 {_CARD},stop:1 {_CARD});"
-            f"border: 1px solid rgba({rgb},0.26);"
-            f"border-left: 4px solid {accent};"
+            f"background: {_CARD2};"
+            f"border: 1px solid {_BSOFT};"
             "border-radius: 10px; }"
             "QLabel { background: transparent; border: none; }"
         )
@@ -188,8 +187,8 @@ class _MetricCard(QFrame):
         col.setSpacing(2)
         t = QLabel(title)
         t.setStyleSheet(
-            f"color: rgba({rgb},0.85); font-size: 9px; font-weight: 900;"
-            "letter-spacing: 1.6px;"
+            f"color: {_TEXT2}; font-size: 10px; font-weight: 800;"
+            "letter-spacing: 1.2px;"
         )
         col.addWidget(t)
         self._value_lbl = QLabel("0")
@@ -229,7 +228,7 @@ class _SectionCard(QFrame):
         self.setStyleSheet(
             "QFrame#analyticsSection {"
             f"background: {_CARD2};"
-            f"border: 1px solid rgba({rgb},0.20);"
+            f"border: 1px solid {_BSOFT};"
             "border-radius: 10px; }"
             "QLabel { background: transparent; border: none; }"
         )
@@ -242,9 +241,8 @@ class _SectionCard(QFrame):
         hdr.setFixedHeight(46)
         hdr.setStyleSheet(
             "QWidget#secHdr {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 rgba({rgb},0.22),stop:0.55 rgba({rgb},0.06),stop:1 transparent);"
-            f"border-bottom: 1px solid rgba({rgb},0.28);"
+            f"background: {_CARD3};"
+            f"border-bottom: 1px solid {_BSOFT};"
             "border-radius: 9px 9px 0 0; }"
             "QLabel { background: transparent; border: none; }"
         )
@@ -260,10 +258,8 @@ class _SectionCard(QFrame):
         pwl.setContentsMargins(5, 10, 5, 10)
         pwl.setSpacing(0)
         pill = QWidget()
-        pill.setStyleSheet(
-            f"background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            f"stop:0 {bar_color},stop:1 rgba({rgb},0.4)); border-radius: 3px; border: none;"
-        )
+        # Barcha bo'limlarda bitta aksent — rang faqat ma'lumot uchun ishlatiladi
+        pill.setStyleSheet(f"background: {_ORANGE}; border-radius: 2px; border: none;")
         pwl.addWidget(pill)
         hl.addWidget(pill_wrap)
         hl.addSpacing(4)
@@ -299,8 +295,8 @@ class _InsightRow(QFrame):
         self.setMinimumHeight(60)
         self.setStyleSheet(
             "QFrame {"
-            f"background: rgba({rgb},0.06);"
-            f"border: 1px solid rgba({rgb},0.22);"
+            f"background: {_CARD3};"
+            f"border: 1px solid {_BSOFT};"
             f"border-left: 3px solid {accent};"
             "border-radius: 8px; }"
             "QLabel { background: transparent; border: none; }"
@@ -327,7 +323,7 @@ class _InsightRow(QFrame):
         col = QVBoxLayout()
         col.setSpacing(2)
         t = QLabel(title)
-        t.setStyleSheet(f"color: {accent}; font-size: 12px; font-weight: 900;")
+        t.setStyleSheet(f"color: {_TEXT}; font-size: 12px; font-weight: 800;")
         col.addWidget(t)
         d = QLabel(detail)
         d.setStyleSheet(f"color: {_TEXT2}; font-size: 11px; font-weight: 600;")
@@ -427,19 +423,18 @@ class _SplitGauge(QWidget):
         p.drawText(cx - 38, cy - 15, 76, 24, Qt.AlignmentFlag.AlignCenter, _fmt(total))
         p.setPen(QColor(_MUTED))
         p.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
-        p.drawText(cx - 38, cy + 8, 76, 14, Qt.AlignmentFlag.AlignCenter, "events")
+        p.drawText(cx - 38, cy + 8, 76, 14, Qt.AlignmentFlag.AlignCenter, "hodisa")
         p.end()
 
 
 # ── Ranking row ────────────────────────────────────────────────────────────────
 def _ranking_row(rank: int, name: str, count: int, max_count: int) -> QFrame:
-    palette = [_RED, _ORANGE, _AMBER, _BLUE, _GREEN]
-    color = palette[rank % len(palette)]
-    rgb = _hex_rgb(color)
+    # Rang ma'noli: 1-o'rin (eng ko'p buzilish) qizil, qolganlari aksent
+    color = _RED if rank == 0 else _ORANGE
     w = QFrame()
     w.setStyleSheet(
-        f"QFrame {{ background: rgba({rgb},0.06);"
-        f"border: 1px solid rgba({rgb},0.20); border-radius: 8px; }}"
+        f"QFrame {{ background: {_CARD3};"
+        f"border: 1px solid {_BSOFT}; border-radius: 8px; }}"
         "QLabel { background: transparent; border: none; }"
     )
     lay = QHBoxLayout(w)
@@ -530,10 +525,10 @@ class AnalyticsPage(QWidget):
 
         # KPI row
         self._metric_cards = {
-            "today": _MetricCard("TODAY VIOLATIONS", "alerts.svg",    _RED,    "vs yesterday"),
-            "week":  _MetricCard("THIS WEEK",        "analytics.svg", _ORANGE, "vs last week"),
-            "month": _MetricCard("THIS MONTH",       "reports.svg",   _AMBER,  "vs last month"),
-            "total": _MetricCard("TOTAL VIOLATIONS", "database.svg",  _LBLUE,  "all time data"),
+            "today": _MetricCard("BUGUNGI BUZILISHLAR", "alerts.svg",    _RED,    "kechagiga nisbatan"),
+            "week":  _MetricCard("BU HAFTA",            "analytics.svg", _ORANGE, "o'tgan haftaga nisbatan"),
+            "month": _MetricCard("BU OY",               "reports.svg",   _ORANGE, "o'tgan oyga nisbatan"),
+            "total": _MetricCard("JAMI BUZILISHLAR",    "database.svg",  _MUTED_ICON, "butun davr"),
         }
         kpi = QGridLayout()
         kpi.setSpacing(10)
@@ -545,33 +540,35 @@ class AnalyticsPage(QWidget):
         r1 = QHBoxLayout()
         r1.setSpacing(10)
 
-        daily = _SectionCard("Daily Violations Trend", _RED)
+        daily = _SectionCard("Kunlik buzilishlar dinamikasi", _RED)
         self._days_combo = QComboBox()
-        self._days_combo.addItems(["14 days", "30 days", "60 days", "90 days"])
+        self._days_combo.addItems(["14 kun", "30 kun", "60 kun", "90 kun"])
         self._days_combo.setCurrentIndex(1)
         self._days_combo.setFixedSize(100, 28)
         self._days_combo.setStyleSheet(self._combo_style())
         self._days_combo.currentIndexChanged.connect(self._load_daily)
-        daily.add_header_widget(self._legend_dot(_RED, "No Helmet"))
-        daily.add_header_widget(self._legend_dot(_GREEN, "Helmet"))
+        daily.add_header_widget(self._legend_dot(_RED, "Shlemsiz"))
+        daily._hdr_row.addSpacing(14)
+        daily.add_header_widget(self._legend_dot(_AMBER, "Boshqa buzilishlar"))
+        daily._hdr_row.addSpacing(16)
         daily.add_header_widget(self._days_combo)
         self._bar_chart = BarChart()
         self._bar_chart.setMinimumHeight(240)
         daily.add_body_widget(self._bar_chart)
         r1.addWidget(daily, 5)
 
-        insights = _SectionCard("AI Insights", _LBLUE)
+        insights = _SectionCard("AI xulosalari", _LBLUE)
         self._insight_layout = QVBoxLayout()
         self._insight_layout.setSpacing(7)
         insights._body.addLayout(self._insight_layout)
         insights._body.addStretch()
         r1.addWidget(insights, 3)
 
-        ranking = _SectionCard("Camera Ranking  (Top 5)", _ORANGE)
+        ranking = _SectionCard("Kameralar reytingi  (Top 5)", _ORANGE)
         self._ranking_layout = QVBoxLayout()
         self._ranking_layout.setSpacing(6)
         ranking._body.addLayout(self._ranking_layout)
-        all_btn = QPushButton("All cameras  →")
+        all_btn = QPushButton("Barcha kameralar  →")
         all_btn.setFixedHeight(26)
         all_btn.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {_ORANGE};"
@@ -587,9 +584,9 @@ class AnalyticsPage(QWidget):
         r2 = QHBoxLayout()
         r2.setSpacing(10)
 
-        weekly = _SectionCard("Weekly Trend", _PURPLE)
+        weekly = _SectionCard("Haftalik dinamika", _PURPLE)
         self._weekly_combo = QComboBox()
-        self._weekly_combo.addItems(["8 weeks", "16 weeks"])
+        self._weekly_combo.addItems(["8 hafta", "16 hafta"])
         self._weekly_combo.setFixedSize(96, 28)
         self._weekly_combo.setStyleSheet(self._combo_style())
         self._weekly_combo.currentIndexChanged.connect(self._load_weekly)
@@ -599,7 +596,7 @@ class AnalyticsPage(QWidget):
         weekly.add_body_widget(self._line_chart)
         r2.addWidget(weekly, 1)
 
-        hourly = _SectionCard("Today's Hourly Distribution", _TEAL)
+        hourly = _SectionCard("Bugungi soatlik taqsimot", _TEAL)
         self._hourly_chart = HourlyBarChart()
         self._hourly_chart.setMinimumHeight(208)
         hourly.add_body_widget(self._hourly_chart)
@@ -610,13 +607,13 @@ class AnalyticsPage(QWidget):
         r3 = QHBoxLayout()
         r3.setSpacing(10)
 
-        depts = _SectionCard("Department Breakdown", _ORANGE)
+        depts = _SectionCard("Bo'limlar kesimida", _ORANGE)
         self._dept_layout = QVBoxLayout()
         self._dept_layout.setSpacing(9)
         depts._body.addLayout(self._dept_layout)
         r3.addWidget(depts, 5)
 
-        mix = _SectionCard("Violation Mix", _AMBER)
+        mix = _SectionCard("Buzilish turlari", _AMBER)
         self._type_gauge = _SplitGauge()
         mix.add_body_widget(self._type_gauge)
         self._type_layout = QVBoxLayout()
@@ -624,7 +621,7 @@ class AnalyticsPage(QWidget):
         mix._body.addLayout(self._type_layout)
         r3.addWidget(mix, 3)
 
-        ops = _SectionCard("Operational Health", _GREEN)
+        ops = _SectionCard("Tizim holati", _GREEN)
         self._ops_layout = QGridLayout()
         self._ops_layout.setSpacing(7)
         ops._body.addLayout(self._ops_layout)
@@ -662,10 +659,10 @@ class AnalyticsPage(QWidget):
 
         tc = QVBoxLayout()
         tc.setSpacing(3)
-        t = QLabel("Analytics")
+        t = QLabel("Tahlil")
         t.setStyleSheet(f"color: {_TEXT}; font-size: 20px; font-weight: 900;")
         tc.addWidget(t)
-        s = QLabel("Violation trends by time, camera and operational health")
+        s = QLabel("Buzilishlar dinamikasi: vaqt, kamera va tizim holati bo'yicha")
         s.setStyleSheet(f"color: {_MUTED}; font-size: 11px; font-weight: 600;")
         tc.addWidget(s)
         lay.addLayout(tc)
@@ -673,22 +670,22 @@ class AnalyticsPage(QWidget):
 
         # Department filter
         self._zone_combo = QComboBox()
-        self._zone_combo.addItem("All Departments")
+        self._zone_combo.addItem("Barcha bo'limlar")
         if self.cfg:
             for d in self.cfg.get_departments():
                 self._zone_combo.addItem(str(d.get("name", "")))
-        self._zone_combo.setFixedSize(148, 34)
+        self._zone_combo.setFixedSize(160, 34)
         self._zone_combo.setStyleSheet(self._combo_style())
         self._zone_combo.currentIndexChanged.connect(self._on_filter_changed)
         lay.addWidget(self._zone_combo)
 
         # Camera filter
         self._camera_combo = QComboBox()
-        self._camera_combo.addItem("All Cameras")
+        self._camera_combo.addItem("Barcha kameralar")
         if self.cfg:
             for cam in self.cfg.get_cameras():
                 self._camera_combo.addItem(str(cam.get("name", "")))
-        self._camera_combo.setFixedSize(148, 34)
+        self._camera_combo.setFixedSize(160, 34)
         self._camera_combo.setStyleSheet(self._combo_style())
         self._camera_combo.currentIndexChanged.connect(self._on_filter_changed)
         lay.addWidget(self._camera_combo)
@@ -726,7 +723,7 @@ class AnalyticsPage(QWidget):
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(0)
         self._period_group = QButtonGroup(self)
-        for idx, txt in enumerate(["Today", "Week", "Month", "Custom"]):
+        for idx, txt in enumerate(["Bugun", "Hafta", "Oy", "Oraliq"]):
             btn = QPushButton(txt)
             btn.setCheckable(True)
             btn.setFixedHeight(34)
@@ -738,8 +735,8 @@ class AnalyticsPage(QWidget):
         self._period_group.buttonClicked.connect(self._on_period_clicked)
         lay.addWidget(seg)
 
-        refresh = QPushButton("Refresh")
-        refresh.setFixedSize(88, 34)
+        refresh = QPushButton("Yangilash")
+        refresh.setFixedSize(100, 34)
         refresh.setStyleSheet(
             f"QPushButton {{ background: rgba({_hex_rgb(_ORANGE)},0.14); color: {_ORANGE};"
             f"border: 1px solid rgba({_hex_rgb(_ORANGE)},0.38); border-radius: 7px;"
@@ -804,7 +801,7 @@ class AnalyticsPage(QWidget):
             self._load_operations()
         except Exception as exc:
             for card in self._metric_cards.values():
-                card.set_delta(f"DB error: {str(exc)[:48]}", _RED)
+                card.set_delta(f"DB xatosi: {str(exc)[:48]}", _RED)
 
     def _load_summary(self, camera_name=None, department_id=None):
         data = self.analytics.summary_with_delta(
@@ -817,18 +814,18 @@ class AnalyticsPage(QWidget):
 
         def _delta_text(pct: float | None, label: str) -> tuple[str, str]:
             if pct is None:
-                return f"no prior {label} data", _MUTED
+                return "taqqoslash uchun ma'lumot yo'q", _MUTED
             arrow = "↑" if pct > 0 else "↓"
             color = _RED if pct > 0 else _GREEN
             return f"{arrow} {abs(pct):.1f}% {label}", color
 
-        txt, col = _delta_text(data["today_delta"], "vs yesterday")
+        txt, col = _delta_text(data["today_delta"], "kechagiga nisbatan")
         self._metric_cards["today"].set_delta(txt, col)
-        txt, col = _delta_text(data["week_delta"], "vs last week")
+        txt, col = _delta_text(data["week_delta"], "o'tgan haftaga nisbatan")
         self._metric_cards["week"].set_delta(txt, col)
-        txt, col = _delta_text(data["month_delta"], "vs last month")
+        txt, col = _delta_text(data["month_delta"], "o'tgan oyga nisbatan")
         self._metric_cards["month"].set_delta(txt, col)
-        self._metric_cards["total"].set_delta("all time data", _MUTED)
+        self._metric_cards["total"].set_delta("butun davr", _MUTED)
 
     def _load_daily(self, camera_name=None, department_id=None):
         days = {0: 14, 1: 30, 2: 60, 3: 90}.get(self._days_combo.currentIndex(), 30)
@@ -858,7 +855,7 @@ class AnalyticsPage(QWidget):
             camera_name=camera_name, department_id=department_id,
         )
         if not rows:
-            lbl = QLabel("No camera data yet")
+            lbl = QLabel("Hozircha kamera ma'lumotlari yo'q")
             lbl.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
             self._ranking_layout.addWidget(lbl)
             return
@@ -873,16 +870,16 @@ class AnalyticsPage(QWidget):
             camera_name=camera_name, department_id=department_id,
         )
         peak_h = ins["peak_hour"]
-        peak_label = f"{peak_h:02d}:00 – {peak_h+1:02d}:00 ({_fmt(ins['peak_hour_count'])} violations)"
-        top_cam = f"{ins['top_camera']} ({_fmt(ins['top_camera_count'])} cases)"
+        peak_label = f"{peak_h:02d}:00 – {peak_h+1:02d}:00 ({_fmt(ins['peak_hour_count'])} ta buzilish)"
+        top_cam = f"{ins['top_camera']} ({_fmt(ins['top_camera_count'])} ta holat)"
         today_n = self.analytics.summary_counts(
             camera_name=camera_name, department_id=department_id
         ).get("today", 0)
         rows = [
-            ("Peak violation time",  peak_label,              _RED,    "bell.svg"),
-            ("Highest risk camera",  top_cam,                 _ORANGE, "camera.svg"),
-            ("Today's violations",   f"{_fmt(today_n)} today", _LBLUE, "analytics.svg"),
-            ("Highest risk zone",    ins["top_dept"],         _GREEN,  "map-pin.svg"),
+            ("Eng ko'p buzilish vaqti", peak_label,                  _RED,    "bell.svg"),
+            ("Eng xavfli kamera",       top_cam,                     _ORANGE, "camera.svg"),
+            ("Bugungi buzilishlar",     f"bugun {_fmt(today_n)} ta", _LBLUE,  "analytics.svg"),
+            ("Eng xavfli zona",         ins["top_dept"],             _GREEN,  "map-pin.svg"),
         ]
         for row in rows:
             self._insight_layout.addWidget(_InsightRow(*row))
@@ -900,14 +897,14 @@ class AnalyticsPage(QWidget):
                 for c in self.cfg.get_cameras()
             ]
         if not rows:
-            lbl = QLabel("No department data yet")
+            lbl = QLabel("Hozircha bo'lim ma'lumotlari yo'q")
             lbl.setStyleSheet(f"color: {_MUTED}; font-size: 12px;")
             self._dept_layout.addWidget(lbl)
             return
         mx = max(int(r.get("count", 0)) for r in rows) or 1
         palette = [_ORANGE, _BLUE, _GREEN, _AMBER, _RED, _PURPLE]
         for i, r in enumerate(rows[:6]):
-            name  = str(r.get("department", "Department"))
+            name  = str(r.get("department", "Bo'lim"))
             count = int(r.get("count", 0))
             self._dept_layout.addWidget(
                 _ProgressRow(name, count, mx, palette[i % len(palette)],
@@ -936,12 +933,12 @@ class AnalyticsPage(QWidget):
         users = self._active_users()
         all_u = len(self.cfg.get_users()) if self.cfg else 0
         settings = [
-            ("Enabled cameras", f"{enabled}/{total}", _GREEN),
-            ("Departments",     str(len(self.cfg.get_departments()) if self.cfg else 0), _LBLUE),
-            ("Active workers",  f"{users}/{all_u}",   _PURPLE),
-            ("AI model",        "On" if self.cfg and self.cfg.ai_model_enabled else "Off", _AMBER),
-            ("Telegram",        "On" if self.cfg and self.cfg.telegram_enabled else "Off", _ORANGE),
-            ("Retention",       f"{self.cfg.get('keep_files_days', 7) if self.cfg else 7}d", _RED),
+            ("Yoqilgan kameralar", f"{enabled}/{total}", _GREEN),
+            ("Bo'limlar",          str(len(self.cfg.get_departments()) if self.cfg else 0), _LBLUE),
+            ("Faol xodimlar",      f"{users}/{all_u}",   _PURPLE),
+            ("AI model",           "Yoniq" if self.cfg and self.cfg.ai_model_enabled else "O'chiq", _AMBER),
+            ("Telegram",           "Yoniq" if self.cfg and self.cfg.telegram_enabled else "O'chiq", _ORANGE),
+            ("Saqlash muddati",    f"{self.cfg.get('keep_files_days', 7) if self.cfg else 7} kun", _RED),
         ]
         for i, (title, value, color) in enumerate(settings):
             self._ops_layout.addWidget(_ops_card(title, value, color), i // 2, i % 2)
@@ -970,7 +967,7 @@ class AnalyticsPage(QWidget):
         cams  = sum(1 for c in self.cfg.get_cameras() if c.get("department_id") == dep_id)
         users = sum(1 for u in self.cfg.get_users()
                     if u.get("department_id") == dep_id and u.get("active", True))
-        return f"{cams} cameras, {users} active workers"
+        return f"{cams} ta kamera, {users} ta faol xodim"
 
     # ── Style helpers ──────────────────────────────────────────────────────────
     @staticmethod
@@ -1017,8 +1014,9 @@ class AnalyticsPage(QWidget):
         dot.setStyleSheet(f"background: {color}; border-radius: 4px;")
         lay.addWidget(dot)
         lbl = QLabel(text)
-        lbl.setStyleSheet(f"color: {_MUTED}; font-size: 11px; font-weight: 700;")
+        lbl.setStyleSheet(f"color: {_TEXT2}; font-size: 11px; font-weight: 700;")
         lay.addWidget(lbl)
+        w.setFixedWidth(w.sizeHint().width() + 4)
         return w
 
     def refresh(self):

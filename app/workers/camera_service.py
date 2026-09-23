@@ -16,6 +16,8 @@ import cv2
 import torch
 from ultralytics import YOLO
 
+from app.shared.paths import resolve_model_path
+
 import logging
 
 _log = logging.getLogger(__name__)
@@ -413,9 +415,7 @@ def svc_acquire(cfg) -> CameraService | None:
             return _svc
 
     model_path = cfg.get("model_path", "")
-    p = Path(model_path)
-    if not p.is_absolute():
-        p = Path(__file__).parent.parent.parent / p
+    p = resolve_model_path(model_path)
     if not p.exists():
         _log.error("Model topilmadi: %s", p)
         return None

@@ -4,6 +4,7 @@ Chap sidebar navigatsiyasi bilan: Kameralar, Model, Telegram, Backend, Saqlash.
 """
 
 import os
+import re
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
@@ -16,10 +17,16 @@ from PyQt6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem,
     QInputDialog, QGridLayout, QSizePolicy, QMenu,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal, QSize
 from PyQt6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor
 
+from app.ui.widgets.frameless import FramedDialog
+from app.ui.widgets.toast import show_toast
+from app.ui.widgets.app_dialog import AppInputDialog, AppMessageBox
 from app.ui.theme import C
+from app.config.settings_manager import MAX_CAMERAS
+from app.shared.paths import resolve_model_path
+from app.shared.utils.rtsp import mask_rtsp_password
 
 
 # тФАтФА Test Thread тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
@@ -51,7 +58,7 @@ class _TestThread(QThread):
                 if chat_ids:
                     msg = requests.post(
                         f"https://api.telegram.org/bot{token}/sendMessage",
-                        data={"chat_id": chat_ids[0], "text": "SmartHelmet test notification"},
+                        data={"chat_id": chat_ids[0], "text": "SmartHelmet test xabari"},
                         timeout=10,
                     )
                     if msg.status_code != 200:
@@ -60,8 +67,32 @@ class _TestThread(QThread):
                 self.result.emit(True, f"Bot ulandi: {name}")
             except Exception as e:
                 self.result.emit(False, str(e))
+        elif self.mode == "backend":
+            # Faqat autentifikatsiya — backend'da hech qanday yozuv yaratilmaydi
+            try:
+                import requests
+                from app.infrastructure.notifications.backend_client import BackendClient
+
+                client = BackendClient(self.data.get("url", ""), self.data.get("login", ""),
+                                       self.data.get("password", ""))
+                if not client.base_url:
+                    self.result.emit(False, "API URL kiritilmagan")
+                    return
+                if not client._access_token(requests):
+                    self.result.emit(False, "Login javobida token yo'q")
+                    return
+                msg = f"Login muvaffaqiyatli: {client.base_url}"
+                if client.base_url.startswith("http://"):
+                    msg += "\nDiqqat: http:// — parol shifrlanmasdan ketadi, https:// tavsiya etiladi."
+                bad = self.data.get("bad_company_ids") or []
+                if bad:
+                    msg += ("\nDiqqat: bu kameralarda Kompaniya ID UUID emas, yozuvlar kompaniyaga "
+                            "bog'lanmaydi: " + ", ".join(bad))
+                self.result.emit(True, msg)
+            except Exception as e:
+                self.result.emit(False, f"Backend'ga ulanib bo'lmadi: {e}")
         elif self.mode == "model":
-            model_path = self.data.get("path", "")
+            model_path = str(resolve_model_path(self.data.get("path", "")))
             if not os.path.exists(model_path):
                 self.result.emit(False, f"Fayl topilmadi:\n{model_path}")
                 return
@@ -73,7 +104,7 @@ class _TestThread(QThread):
                 dummy = np.zeros((320, 320, 3), dtype=np.uint8)
                 model.predict([dummy], imgsz=320, conf=0.25, verbose=False, max_det=1, device="cpu")
                 size = os.path.getsize(model_path) // (1024 * 1024)
-                self.result.emit(True, f"Model yuklandi va sample inference o'tdi ({size} MB)")
+                self.result.emit(True, f"Model yuklandi va sinov tekshiruvidan o'tdi ({size} MB)")
             except Exception as e:
                 self.result.emit(False, f"Model yuklanmadi: {e}")
 
@@ -109,12 +140,61 @@ class _ClickableRow(QWidget):
         self.update()
 
 
-class CameraEditDialog(QDialog):
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+_STREAM_SCHEMES = ("rtsp://", "rtsps://", "http://", "https://", "rtmp://")
+
+
+def validate_camera_fields(name: str, rtsp: str, company_id: str,
+                           cameras: list, exclude_id=None) -> tuple[list[str], list[str]]:
+    """Kamera maydonlarini tekshiradi -> (xatolar, ogohlantirishlar)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    others = [c for c in cameras if c.get("id") != exclude_id]
+    if not name:
+        errors.append("Kamera nomi kiritilishi shart.")
+    elif any(str(c.get("name", "")).strip().lower() == name.lower() for c in others):
+        errors.append(f'"{name}" nomli kamera allaqachon bor.')
+    if not rtsp:
+        errors.append("RTSP URL kiritilishi shart.")
+    elif not rtsp.lower().startswith(_STREAM_SCHEMES):
+        errors.append("RTSP URL rtsp:// (yoki http://) bilan boshlanishi kerak.")
+    elif any(str(c.get("rtsp_url", "")).strip() == rtsp for c in others):
+        dup = next(c for c in others if str(c.get("rtsp_url", "")).strip() == rtsp)
+        warnings.append(f'Bu RTSP URL "{dup.get("name", "?")}" kamerasida ham ishlatilgan.')
+    if company_id and not _UUID_RE.match(company_id):
+        warnings.append(
+            "Kompaniya ID UUID formatida emas (masalan 6b1e6e0a-4c3a-4b7e-9c51-5afe20e0a001) — "
+            "backend'da yozuvlar kompaniyaga bog'lanmaydi."
+        )
+    return errors, warnings
+
+
+def confirm_camera_fields(parent, name, rtsp, company_id, cameras, exclude_id=None) -> bool:
+    """Xato bo'lsa ko'rsatadi va False; ogohlantirish bo'lsa tasdiq so'raydi."""
+    errors, warnings = validate_camera_fields(name, rtsp, company_id, cameras, exclude_id)
+    if errors:
+        AppMessageBox.warning(parent, "Kamera ma'lumotida xato", "\n".join(errors))
+        return False
+    if warnings:
+        reply = AppMessageBox.question(
+            parent, "Diqqat",
+            "\n\n".join(warnings) + "\n\nBaribir saqlansinmi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+    return True
+
+
+class CameraEditDialog(FramedDialog):
     def __init__(self, camera: dict | None = None, departments: list | None = None,
-                 parent=None):
+                 parent=None, existing_cameras: list | None = None):
         super().__init__(parent)
         self._camera = dict(camera) if camera else {}
         self._departments = departments or []
+        self._existing_cameras = existing_cameras or []
         is_edit = bool(camera)
         self.setWindowTitle("Kamera tahrirlash" if is_edit else "Yangi kamera qo'shish")
         self.setMinimumWidth(480)
@@ -124,7 +204,7 @@ class CameraEditDialog(QDialog):
             self._load_values()
 
     def _setup_ui(self):
-        root = QVBoxLayout(self)
+        root = QVBoxLayout(self.body)
         root.setContentsMargins(20, 20, 20, 16)
         root.setSpacing(14)
 
@@ -158,7 +238,7 @@ class CameraEditDialog(QDialog):
         )
         root.addWidget(self._rtsp_edit)
 
-        root.addWidget(self._lbl("Company ID:"))
+        root.addWidget(self._lbl("Kompaniya ID:"))
         self._company_edit = QLineEdit()
         self._company_edit.setPlaceholderText("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
         root.addWidget(self._company_edit)
@@ -207,16 +287,14 @@ class CameraEditDialog(QDialog):
     def _on_save(self):
         name = self._name_edit.text().strip()
         rtsp = self._rtsp_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Xatolik", "Kamera nomi kiritilishi shart.")
-            return
-        if not rtsp:
-            QMessageBox.warning(self, "Xatolik", "RTSP URL kiritilishi shart.")
+        company = self._company_edit.text().strip()
+        if not confirm_camera_fields(self, name, rtsp, company, self._existing_cameras,
+                                     exclude_id=self._camera.get("id")):
             return
         self._camera.update({
             "name": name,
             "rtsp_url": rtsp,
-            "company_id": self._company_edit.text().strip(),
+            "company_id": company,
             "department_id": self._department_combo.currentData(),
             "enabled": self._enabled_check.isChecked(),
         })
@@ -230,6 +308,9 @@ class CameraEditDialog(QDialog):
 
 class SettingsPage(QWidget):
     settings_saved = pyqtSignal()
+    cameras_changed = pyqtSignal()       # kamera qo'shildi / o'zgardi / o'chirildi
+    departments_changed = pyqtSignal()
+    wizard_requested = pyqtSignal()
 
     NAV_CAMERAS  = 0
     NAV_MODEL    = 1
@@ -242,13 +323,13 @@ class SettingsPage(QWidget):
 
     _NAV_ITEMS = [
         (0, "camera.svg",  "Kameralar"),
-        (1, "cpu.svg",     "AI Model"),
+        (1, "cpu.svg",     "AI model"),
         (2, "users.svg",   "FaceID"),
-        (3, "send.svg",    "Notifications"),
-        (4, "server.svg",  "Backend Sync"),
+        (3, "send.svg",    "Bildirishnomalar"),
+        (4, "server.svg",  "Backend"),
         (5, "database.svg","Saqlash"),
-        (6, "settings.svg","Performance"),
-        (7, "info.svg",    "Diagnostics"),
+        (6, "settings.svg","Unumdorlik"),
+        (7, "info.svg",    "Diagnostika"),
     ]
 
     def __init__(self, config_manager, parent=None):
@@ -441,6 +522,23 @@ class SettingsPage(QWidget):
         lay.addWidget(help_box)
         return sidebar
 
+    def open_add_camera(self):
+        """Tashqaridan (dashboard "+ Add") — kameralar bo'limi + qo'shish oynasi."""
+        self._switch_nav(self.NAV_CAMERAS)
+        QTimer.singleShot(0, self._add_camera)
+
+    def _persist(self, success_msg: str) -> bool:
+        """cfg ni diskka yozadi va natijani foydalanuvchiga ko'rsatadi."""
+        if self.cfg.save():
+            show_toast(self, success_msg, "success")
+            return True
+        AppMessageBox.critical(
+            self, "Saqlanmadi",
+            "Sozlamalar faylga yozilmadi:\n" + (self.cfg.last_save_error or "noma'lum xato")
+            + "\n\nPapkaga yozish huquqini tekshiring.",
+        )
+        return False
+
     def _switch_nav(self, idx: int):
         self._stack.setCurrentIndex(idx)
         for i, btn in self._nav_btns.items():
@@ -468,15 +566,14 @@ class SettingsPage(QWidget):
         lay.setContentsMargins(20, 10, 20, 10)
         lay.setSpacing(8)
 
-        hint = QLabel("O'zgarishlar saqlangandan keyin kameralar qayta ishga tushiriladi.")
+        hint = QLabel("Kamera va bo'lim o'zgarishlari darhol saqlanadi. Qolgan sozlamalar uchun «Saqlash» ni bosing.")
         hint.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
         lay.addWidget(hint, 1)
 
-        self._restart_indicator = QLabel("Restart needed after save")
+        self._restart_indicator = QLabel("Saqlanmagan o'zgarishlar yo'q")
         self._restart_indicator.setStyleSheet(
-            f"color: {C('accent_light')}; background: {C('accent_dim_2')};"
-            f"border: 1px solid {C('border_accent')}; border-radius: 8px;"
-            "padding: 5px 9px; font-size: 11px; font-weight: 800;"
+            f"color: {C('text_secondary')}; background: transparent;"
+            "border: none; padding: 5px 9px; font-size: 12px;"
         )
         lay.addWidget(self._restart_indicator)
 
@@ -568,7 +665,7 @@ class SettingsPage(QWidget):
 
     # тФАтФА Scroll page wrapper тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
-    def _scroll_page(self) -> tuple[QWidget, QVBoxLayout]:
+    def _scroll_page(self, max_width: int | None = None) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
         page.setStyleSheet(
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 {C('bg_main')},stop:0.55 {C('bg_main')},stop:1 {C('bg_panel_alt')});"
@@ -579,7 +676,18 @@ class SettingsPage(QWidget):
 
         inner_w = QWidget()
         inner_w.setStyleSheet("background: transparent;")
-        inner_lay = QVBoxLayout(inner_w)
+        if max_width:
+            # Forma o'qiladigan kenglikda (ultra-keng ekranda maydonlar cho'zilmasin)
+            row = QHBoxLayout(inner_w)
+            row.setContentsMargins(0, 0, 0, 0)
+            content = QWidget()
+            content.setStyleSheet("background: transparent;")
+            content.setMaximumWidth(max_width)
+            row.addWidget(content, 1)
+            row.addStretch(0)
+            inner_lay = QVBoxLayout(content)
+        else:
+            inner_lay = QVBoxLayout(inner_w)
         inner_lay.setContentsMargins(42, 36, 42, 30)
         inner_lay.setSpacing(18)
 
@@ -596,10 +704,13 @@ class SettingsPage(QWidget):
         hdr.setSpacing(14)
         icon_map = {
             "Kameralar": ("video.svg", "#fb923c"),
-            "Model": ("cpu.svg", "#22d3ee"),
-            "Telegram": ("send.svg", "#38bdf8"),
-            "Backend API": ("server.svg", "#a78bfa"),
+            "AI model": ("cpu.svg", "#22d3ee"),
+            "Bildirishnomalar": ("send.svg", "#38bdf8"),
+            "Backend": ("server.svg", "#a78bfa"),
             "Saqlash": ("database.svg", "#34d399"),
+            "FaceID": ("users.svg", "#fb923c"),
+            "Unumdorlik": ("cpu.svg", "#fbbf24"),
+            "Diagnostika": ("info.svg", "#38bdf8"),
         }
         icon_file, icon_color = icon_map.get(title, ("settings.svg", "#fb923c"))
         icon_lbl = QLabel()
@@ -649,7 +760,7 @@ class SettingsPage(QWidget):
         # Stat cards
         stat_row = QHBoxLayout()
         stat_row.setSpacing(10)
-        self._total_stat   = self._stat_card("Jami",   "0", "10 tagacha kamera", "video.svg",   "#312e81", "#7c3aed")
+        self._total_stat   = self._stat_card("Jami",   "0", f"{MAX_CAMERAS} tagacha kamera", "video.svg",   "#312e81", "#7c3aed")
         self._enabled_stat = self._stat_card("Faol",   "0", "ishga tushadi",     "wifi.svg",    "#14532d", "#16a34a")
         self._dept_stat    = self._stat_card("Bo'lim", "0", "lokatsiya",         "map-pin.svg", "#1e3a8a", "#1d4ed8")
         stat_row.addWidget(self._total_stat)
@@ -819,7 +930,7 @@ class SettingsPage(QWidget):
                 color: {C('accent')};
             }}
         """)
-        edit_action = QAction("Izmenit", more_menu)
+        edit_action = QAction("Tahrirlash", more_menu)
         edit_action.triggered.connect(self._edit_camera)
         more_menu.addAction(edit_action)
         more_btn.clicked.connect(
@@ -851,6 +962,8 @@ class SettingsPage(QWidget):
         self._cam_list.itemDoubleClicked.connect(self._edit_camera)
         self._cam_list.itemSelectionChanged.connect(self._update_camera_preview)
         dp_lay.addWidget(self._cam_list)
+        # Faqat tanlovni saqlaydi (nomi sarlavhada) — ko'rinishda takrorlanmasin
+        self._cam_list.hide()
 
         self._inline_edit_panel = self._build_inline_camera_editor()
         self._inline_edit_panel.hide()
@@ -858,7 +971,7 @@ class SettingsPage(QWidget):
 
         self._detail_ip      = self._detail_row("IP", "--")
         self._detail_dep     = self._detail_row("Bo'lim", "--")
-        self._detail_company = self._detail_row("Company", "--")
+        self._detail_company = self._detail_row("Kompaniya", "--")
         self._detail_rtsp    = self._detail_row("RTSP", "--")
         dp_lay.addWidget(self._detail_ip)
         dp_lay.addWidget(self._detail_dep)
@@ -1082,7 +1195,7 @@ class SettingsPage(QWidget):
         name_lbl.setStyleSheet(f"color: {C('text_primary')}; font-size: 13px; font-weight: 700;")
         lay.addWidget(name_lbl, 1)
 
-        status = QLabel("Online" if enabled else "Offline")
+        status = QLabel("Yoqilgan" if enabled else "O'chiq")
         status.setStyleSheet(
             f"color: {'#22c55e' if enabled else '#ef4444'};"
             f"background: {'rgba(34,197,94,0.08)' if enabled else 'rgba(239,68,68,0.08)'};"
@@ -1111,6 +1224,21 @@ class SettingsPage(QWidget):
         cam_id = item.data(0, Qt.ItemDataRole.UserRole)
         self._refresh_camera_list_for_department(cam_id)
         self._refresh_department_selection_styles()
+
+    def _select_camera(self, cam_id: int | None):
+        """Daraxtda kamerani topib tanlaydi (bo'limini ochib) — yangi kamera ko'rinsin."""
+        if cam_id is None:
+            return
+        for i in range(self._dept_list.topLevelItemCount()):
+            dep_item = self._dept_list.topLevelItem(i)
+            for j in range(dep_item.childCount()):
+                child = dep_item.child(j)
+                if child.data(0, Qt.ItemDataRole.UserRole) == cam_id:
+                    dep_item.setExpanded(True)
+                    self._sync_department_row_state(dep_item)
+                    self._select_camera_tree_item(child)
+                    self._dept_list.scrollToItem(child)
+                    return
 
     def _sync_department_row_state(self, item: QTreeWidgetItem):
         if not item or item.parent() is not None:
@@ -1225,7 +1353,7 @@ class SettingsPage(QWidget):
         lay.addWidget(self._edit_name, 1, 1)
         add_label("Bo'lim", 1, 2)
         lay.addWidget(self._edit_dep, 1, 3)
-        add_label("Company", 2, 0)
+        add_label("Kompaniya", 2, 0)
         lay.addWidget(self._edit_company, 2, 1)
         lay.addWidget(self._edit_enabled, 2, 3)
         add_label("RTSP", 3, 0)
@@ -1250,7 +1378,7 @@ class SettingsPage(QWidget):
     _DETAIL_ICONS = {
         "IP":      "network.svg",
         "Bo'lim":  "building.svg",
-        "Company": "briefcase.svg",
+        "Kompaniya": "briefcase.svg",
         "RTSP":    "link.svg",
     }
 
@@ -1276,7 +1404,7 @@ class SettingsPage(QWidget):
                 icon_lbl.setPixmap(pix)
 
         k = QLabel(key)
-        k.setFixedWidth(70)
+        k.setFixedWidth(76)
         k.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
 
         v = QLabel(value)
@@ -1349,7 +1477,8 @@ class SettingsPage(QWidget):
                 child = QTreeWidgetItem([""])
                 child.setData(0, Qt.ItemDataRole.UserRole, cam.get("id"))
                 child.setData(0, Qt.ItemDataRole.UserRole + 3, cam_text)
-                child.setToolTip(0, f"{cam_text}\n{'Online' if cam.get('enabled', True) else 'Offline'}")
+                state_text = "Yoqilgan" if cam.get("enabled", True) else "O'chiq"
+                child.setToolTip(0, f"{cam_text}\n{state_text}")
                 child.setSizeHint(0, QSize(0, 44))
                 item.addChild(child)
                 self._dept_list.setItemWidget(child, 0, self._camera_tree_row_widget(child, cam))
@@ -1451,7 +1580,7 @@ class SettingsPage(QWidget):
         self._set_detail_value(self._detail_ip,      self._camera_ip(cam.get("rtsp_url", "")))
         self._set_detail_value(self._detail_dep,     dep.get("name", "Bo'limsiz") if dep else "Bo'limsiz")
         self._set_detail_value(self._detail_company, cam.get("company_id", "--") or "--")
-        self._set_detail_value(self._detail_rtsp,    cam.get("rtsp_url", "--") or "--")
+        self._set_detail_value(self._detail_rtsp,    mask_rtsp_password(cam.get("rtsp_url", "")) or "--")
 
     def _show_inline_camera_editor(self, cam: dict):
         self._edit_name.setText(cam.get("name", ""))
@@ -1480,23 +1609,23 @@ class SettingsPage(QWidget):
             return
         name = self._edit_name.text().strip()
         rtsp = self._edit_rtsp.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Xatolik", "Kamera nomi kiritilishi shart.")
-            return
-        if not rtsp:
-            QMessageBox.warning(self, "Xatolik", "RTSP URL kiritilishi shart.")
+        company = self._edit_company.text().strip()
+        if not confirm_camera_fields(self, name, rtsp, company, self.cfg.get_cameras(),
+                                     exclude_id=cam_id):
             return
         self.cfg.update_camera(
             cam_id,
             name=name,
             rtsp_url=rtsp,
-            company_id=self._edit_company.text().strip(),
+            company_id=company,
             department_id=self._edit_dep.currentData(),
             enabled=self._edit_enabled.isChecked(),
         )
         self._inline_edit_panel.hide()
         self._set_detail_rows_visible(True)
         self._refresh_cam_list()
+        if self._persist(f'Kamera saqlandi: "{name}"'):
+            self.cameras_changed.emit()
 
     def _selected_camera_id(self) -> int | None:
         item = self._cam_list.currentItem()
@@ -1509,26 +1638,30 @@ class SettingsPage(QWidget):
         return item.data(0, Qt.ItemDataRole.UserRole) if item else None
 
     def _add_department(self):
-        name, ok = QInputDialog.getText(self, "Yangi bo'lim", "Bo'lim nomi:")
+        name, ok = AppInputDialog.get_text(self, "Yangi bo'lim", "Bo'lim nomi:", placeholder="Masalan: Sex 2, Ombor")
         if not ok:
             return
         try:
-            self.cfg.add_department(name)
-            self._refresh_cam_list()
+            dep = self.cfg.add_department(name)
         except ValueError as e:
-            QMessageBox.warning(self, "Xatolik", str(e))
+            AppMessageBox.warning(self, "Xatolik", str(e))
+            return
+        self._refresh_cam_list()
+        if self._persist(f'Bo\'lim qo\'shildi: "{dep["name"]}"'):
+            self.departments_changed.emit()
 
     def _add_camera(self):
         cameras = self.cfg.get_cameras()
-        if len(cameras) >= 10:
-            QMessageBox.warning(self, "Limit", "Maksimal 10 ta kamera qo'shish mumkin.")
+        if len(cameras) >= MAX_CAMERAS:
+            AppMessageBox.warning(self, "Cheklov", f"Maksimal {MAX_CAMERAS} ta kamera qo'shish mumkin.")
             return
         departments = self.cfg.get_departments()
         if not departments:
-            QMessageBox.information(self, "Bo'lim kerak",
+            AppMessageBox.information(self, "Bo'lim kerak",
                                     "Avval bo'lim yarating, keyin kamera qo'shing.")
             return
-        dlg = CameraEditDialog(departments=departments, parent=self)
+        dlg = CameraEditDialog(departments=departments, parent=self,
+                               existing_cameras=cameras)
         dep_id = self._selected_department_id()
         if dep_id is not None:
             idx = dlg._department_combo.findData(dep_id)
@@ -1537,7 +1670,7 @@ class SettingsPage(QWidget):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             cam = dlg.get_camera()
             try:
-                self.cfg.add_camera(
+                new_cam = self.cfg.add_camera(
                     name=cam["name"],
                     rtsp_url=cam["rtsp_url"],
                     company_id=cam.get("company_id", ""),
@@ -1545,13 +1678,17 @@ class SettingsPage(QWidget):
                     department_id=cam.get("department_id"),
                 )
             except ValueError as e:
-                QMessageBox.warning(self, "Xatolik", str(e))
+                AppMessageBox.warning(self, "Xatolik", str(e))
+                return
             self._refresh_cam_list()
+            self._select_camera(new_cam.get("id"))
+            if self._persist(f'Kamera qo\'shildi: "{new_cam["name"]}" — ulanmoqda...'):
+                self.cameras_changed.emit()
 
     def _edit_camera(self):
         cam_id = self._selected_camera_id()
         if cam_id is None:
-            QMessageBox.information(self, "Tanlang", "Tahrirlash uchun kamerani tanlang.")
+            AppMessageBox.information(self, "Tanlang", "Tahrirlash uchun kamerani tanlang.")
             return
         cam = self.cfg.get_camera_by_id(cam_id)
         if not cam:
@@ -1561,11 +1698,11 @@ class SettingsPage(QWidget):
     def _delete_camera(self):
         cam_id = self._selected_camera_id()
         if cam_id is None:
-            QMessageBox.information(self, "Tanlang", "O'chirish uchun kamerani tanlang.")
+            AppMessageBox.information(self, "Tanlang", "O'chirish uchun kamerani tanlang.")
             return
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"ID:{cam_id}") if cam else f"ID:{cam_id}"
-        reply = QMessageBox.question(
+        reply = AppMessageBox.question(
             self, "O'chirish tasdiqi",
             f'"{name}" kamerasini o\'chirmoqchimisiz?',
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -1573,15 +1710,17 @@ class SettingsPage(QWidget):
         )
         if reply == QMessageBox.StandardButton.Yes:
             if not self.cfg.remove_camera(cam_id):
-                QMessageBox.warning(self, "Xatolik", "Kamida 1 ta kamera bo'lishi shart.")
+                AppMessageBox.warning(self, "Xatolik", "Kamida 1 ta kamera bo'lishi shart.")
             else:
                 self._refresh_cam_list()
+                if self._persist(f'Kamera o\'chirildi: "{name}"'):
+                    self.cameras_changed.emit()
 
     # тФАтФА Model page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_model_page(self) -> QWidget:
-        page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Model", "YOLO AI model sozlamalari"))
+        page, lay = self._scroll_page(max_width=1040)
+        lay.addLayout(self._page_header("AI model", "YOLO AI model sozlamalari"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1610,6 +1749,7 @@ class SettingsPage(QWidget):
         self._test_model_btn.clicked.connect(self._test_model)
         g.addWidget(self._test_model_btn)
         self._test_model_result = QLabel("")
+        self._test_model_result.hide()
         self._test_model_result.setWordWrap(True)
         g.addWidget(self._test_model_result)
 
@@ -1638,11 +1778,11 @@ class SettingsPage(QWidget):
         g.addLayout(imgsz_row)
 
         self._gpu_check  = QCheckBox("GPU ishlatish (CUDA)")
-        self._half_check = QCheckBox("Half precision (FP16)")
+        self._half_check = QCheckBox("Yarim aniqlik (FP16)")
         g.addWidget(self._gpu_check)
         g.addWidget(self._half_check)
 
-        g.addWidget(self._form_label("Har N ta frameni qayta ishlash:"))
+        g.addWidget(self._form_label("Har N-kadrni qayta ishlash:"))
         pn_row = QHBoxLayout()
         self._proc_n_spin = QSpinBox()
         self._proc_n_spin.setRange(1, 5)
@@ -1676,8 +1816,8 @@ class SettingsPage(QWidget):
     # тФАтФА Telegram page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_faceid_page(self) -> QWidget:
-        page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("FaceID", "Hodimlarni yuz orqali tanish va access roster"))
+        page, lay = self._scroll_page(max_width=1040)
+        lay.addLayout(self._page_header("FaceID", "Xodimlarni yuz orqali tanish va kirish ro'yxati"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1685,19 +1825,19 @@ class SettingsPage(QWidget):
         g.setSpacing(12)
 
         self._faceid_enabled = QCheckBox("FaceID ni yoqish")
-        self._access_roster_enabled = QCheckBox("Access roster alertlarini yoqish")
+        self._access_roster_enabled = QCheckBox("Kirish ro'yxati ogohlantirishlarini yoqish")
         g.addWidget(self._faceid_enabled)
         g.addWidget(self._access_roster_enabled)
 
-        g.addWidget(self._form_label("Match threshold:"))
+        g.addWidget(self._form_label("Moslik chegarasi:"))
         row = QHBoxLayout()
         self._faceid_threshold = QDoubleSpinBox()
-        self._faceid_threshold.setRange(0.40, 0.95)
+        self._faceid_threshold.setRange(0.30, 0.90)
         self._faceid_threshold.setDecimals(2)
         self._faceid_threshold.setSingleStep(0.02)
         self._faceid_threshold.setFixedWidth(90)
         row.addWidget(self._faceid_threshold)
-        note = QLabel("yuqori = kamroq false match")
+        note = QLabel("tavsiya 0,40–0,45 · yuqori = kam adashadi, lekin kamroq taniydi")
         note.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
         row.addWidget(note)
         row.addStretch()
@@ -1705,8 +1845,10 @@ class SettingsPage(QWidget):
 
         g.addWidget(self._hsep())
         roster = QLabel(
-            "Hodim rasmlari Users sahifasida qo'shiladi. Startup paytida "
-            "yuz embeddinglari lokal DBga tayyorlanadi."
+            "Xodim rasmlari Xodimlar sahifasida qo'shiladi (har biriga turli burchakdan "
+            "3–5 ta rasm tavsiya etiladi). O'zgarishlar 30 soniya ichida kuchga kiradi.\n"
+            "FaceID yuz kadrda kamida ~40 px bo'lganda ishlaydi: kamerani kirish joyiga, "
+            "odamlar yuziga qaratib, 2–4 m masofaga o'rnating."
         )
         roster.setWordWrap(True)
         roster.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
@@ -1717,8 +1859,8 @@ class SettingsPage(QWidget):
         return page
 
     def _make_telegram_page(self) -> QWidget:
-        page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Notifications", "Telegram xabarnomalari va optional sync navbati"))
+        page, lay = self._scroll_page(max_width=1040)
+        lay.addLayout(self._page_header("Bildirishnomalar", "Telegram xabarnomalari va ixtiyoriy sinxronlash navbati"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1728,7 +1870,7 @@ class SettingsPage(QWidget):
         self._tg_enabled = QCheckBox("Telegram xabarnomani yoqish")
         g.addWidget(self._tg_enabled)
 
-        g.addWidget(self._form_label("Bot Token:"))
+        g.addWidget(self._form_label("Bot tokeni:"))
         self._tg_token = QLineEdit()
         self._tg_token.setPlaceholderText("1234567890:AAH...")
         self._tg_token.setEchoMode(QLineEdit.EchoMode.Password)
@@ -1756,6 +1898,7 @@ class SettingsPage(QWidget):
         g.addWidget(test_btn)
 
         self._tg_result = QLabel("")
+        self._tg_result.hide()
         self._tg_result.setWordWrap(True)
         g.addWidget(self._tg_result)
 
@@ -1766,8 +1909,8 @@ class SettingsPage(QWidget):
     # тФАтФА Backend page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_backend_page(self) -> QWidget:
-        page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Backend Sync", "Optional backend sync sozlamalari"))
+        page, lay = self._scroll_page(max_width=1040)
+        lay.addLayout(self._page_header("Backend", "Ixtiyoriy backend sinxronlash sozlamalari"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1794,12 +1937,24 @@ class SettingsPage(QWidget):
         g.addWidget(self._hsep())
 
         note = QLabel(
-            "Company ID har bir kamera uchun alohida "
+            "Kompaniya ID har bir kamera uchun alohida "
             "Kameralar bo'limida sozlanadi."
         )
         note.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
         note.setWordWrap(True)
         g.addWidget(note)
+
+        be_test_btn = QPushButton("Backend ulanishni tekshirish")
+        be_test_btn.setFixedHeight(36)
+        be_test_btn.setStyleSheet(self._secondary_btn_style())
+        be_test_btn.setToolTip("Faqat login tekshiriladi — backend'ga yozuv yuborilmaydi")
+        be_test_btn.clicked.connect(self._test_backend)
+        g.addWidget(be_test_btn)
+
+        self._be_result = QLabel("")
+        self._be_result.hide()
+        self._be_result.setWordWrap(True)
+        g.addWidget(self._be_result)
 
         lay.addWidget(card)
         lay.addStretch()
@@ -1808,7 +1963,7 @@ class SettingsPage(QWidget):
     # тФАтФА Storage page тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _make_storage_page(self) -> QWidget:
-        page, lay = self._scroll_page()
+        page, lay = self._scroll_page(max_width=1040)
         lay.addLayout(self._page_header("Saqlash", "Fayl saqlash va arxivlash sozlamalari"))
 
         card = self._panel()
@@ -1845,7 +2000,7 @@ class SettingsPage(QWidget):
         days_row.addStretch()
         g.addLayout(days_row)
 
-        self._cleanup_files_check = QCheckBox("Eski image fayllarni ham avtomatik tozalash")
+        self._cleanup_files_check = QCheckBox("Eski rasm fayllarini ham avtomatik tozalash")
         g.addWidget(self._cleanup_files_check)
 
         lay.addWidget(card)
@@ -1853,68 +2008,70 @@ class SettingsPage(QWidget):
         return page
 
     def _make_performance_page(self) -> QWidget:
-        page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Performance", "Kamera va AI inference yuklamasi"))
+        page, lay = self._scroll_page(max_width=1040)
+        lay.addLayout(self._page_header("Unumdorlik", "Kamera va AI hisoblash yuklamasi"))
 
         card = self._panel()
         g = QVBoxLayout(card)
         g.setContentsMargins(18, 16, 18, 16)
         g.setSpacing(12)
 
-        g.addWidget(self._form_label("Video FPS limit:"))
+        g.addWidget(self._form_label("Video FPS chegarasi:"))
         self._video_fps_spin = QSpinBox()
         self._video_fps_spin.setRange(1, 60)
         self._video_fps_spin.setFixedWidth(80)
         g.addWidget(self._video_fps_spin)
 
-        g.addWidget(self._form_label("AI FPS limit (kamera boshiga):"))
+        g.addWidget(self._form_label("AI FPS chegarasi (kamera boshiga):"))
         self._perf_ai_fps_spin = QSpinBox()
         self._perf_ai_fps_spin.setRange(1, 30)
         self._perf_ai_fps_spin.setFixedWidth(80)
         g.addWidget(self._perf_ai_fps_spin)
 
-        g.addWidget(self._form_label("Inference batch size:"))
+        g.addWidget(self._form_label("AI batch hajmi:"))
         self._batch_spin = QSpinBox()
         self._batch_spin.setRange(1, 8)
         self._batch_spin.setFixedWidth(80)
         g.addWidget(self._batch_spin)
 
-        g.addWidget(self._form_label("Cameras per model:"))
+        g.addWidget(self._form_label("Bitta modelga kameralar soni:"))
         self._cams_per_model_spin = QSpinBox()
         self._cams_per_model_spin.setRange(1, 8)
         self._cams_per_model_spin.setFixedWidth(80)
         g.addWidget(self._cams_per_model_spin)
 
-        g.addWidget(self._form_label("Violation save queue size:"))
+        g.addWidget(self._form_label("Buzilishlarni saqlash navbati hajmi:"))
         self._queue_size_spin = QSpinBox()
         self._queue_size_spin.setRange(8, 512)
         self._queue_size_spin.setFixedWidth(90)
         g.addWidget(self._queue_size_spin)
 
         g.addWidget(self._hsep())
-        tracking_title = QLabel("Tracking stability")
+        tracking_title = QLabel("Kuzatish barqarorligi")
         tracking_title.setStyleSheet(f"color: {C('accent_light')}; font-size: 13px; font-weight: 900;")
         g.addWidget(tracking_title)
 
-        g.addWidget(self._form_label("Tracking strictness:"))
+        g.addWidget(self._form_label("Kuzatish qat'iyligi:"))
         self._tracking_preset_combo = QComboBox()
-        self._tracking_preset_combo.addItems(["Stable", "Balanced", "Fast"])
-        self._tracking_preset_combo.setFixedWidth(130)
+        # Ko'rinadigan matn o'zbekcha, saqlanadigan qiymat — userData (stable/balanced/fast)
+        for _label, _value in (("Barqaror", "stable"), ("Muvozanatli", "balanced"), ("Tezkor", "fast")):
+            self._tracking_preset_combo.addItem(_label, _value)
+        self._tracking_preset_combo.setFixedWidth(150)
         g.addWidget(self._tracking_preset_combo)
 
-        g.addWidget(self._form_label("ID hold frames:"))
+        g.addWidget(self._form_label("ID saqlash kadrlari:"))
         self._tracker_age_spin = QSpinBox()
         self._tracker_age_spin.setRange(30, 400)
         self._tracker_age_spin.setFixedWidth(90)
         g.addWidget(self._tracker_age_spin)
 
-        g.addWidget(self._form_label("Minimum hits for stable ID:"))
+        g.addWidget(self._form_label("Barqaror ID uchun minimal mosliklar:"))
         self._tracker_hits_spin = QSpinBox()
         self._tracker_hits_spin.setRange(1, 10)
         self._tracker_hits_spin.setFixedWidth(90)
         g.addWidget(self._tracker_hits_spin)
 
-        g.addWidget(self._form_label("Helmet vote window / threshold:"))
+        g.addWidget(self._form_label("Shlem ovoz oynasi / chegarasi:"))
         helmet_row = QHBoxLayout()
         self._helmet_window_spin = QSpinBox()
         self._helmet_window_spin.setRange(3, 100)
@@ -1924,7 +2081,7 @@ class SettingsPage(QWidget):
         self._helmet_threshold_spin.setRange(1, 100)
         self._helmet_threshold_spin.setFixedWidth(80)
         helmet_row.addWidget(self._helmet_threshold_spin)
-        note = QLabel("ko'pchilik vote = kamroq adashish")
+        note = QLabel("ko'pchilik ovozi = kamroq adashish")
         note.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px;")
         helmet_row.addWidget(note)
         helmet_row.addStretch()
@@ -1935,8 +2092,8 @@ class SettingsPage(QWidget):
         return page
 
     def _make_diagnostics_page(self) -> QWidget:
-        page, lay = self._scroll_page()
-        lay.addLayout(self._page_header("Diagnostics", "Startup checklar va production signal"))
+        page, lay = self._scroll_page(max_width=1040)
+        lay.addLayout(self._page_header("Diagnostika", "Ishga tushirish tekshiruvi va tizim holati"))
 
         card = self._panel()
         g = QVBoxLayout(card)
@@ -1948,11 +2105,18 @@ class SettingsPage(QWidget):
         self._diag_summary.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px;")
         g.addWidget(self._diag_summary)
 
-        refresh = QPushButton("Diagnostics yangilash")
+        refresh = QPushButton("Diagnostikani yangilash")
         refresh.setFixedHeight(36)
         refresh.setStyleSheet(self._secondary_btn_style())
         refresh.clicked.connect(self._refresh_diagnostics)
         g.addWidget(refresh)
+
+        wizard_btn = QPushButton("Sozlash ustasini ochish")
+        wizard_btn.setFixedHeight(36)
+        wizard_btn.setStyleSheet(self._secondary_btn_style())
+        wizard_btn.setToolTip("Kamera, AI, FaceID va backend'ni qadam-baqadam sozlash")
+        wizard_btn.clicked.connect(self.wizard_requested)
+        g.addWidget(wizard_btn)
 
         lay.addWidget(card)
         lay.addStretch()
@@ -1991,7 +2155,7 @@ class SettingsPage(QWidget):
         self._ai_fps_spin.setValue(int(c.get("ai_fps_limit", 5)))
         self._faceid_enabled.setChecked(bool(c.get("faceid_enabled", False)))
         self._access_roster_enabled.setChecked(bool(c.get("access_roster_enabled", False)))
-        self._faceid_threshold.setValue(float(c.get("faceid_threshold", 0.72)))
+        self._faceid_threshold.setValue(float(c.get("faceid_threshold", 0.42)))
 
         self._tg_enabled.setChecked(bool(c.get("telegram_enabled", True)))
         self._tg_token.setText(c.get("telegram_token", ""))
@@ -2011,8 +2175,8 @@ class SettingsPage(QWidget):
         self._batch_spin.setValue(int(c.get("inference_batch_size", 3)))
         self._cams_per_model_spin.setValue(int(c.get("cameras_per_model", 3)))
         self._queue_size_spin.setValue(int(c.get("violation_save_queue_size", 64)))
-        preset = str(c.get("tracking_strictness", "balanced")).title()
-        idx = self._tracking_preset_combo.findText(preset)
+        preset = str(c.get("tracking_strictness", "balanced")).strip().lower()
+        idx = self._tracking_preset_combo.findData(preset)
         self._tracking_preset_combo.setCurrentIndex(idx if idx >= 0 else 1)
         self._tracker_age_spin.setValue(int(c.get("tracker_max_age", 150)))
         self._tracker_hits_spin.setValue(int(c.get("tracker_min_hits", 3)))
@@ -2051,7 +2215,7 @@ class SettingsPage(QWidget):
             "inference_batch_size": self._batch_spin.value(),
             "cameras_per_model": self._cams_per_model_spin.value(),
             "violation_save_queue_size": self._queue_size_spin.value(),
-            "tracking_strictness": self._tracking_preset_combo.currentText().lower(),
+            "tracking_strictness": self._tracking_preset_combo.currentData() or "balanced",
             "tracker_max_age": self._tracker_age_spin.value(),
             "tracker_min_hits": self._tracker_hits_spin.value(),
             "helmet_status_window": self._helmet_window_spin.value(),
@@ -2061,6 +2225,7 @@ class SettingsPage(QWidget):
         if not changed_keys:
             if hasattr(self, "_restart_indicator"):
                 self._restart_indicator.setText("O'zgarish yo'q")
+            show_toast(self, "O'zgarish yo'q — saqlanadigan narsa topilmadi", "info")
             return
 
         restart_keys = {
@@ -2076,18 +2241,23 @@ class SettingsPage(QWidget):
         }
 
         self.cfg.update(data)
-        self.cfg.save()
+        needs_restart = any(key in restart_keys for key in changed_keys)
+        msg = (f"Sozlamalar saqlandi ({len(changed_keys)} ta o'zgarish)"
+               + (" — kameralar qayta ishga tushirilmoqda" if needs_restart else ""))
+        if not self._persist(msg):
+            if hasattr(self, "_restart_indicator"):
+                self._restart_indicator.setText("Saqlanmadi!")
+            return
         if hasattr(self, "_restart_indicator"):
-            needs_restart = any(key in restart_keys for key in changed_keys)
-            self._restart_indicator.setText("Saved | restart cameras" if needs_restart else "Saved")
-        if any(key in restart_keys for key in changed_keys):
+            self._restart_indicator.setText("Saqlandi \u2713")
+        if needs_restart:
             self.settings_saved.emit()
 
     # тФАтФА Utility actions тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _browse_model(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Model tanlash", "", "PyTorch Model (*.pt);;Barcha fayllar (*)"
+            self, "Model tanlash", "", "PyTorch model (*.pt);;Barcha fayllar (*)"
         )
         if path:
             self._model_edit.setText(path)
@@ -2098,6 +2268,7 @@ class SettingsPage(QWidget):
             self._viol_dir_edit.setText(path)
 
     def _test_model(self):
+        self._test_model_result.show()
         self._test_model_result.setText("Model yuklanishi tekshirilmoqda...")
         self._test_model_result.setStyleSheet(f"color: {C('text_muted')};")
         t = _TestThread("model", {"path": self._model_edit.text().strip()})
@@ -2106,11 +2277,13 @@ class SettingsPage(QWidget):
         t.start()
 
     def _on_model_test_result(self, ok: bool, msg: str):
+        self._test_model_result.show()
         color = C("success") if ok else C("danger")
-        self._test_model_result.setText(("OK: " if ok else "ERROR: ") + msg)
+        self._test_model_result.setText(("OK: " if ok else "XATO: ") + msg)
         self._test_model_result.setStyleSheet(f"color: {color}; font-size: 12px;")
 
     def _test_telegram(self):
+        self._tg_result.show()
         self._tg_result.setText("Ulanish tekshirilmoqda...")
         self._tg_result.setStyleSheet(f"color: {C('text_muted')};")
         ids_raw  = self._tg_chat_ids.text()
@@ -2123,9 +2296,34 @@ class SettingsPage(QWidget):
         self._test_thread = t
         t.start()
 
-    def _on_tg_test_result(self, ok: bool, msg: str):
+    def _test_backend(self):
+        import re
+        self._be_result.show()
+        self._be_result.setText("Backend'ga ulanish tekshirilmoqda...")
+        self._be_result.setStyleSheet(f"color: {C('text_muted')};")
+        uuid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+        bad = [c.get("name", "?") for c in self.cfg.get_cameras()
+               if not uuid_re.match(str(c.get("company_id", "")).strip())]
+        t = _TestThread("backend", {
+            "url": self._be_url.text().strip(),
+            "login": self._be_login.text().strip(),
+            "password": self._be_pass.text().strip(),
+            "bad_company_ids": bad,
+        })
+        t.result.connect(self._on_be_test_result)
+        self._test_thread = t
+        t.start()
+
+    def _on_be_test_result(self, ok: bool, msg: str):
+        self._be_result.show()
         color = C("success") if ok else C("danger")
-        self._tg_result.setText(("OK: " if ok else "ERROR: ") + msg)
+        self._be_result.setText(("OK: " if ok else "XATO: ") + msg)
+        self._be_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+
+    def _on_tg_test_result(self, ok: bool, msg: str):
+        self._tg_result.show()
+        color = C("success") if ok else C("danger")
+        self._tg_result.setText(("OK: " if ok else "XATO: ") + msg)
         self._tg_result.setStyleSheet(f"color: {color}; font-size: 12px;")
 
 
@@ -2139,12 +2337,15 @@ class SettingsPage(QWidget):
             u for u in active_users
             if u.get("photo_path") and Path(u.get("photo_path")).exists()
         ]
+        def _state(key: str) -> str:
+            return "yoqilgan" if self.cfg.get(key, False) else "o'chiq"
+
         lines = [
-            f"Kameralar: {len(cameras)} total / {len(self.cfg.get_enabled_cameras())} enabled",
-            f"Employees: {len(active_users)} active / {len(photo_users)} with valid photos",
-            f"AI: {'enabled' if self.cfg.get('ai_model_enabled', False) else 'disabled'} | imgsz {self.cfg.get('yolo_imgsz', 640)}",
-            f"FaceID: {'enabled' if self.cfg.get('faceid_enabled', False) else 'disabled'} | access roster {'on' if self.cfg.get('access_roster_enabled', False) else 'off'}",
-            f"Notifications: Telegram {'on' if self.cfg.get('telegram_enabled', False) else 'off'}, Backend {'on' if self.cfg.get('backend_enabled', False) else 'off'}",
+            f"Kameralar: jami {len(cameras)} ta / {len(self.cfg.get_enabled_cameras())} ta yoqilgan",
+            f"Xodimlar: {len(active_users)} ta faol / {len(photo_users)} ta yaroqli rasmli",
+            f"AI: {_state('ai_model_enabled')} | imgsz {self.cfg.get('yolo_imgsz', 640)}",
+            f"FaceID: {_state('faceid_enabled')} | kirish ro'yxati {_state('access_roster_enabled')}",
+            f"Bildirishnomalar: Telegram {_state('telegram_enabled')}, Backend {_state('backend_enabled')}",
         ]
         self._diag_summary.setText("\n".join(lines))
 

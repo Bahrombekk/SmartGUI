@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.shared.paths import resource_path
+
 
 @dataclass(frozen=True)
 class CheckResult:
@@ -60,7 +62,7 @@ def run_startup_checks(cfg, db) -> list[CheckResult]:
     except Exception as exc:
         results.append(CheckResult("Database", False, str(exc)))
 
-    image_dir = Path("images")
+    image_dir = resource_path("images")
     required = ["dashboard.svg", "camera.svg", "layout-4x2.svg", "expand.svg"]
     missing = [name for name in required if not (image_dir / name).exists()]
     results.append(CheckResult("Assets", not missing, "Missing: " + ", ".join(missing) if missing else "OK"))

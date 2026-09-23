@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import time
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -30,12 +31,13 @@ class DashboardBottomPanelsMixin:
         lay.setSpacing(9)
 
         hdr = QHBoxLayout()
-        ov_title = QLabel("System Overview")
+        ov_title = QLabel("Tizim holati")
         ov_title.setStyleSheet(self._panel_title_style())
         hdr.addWidget(ov_title, 1)
-        meta = QLabel("Live")
+        meta = QLabel("—")
         meta.setStyleSheet(self._panel_meta_style())
         hdr.addWidget(meta)
+        self._ov_meta_lbl = meta
         lay.addLayout(hdr)
 
         # Total / Online / Offline — 3 ustun
@@ -43,9 +45,9 @@ class DashboardBottomPanelsMixin:
         counts_row.setSpacing(7)
 
         for key, label, lbl_color, val_color in [
-            ("total",   "Total",   C('text_secondary'), C('text_primary')),
-            ("online",  "Online",  C('success'),        C('info')),
-            ("offline", "Offline", C('text_secondary'), C('text_secondary')),
+            ("total",   "Jami",   C('text_secondary'), C('text_primary')),
+            ("online",  "Onlayn",  C('success'),        C('info')),
+            ("offline", "Oflayn", C('text_secondary'), C('text_secondary')),
         ]:
             card = QFrame()
             card.setStyleSheet(_stat_card_style())
@@ -77,10 +79,10 @@ class DashboardBottomPanelsMixin:
         lay.addSpacing(4)
 
         # StatLine: Detections Today
-        lay.addWidget(self._stat_line("Detections Today", "0", "+0%", red=False))
+        lay.addWidget(self._stat_line("Bugungi aniqlashlar", "0", "+0%", red=False))
 
         # StatLine: No Helmet
-        lay.addWidget(self._stat_line("No Helmet Detections", "0", "+0%", red=True))
+        lay.addWidget(self._stat_line("Shlemsiz aniqlashlar", "0", "+0%", red=True))
 
         # Recognition Rate
         rr = QFrame()
@@ -89,27 +91,28 @@ class DashboardBottomPanelsMixin:
         rr_lay.setContentsMargins(10, 8, 10, 8)
         rr_lay.setSpacing(5)
 
-        rl = QLabel("Recognition Rate")
+        rl = QLabel("Tanish darajasi")
         rl.setStyleSheet(f"color: {C('text_secondary')}; font-size: 11px; background: transparent; border: none;")
         rr_lay.addWidget(rl)
 
         rv_row = QHBoxLayout()
         rv_row.setSpacing(6)
-        rv = QLabel("98.6%")
+        # Qiymatlar _refresh_recognition_rate() da bugungi FaceID urinishlaridan hisoblanadi
+        rv = QLabel("—")
         rv.setStyleSheet(f"color: {C('text_primary')}; font-size: 22px; font-weight: 800; background: transparent; border: none;")
         rv_row.addWidget(rv)
-        rd = QLabel("+2.4%")
-        rd.setStyleSheet(self._soft_status_style(C('success'), C('success_dim_2')))
+        rd = QLabel("0 / 0")
+        rd.setToolTip("Bugun tanilgan / yuzi aniqlangan urinishlar")
+        rd.setStyleSheet(self._soft_status_style(C('text_secondary'), C('bg_hover')))
         rv_row.addWidget(rd, 0, Qt.AlignmentFlag.AlignBottom)
         rv_row.addStretch()
-        rex = QLabel("Excellent")
-        rex.setStyleSheet(self._soft_status_style(C('info'), C('info_dim')))
+        rex = QLabel("")
         rv_row.addWidget(rex, 0, Qt.AlignmentFlag.AlignBottom)
         rr_lay.addLayout(rv_row)
 
         rate_bar = QProgressBar()
         rate_bar.setRange(0, 100)
-        rate_bar.setValue(88)
+        rate_bar.setValue(0)
         rate_bar.setFixedHeight(7)
         rate_bar.setTextVisible(False)
         rate_bar.setStyleSheet(
@@ -118,8 +121,102 @@ class DashboardBottomPanelsMixin:
         )
         rr_lay.addWidget(rate_bar)
         lay.addWidget(rr)
+        self._rr_value_lbl, self._rr_count_lbl = rv, rd
+        self._rr_badge_lbl, self._rr_bar = rex, rate_bar
+        self._refresh_recognition_rate()
 
         return frame
+
+    # ── Haqiqiy ko'rsatkichlar ─────────────────────────────────────────────
+
+    def _count_face_attempt(self, matched: bool) -> None:
+        """Har bir FaceID urinishi (yuz topilgan) — bugungi tanish darajasi uchun."""
+        today = datetime.date.today()
+        if getattr(self, "_face_stats_day", None) != today:
+            self._face_stats_day = today
+            self._face_attempts = 0
+            self._face_matched = 0
+        self._face_attempts += 1
+        self._face_matched += 1 if matched else 0
+        self._refresh_recognition_rate()
+
+    def _refresh_recognition_rate(self) -> None:
+        if not hasattr(self, "_rr_value_lbl"):
+            return
+        if getattr(self, "_face_stats_day", None) != datetime.date.today():
+            self._face_stats_day = datetime.date.today()
+            self._face_attempts = 0
+            self._face_matched = 0
+        enabled = bool(self.cfg.get("faceid_enabled", False)) if getattr(self, "cfg", None) else False
+        attempts, matched = self._face_attempts, self._face_matched
+        self._rr_count_lbl.setText(f"{matched} / {attempts}")
+        if not enabled:
+            text, pct, badge, color, dim = "—", 0, "O'chiq", C("text_muted"), C("bg_hover")
+        elif attempts == 0:
+            text, pct, badge, color, dim = "—", 0, "Kutilmoqda", C("text_secondary"), C("bg_hover")
+        else:
+            pct = round(100 * matched / attempts)
+            text = f"{pct}%"
+            if pct >= 80:
+                badge, color, dim = "A'lo", C("success"), C("success_dim_2")
+            elif pct >= 50:
+                badge, color, dim = "O'rtacha", C("warning"), C("warning_dim")
+            else:
+                badge, color, dim = "Past", C("danger"), C("danger_dim_2")
+        self._rr_value_lbl.setText(text)
+        self._rr_badge_lbl.setText(badge)
+        self._rr_badge_lbl.setStyleSheet(self._soft_status_style(color, dim))
+        self._rr_bar.setValue(pct)
+        self._rr_value_lbl.setToolTip(
+            "FaceID o'chirilgan" if not enabled else
+            "Bugun yuzi aniqlangan odamlardan xodim sifatida tanilganlar ulushi"
+        )
+
+    def _yesterday_counts(self) -> tuple[int, int]:
+        """(kechagi deteksiyalar, kechagi shlemsizlar) — 5 daqiqaga keshlanadi."""
+        now = time.monotonic()
+        cache = getattr(self, "_yesterday_cache", None)
+        if cache and now - cache[0] < 300:
+            return cache[1], cache[2]
+        det = nh = 0
+        try:
+            day = datetime.date.today() - datetime.timedelta(days=1)
+            det = self.db.get_day_detections_total(day)
+            nh = self.db.get_day_count(day, "no_helmet")
+        except Exception:
+            pass
+        self._yesterday_cache = (now, det, nh)
+        return det, nh
+
+    def _set_delta(self, lbl, today: int, yesterday: int, *, lower_is_better: bool) -> None:
+        if yesterday <= 0:
+            text = "yangi" if today > 0 else "0%"
+            good = not (lower_is_better and today > 0)
+        else:
+            change = round(100 * (today - yesterday) / yesterday)
+            text = f"{change:+d}%"
+            good = (change <= 0) if lower_is_better else (change >= 0)
+        lbl.setText(text)
+        lbl.setToolTip(f"Kecha: {yesterday} · Bugun: {today}")
+        color, dim = (C("success"), C("success_dim_2")) if good else (C("danger"), C("danger_dim_2"))
+        lbl.setStyleSheet(self._soft_status_style(color, dim))
+
+    def _refresh_day_deltas(self) -> None:
+        """"Bugungi aniqlashlar" / "Shlemsiz" yonidagi foiz — kechagi kunga nisbatan."""
+        if not hasattr(self, "_detections_delta_lbl"):
+            return
+        det_y, nh_y = self._yesterday_counts()
+
+        def _num(lbl):
+            try:
+                return int(lbl.text())
+            except (TypeError, ValueError):
+                return 0
+
+        self._set_delta(self._detections_delta_lbl, _num(self._detections_today_lbl), det_y,
+                        lower_is_better=False)
+        self._set_delta(self._no_helmet_delta_lbl, _num(self._no_helmet_today_lbl), nh_y,
+                        lower_is_better=True)
 
     def _stat_line(self, title: str, value: str, delta: str, red: bool = False) -> QWidget:
         w = QFrame()
@@ -142,13 +239,15 @@ class DashboardBottomPanelsMixin:
         vrow.setSpacing(6)
         v = QLabel(value)
         v.setStyleSheet(f"color: {C('text_primary')}; font-size: 22px; font-weight: 800; background: transparent; border: none;")
-        if title == "Detections Today":
-            self._detections_today_lbl = v
-        elif title == "No Helmet Detections":
-            self._no_helmet_today_lbl = v
-        vrow.addWidget(v)
         d = QLabel(delta)
         d.setStyleSheet(self._soft_status_style(accent, bg))
+        if title == "Bugungi aniqlashlar":
+            self._detections_today_lbl = v
+            self._detections_delta_lbl = d
+        elif title == "Shlemsiz aniqlashlar":
+            self._no_helmet_today_lbl = v
+            self._no_helmet_delta_lbl = d
+        vrow.addWidget(v)
         vrow.addWidget(d, 0, Qt.AlignmentFlag.AlignBottom)
         vrow.addStretch()
         lay.addLayout(vrow)
@@ -187,7 +286,7 @@ class DashboardBottomPanelsMixin:
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(10)
 
-        lay.addLayout(self._section_header("Department Stats", "Today"))
+        lay.addLayout(self._section_header("Bo'limlar statistikasi", "Bugun"))
 
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -216,7 +315,7 @@ class DashboardBottomPanelsMixin:
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(10)
 
-        lay.addLayout(self._section_header("Detected People", "Tracked", link=True))
+        lay.addLayout(self._section_header("Aniqlangan odamlar", "Kuzatilmoqda", link=True))
 
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -246,16 +345,17 @@ class DashboardBottomPanelsMixin:
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(8)
 
-        lay.addLayout(self._section_header("AI Detection", "Healthy"))
+        lay.addLayout(self._section_header("AI aniqlash", "—"))
+        self._ai_hdr_meta = self._last_section_meta
 
         # Status row
         status_row = QHBoxLayout()
         status_row.setSpacing(8)
         self._ai_active = True
-        self._ai_status_lbl = QLabel("Active")
+        self._ai_status_lbl = QLabel("Faol")
         self._ai_status_lbl.setStyleSheet(self._soft_status_style(C('success'), C('success_dim_2')))
         status_row.addWidget(self._ai_status_lbl)
-        self._ai_desc_lbl = QLabel("Face ID running")
+        self._ai_desc_lbl = QLabel(self._ai_desc_text())
         self._ai_desc_lbl.setStyleSheet(
             f"color: {C('text_secondary')}; font-size: 10px; background: transparent; border: none;"
         )
@@ -263,7 +363,9 @@ class DashboardBottomPanelsMixin:
         lay.addLayout(status_row)
 
         # Face ID label
-        faceid_hdr = QLabel("Face ID — Recognized")
+        faceid_on = bool(self.cfg.get("faceid_enabled", False)) if getattr(self, "cfg", None) else False
+        faceid_hdr = QLabel("So'nggi tanishlar (FaceID)" if faceid_on
+                            else "FaceID o'chiq — Sozlamalar → FaceID")
         faceid_hdr.setStyleSheet(
             f"color: {C('text_muted')}; font-size: 10px; font-weight: 700;"
             " background: transparent; border: none;"
@@ -298,13 +400,13 @@ class DashboardBottomPanelsMixin:
         lay.addWidget(scroll, 1)
 
         # Health + button row
-        self._ai_health_lbl = QLabel("0 cameras | waiting for model")
+        self._ai_health_lbl = QLabel("0 kamera | model kutilmoqda")
         self._ai_health_lbl.setStyleSheet(
             f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
         )
         lay.addWidget(self._ai_health_lbl)
 
-        self._ai_toggle_btn = QPushButton("Pause AI")
+        self._ai_toggle_btn = QPushButton("AI ni to'xtatish")
         self._ai_toggle_btn.setFixedHeight(34)
         self._ai_toggle_btn.setStyleSheet(f"""
             QPushButton {{
@@ -317,6 +419,9 @@ class DashboardBottomPanelsMixin:
                 padding: 0 20px;
             }}
             QPushButton:hover {{ background: {C('accent_dim_3')}; color: {C('text_on_accent')}; }}
+            QPushButton:disabled {{
+                background: transparent; color: {C('text_muted')}; border: 1px solid {C('border')};
+            }}
         """)
         self._ai_toggle_btn.clicked.connect(self._toggle_ai)
         lay.addWidget(self._ai_toggle_btn)
@@ -341,7 +446,7 @@ class DashboardBottomPanelsMixin:
 
     def _face_recog_row(self, data: dict) -> QWidget:
         matched = data.get("matched", False)
-        name = data.get("employee_name") or "Unknown"
+        name = data.get("employee_name") or "Noma'lum"
         confidence = float(data.get("confidence") or 0.0)
         cam_name = data.get("camera_name", "")
         ts = data.get("timestamp")
@@ -395,7 +500,7 @@ class DashboardBottomPanelsMixin:
             " background: transparent; border: none;"
         )
         info.addWidget(name_lbl)
-        cam_lbl = QLabel(cam_name if cam_name else "Camera")
+        cam_lbl = QLabel(cam_name if cam_name else "Kamera")
         cam_lbl.setStyleSheet(
             f"color: {C('text_muted')}; font-size: 10px; background: transparent; border: none;"
         )
@@ -407,7 +512,7 @@ class DashboardBottomPanelsMixin:
         right.setSpacing(3)
         right.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        badge_text = f"✓ {int(confidence * 100)}%" if matched else "? Unknown"
+        badge_text = f"✓ {int(confidence * 100)}%" if matched else "? Noma'lum"
         badge = QLabel(badge_text)
         badge.setAlignment(Qt.AlignmentFlag.AlignRight)
         badge.setStyleSheet(
@@ -425,19 +530,28 @@ class DashboardBottomPanelsMixin:
         lay.addLayout(right)
         return row
 
+    def _ai_desc_text(self) -> str:
+        """Haqiqiy sozlamaga ko'ra: AI va FaceID yoqilganmi."""
+        cfg = getattr(self, "cfg", None)
+        if cfg is None:
+            return ""
+        if not cfg.get("ai_model_enabled", False):
+            return "AI o'chirilgan — faqat video"
+        return "Shlem nazorati · FaceID " + ("yoqilgan" if cfg.get("faceid_enabled", False) else "o'chiq")
+
     def _toggle_ai(self):
         self._ai_active = not self._ai_active
         self.ai_pause_requested.emit(not self._ai_active)
         if self._ai_active:
-            self._ai_status_lbl.setText("Active")
+            self._ai_status_lbl.setText("Faol")
             self._ai_status_lbl.setStyleSheet(self._soft_status_style(C('success'), C('success_dim_2')))
-            self._ai_desc_lbl.setText("Face ID running")
-            self._ai_toggle_btn.setText("Pause AI")
+            self._ai_desc_lbl.setText(self._ai_desc_text())
+            self._ai_toggle_btn.setText("AI ni to'xtatish")
         else:
-            self._ai_status_lbl.setText("Paused")
+            self._ai_status_lbl.setText("To'xtatilgan")
             self._ai_status_lbl.setStyleSheet(self._soft_status_style(C('text_secondary'), C('bg_hover')))
-            self._ai_desc_lbl.setText("Detection paused")
-            self._ai_toggle_btn.setText("Start AI")
+            self._ai_desc_lbl.setText("Aniqlash to'xtatilgan")
+            self._ai_toggle_btn.setText("AI ni davom ettirish")
         self._update_ai_health()
 
     def _update_ai_health(self):
@@ -447,8 +561,63 @@ class DashboardBottomPanelsMixin:
         total = int(getattr(self, "_total_count", 0) or 0)
         persons = int(getattr(self, "_total_persons", 0) or 0)
         models = len(getattr(self, "_model_loaded_cameras", set()))
-        state = "paused" if not getattr(self, "_ai_active", True) else "running"
-        self._ai_health_lbl.setText(f"{active}/{total} cameras | {models} models | {persons} persons | {state}")
+        state = "to'xtatilgan" if not getattr(self, "_ai_active", True) else "ishlayapti"
+        if not self._ai_enabled_in_cfg():
+            self._ai_health_lbl.setText(f"{active}/{total} kamera onlayn | AI o'chiq")
+        else:
+            self._ai_health_lbl.setText(f"{active}/{total} kamera | {models} model | {persons} odam | {state}")
+        self._apply_ai_state()
+        self._refresh_overview_badge()
+
+    # ── Holat belgilari: qattiq yozilgan emas, haqiqiy holatdan ─────────────
+
+    def _ai_enabled_in_cfg(self) -> bool:
+        cfg = getattr(self, "cfg", None)
+        return bool(cfg.get("ai_model_enabled", False)) if cfg is not None else False
+
+    def _set_meta(self, lbl, text: str, color: str, dim: str) -> None:
+        if lbl is None:
+            return
+        lbl.setText(text)
+        lbl.setStyleSheet(self._soft_status_style(color, dim))
+
+    def _apply_ai_state(self) -> None:
+        if not hasattr(self, "_ai_status_lbl"):
+            return
+        models = len(getattr(self, "_model_loaded_cameras", set()))
+        if not self._ai_enabled_in_cfg():
+            meta = ("O'chiq", C("text_muted"), C("bg_hover"))
+            chip = ("O'chiq", C("text_secondary"), C("bg_hover"))
+            self._ai_toggle_btn.setEnabled(False)
+            self._ai_toggle_btn.setText("AI sozlamalarda o'chirilgan")
+        elif not getattr(self, "_ai_active", True):
+            meta = ("Pauza", C("warning"), C("warning_dim"))
+            chip = ("To'xtatilgan", C("text_secondary"), C("bg_hover"))
+            self._ai_toggle_btn.setEnabled(True)
+        elif models == 0:
+            meta = ("Yuklanmoqda", C("warning"), C("warning_dim"))
+            chip = ("Kutilmoqda", C("warning"), C("warning_dim"))
+            self._ai_toggle_btn.setEnabled(True)
+        else:
+            meta = ("Soz", C("success"), C("success_dim_2"))
+            chip = ("Faol", C("success"), C("success_dim_2"))
+            self._ai_toggle_btn.setEnabled(True)
+        self._set_meta(getattr(self, "_ai_hdr_meta", None), *meta)
+        self._set_meta(self._ai_status_lbl, *chip)
+        self._ai_desc_lbl.setText(self._ai_desc_text())
+
+    def _refresh_overview_badge(self) -> None:
+        total = int(getattr(self, "_total_count", 0) or 0)
+        online = int(getattr(self, "_online_count", 0) or 0)
+        if total == 0:
+            badge = ("Kamera yo'q", C("text_muted"), C("bg_hover"))
+        elif online == 0:
+            badge = ("Oflayn", C("danger"), C("danger_dim_2"))
+        elif online < total:
+            badge = (f"Qisman · {online}/{total}", C("warning"), C("warning_dim"))
+        else:
+            badge = ("Jonli", C("success"), C("success_dim_2"))
+        self._set_meta(getattr(self, "_ov_meta_lbl", None), *badge)
 
     # ── No Helmet ────────────────────────────────────────────────────────
 
@@ -460,7 +629,7 @@ class DashboardBottomPanelsMixin:
         lay.setContentsMargins(16, 14, 16, 14)
         lay.setSpacing(8)
 
-        lay.addLayout(self._section_header("No Helmet", "Priority", link=True))
+        lay.addLayout(self._section_header("Shlemsiz", "Muhim", link=True))
 
         scroll = QScrollArea()
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -527,7 +696,7 @@ class DashboardBottomPanelsMixin:
         if ungrouped:
             rows.append(self._department_stat("Bo'limsiz", ungrouped, "ungrouped"))
         if not rows and cameras:
-            rows.append(self._department_stat("All Cameras", cameras, "all"))
+            rows.append(self._department_stat("Barcha kameralar", cameras, "all"))
         return rows
 
     def _department_stat(self, name: str, cameras: list[dict], key: str) -> dict:
@@ -559,10 +728,10 @@ class DashboardBottomPanelsMixin:
     @staticmethod
     def _department_health(percent: int, online: int) -> tuple[str, str, str]:
         if online <= 0:
-            return "Offline", C('danger'), C('danger_dim_2')
+            return "Oflayn", C('danger'), C('danger_dim_2')
         if percent >= 70:
-            return "Healthy", C('success'), C('success_dim_2')
-        return "Partial", C('warning'), C('warning_dim_2')
+            return "Soz", C('success'), C('success_dim_2')
+        return "Qisman", C('warning'), C('warning_dim_2')
 
     @staticmethod
     def _department_chip(text: str, color: str, bg: str) -> QLabel:
@@ -634,9 +803,9 @@ class DashboardBottomPanelsMixin:
 
         chips = QHBoxLayout()
         chips.setSpacing(5)
-        total_chip = self._department_chip(f"{total} cam", C('text_secondary'), C('bg_hover'))
-        online_chip = self._department_chip(f"{online} live", C('success'), C('success_dim_2'))
-        offline_chip = self._department_chip(f"{offline} offline", C('text_secondary'), C('bg_hover'))
+        total_chip = self._department_chip(f"{total} kamera", C('text_secondary'), C('bg_hover'))
+        online_chip = self._department_chip(f"{online} jonli", C('success'), C('success_dim_2'))
+        offline_chip = self._department_chip(f"{offline} oflayn", C('text_secondary'), C('bg_hover'))
         chips.addWidget(total_chip)
         chips.addWidget(online_chip)
         chips.addWidget(offline_chip)
@@ -646,7 +815,7 @@ class DashboardBottomPanelsMixin:
 
         health = QVBoxLayout()
         health.setSpacing(4)
-        pct = QLabel(f"{percent}% online")
+        pct = QLabel(f"{percent}% onlayn")
         pct.setAlignment(Qt.AlignmentFlag.AlignRight)
         pct.setStyleSheet(f"color: {C('text_secondary')}; font-size: 9px; font-weight: 800; background: transparent; border: none;")
         health.addWidget(pct)
@@ -673,14 +842,14 @@ class DashboardBottomPanelsMixin:
         det_lay.setContentsMargins(7, 5, 7, 5)
         det_lay.setSpacing(1)
 
-        det_label = QLabel("Today")
+        det_label = QLabel("Bugun")
         det_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         det_label.setStyleSheet(f"color: {C('accent')}; font-size: 9px; font-weight: 800; background: transparent; border: none;")
         det_lay.addWidget(det_label)
 
         det = QLabel(self._compact_count(detections))
         det.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        det.setToolTip(f"Bugungi detections: {detections}")
+        det.setToolTip(f"Bugungi buzilishlar: {detections}")
         det.setStyleSheet(f"color: {C('accent_hover')}; font-size: 18px; font-weight: 900; background: transparent; border: none;")
         det_lay.addWidget(det)
         lay.addWidget(det_box)
@@ -713,14 +882,14 @@ class DashboardBottomPanelsMixin:
         widgets["title"].setText(str(dep.get("name", "Bo'lim")))
         widgets["status_chip"].setText(status)
         widgets["status_chip"].setStyleSheet(self._department_status_style(accent, status_bg))
-        widgets["total_chip"].setText(f"{total} cam")
-        widgets["online_chip"].setText(f"{online} live")
-        widgets["offline_chip"].setText(f"{offline} offline")
-        widgets["pct"].setText(f"{percent}% online")
+        widgets["total_chip"].setText(f"{total} kamera")
+        widgets["online_chip"].setText(f"{online} jonli")
+        widgets["offline_chip"].setText(f"{offline} oflayn")
+        widgets["pct"].setText(f"{percent}% onlayn")
         widgets["bar"].setValue(percent)
         widgets["bar"].setStyleSheet(self._department_bar_style(accent))
         widgets["det"].setText(self._compact_count(detections))
-        widgets["det"].setToolTip(f"Bugungi detections: {detections}")
+        widgets["det"].setToolTip(f"Bugungi buzilishlar: {detections}")
 
     def _event_row(self, v: dict) -> QWidget:
         w = QWidget()
@@ -757,7 +926,7 @@ class DashboardBottomPanelsMixin:
         info_col = QVBoxLayout()
         info_col.setSpacing(1)
 
-        title = "Helmet Detected" if has_helmet else "No Helmet Detected"
+        title = "Shlem aniqlandi" if has_helmet else "Shlemsiz aniqlandi"
         t_lbl = QLabel(title)
         t_lbl.setStyleSheet(
             f"color: {C('text_primary')}; font-size: 12px; font-weight: 700; background: transparent;"
@@ -765,7 +934,7 @@ class DashboardBottomPanelsMixin:
         info_col.addWidget(t_lbl)
 
         cam_name = v.get("camera_name", v.get("camera_id", ""))
-        c_lbl = QLabel(f"Camera {cam_name}")
+        c_lbl = QLabel(f"Kamera {cam_name}")
         c_lbl.setStyleSheet(
             f"color: {C('text_muted')}; font-size: 10px; background: transparent;"
         )
@@ -801,7 +970,22 @@ class DashboardBottomPanelsMixin:
             if item.widget():
                 item.widget().deleteLater()
 
-        violations = [v for v in self._recent_violations if not v.get("has_helmet", False)]
+        if not self._recent_violations and not getattr(self, "_recent_loaded_from_db", False):
+            # Dastur endi ochilgan — bugungi buzilishlarni bazadan olamiz (panel bo'sh turmasin)
+            self._recent_loaded_from_db = True
+            try:
+                self._recent_violations = self.db.get_violations(
+                    date_from=datetime.date.today(), violation_type="no_helmet", limit=self._max_recent)
+            except Exception:
+                self._recent_violations = []
+        violations = [v for v in self._recent_violations
+                      if str(v.get("violation_type") or "no_helmet") == "no_helmet"]
+        if not violations:
+            empty = QLabel("Bugun shlemsiz holat qayd etilmadi")
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px; background: transparent;")
+            self._no_helmet_grid.addWidget(empty, 0, 0, 1, 2)
+            return
         for idx, v in enumerate(violations[:4]):
             card = self._no_helmet_card(v)
             self._no_helmet_grid.addWidget(card, idx // 2, idx % 2)
@@ -847,7 +1031,7 @@ class DashboardBottomPanelsMixin:
                 )
             )
         else:
-            crop.setText("NO\nIMG")
+            crop.setText("RASM\nYO'Q")
         lay.addWidget(crop)
 
         info = QVBoxLayout()
@@ -856,7 +1040,7 @@ class DashboardBottomPanelsMixin:
         # Top row: NO HELMET badge + time
         top = QHBoxLayout()
         top.setSpacing(5)
-        badge = QLabel("NO HELMET")
+        badge = QLabel("SHLEMSIZ")
         badge.setStyleSheet(
             f"background: {C('danger_dim')}; color: {C('danger')}; font-size: 9px; font-weight: 900;"
             f" border: 1px solid {C('danger')}; border-radius: 6px; padding: 2px 6px;"
@@ -883,7 +1067,7 @@ class DashboardBottomPanelsMixin:
         info.addWidget(id_lbl)
 
         cam = v.get("camera_name", v.get("camera_id", ""))
-        cam_lbl = QLabel(str(cam) if cam else "Unknown camera")
+        cam_lbl = QLabel(str(cam) if cam else "Noma'lum kamera")
         cam_lbl.setStyleSheet(f"color: {C('text_secondary')}; font-size: 10px; background: transparent; border: none;")
         info.addWidget(cam_lbl)
         lay.addLayout(info, 1)
@@ -941,7 +1125,7 @@ class DashboardBottomPanelsMixin:
         info.addWidget(id_lbl)
 
         cam_name = v.get("camera_name", v.get("camera_id", ""))
-        name_lbl = QLabel(str(cam_name) if cam_name else "Unknown")
+        name_lbl = QLabel(str(cam_name) if cam_name else "Noma'lum")
         name_lbl.setStyleSheet(
             f"color: {C('info')}; font-size: 11px; font-weight: 600; background: transparent;"
         )
@@ -949,7 +1133,7 @@ class DashboardBottomPanelsMixin:
         lay.addLayout(info, 1)
 
         if has_helmet:
-            status_lbl = QLabel("✓ Helmet")
+            status_lbl = QLabel("✓ Shlemli")
             status_lbl.setStyleSheet(
                 f"color: {C('success')}; background: {C('success_dim_2')};"
                 f"border: 1px solid {C('success')};"
@@ -957,7 +1141,7 @@ class DashboardBottomPanelsMixin:
                 "font-size: 10px; font-weight: 800;"
             )
         else:
-            status_lbl = QLabel("! No Helmet")
+            status_lbl = QLabel("! Shlemsiz")
             status_lbl.setStyleSheet(
                 f"color: {C('danger')}; background: {C('danger_dim_2')};"
                 f"border: 1px solid {C('danger')};"

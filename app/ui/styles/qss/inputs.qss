@@ -69,6 +69,7 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background: {{accent}};
     border-color: {{accent}};
+    image: url({{icon_check}});
 }
 QCheckBox::indicator:hover { border-color: {{accent}}; }
 

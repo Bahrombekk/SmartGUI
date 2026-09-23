@@ -47,7 +47,7 @@ class DashboardMonitorMixin:
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(10)
 
-        title = QLabel("Live Monitoring")
+        title = QLabel("Jonli kuzatuv")
         title.setStyleSheet(
             f"color: {C('text_primary')}; font-size: 16px; font-weight: 800;"
             " background: transparent; border: none;"
@@ -60,7 +60,7 @@ class DashboardMonitorMixin:
         )
         lay.addWidget(dot)
 
-        self._cam_count_badge = QLabel("0 Cameras")
+        self._cam_count_badge = QLabel("0 kamera")
         self._cam_count_badge.setStyleSheet(
             f"color: {C('text_secondary')}; font-size: 12px; background: transparent; border: none;"
         )
@@ -110,10 +110,12 @@ class DashboardMonitorMixin:
 
         # Stream tanlash
         stream_combo = QComboBox()
-        stream_combo.addItems(["All Streams", "Online", "Offline", "Main Building", "Secondary Area"])
-        stream_combo.setFixedWidth(130)
+        # Ko'rsatiladigan matn o'zbekcha; filtr kaliti itemData da.
+        # Bo'limlar ro'yxati haqiqiy sozlamalardan: _refresh_stream_filter_items()
+        stream_combo.setFixedWidth(160)
         stream_combo.setFixedHeight(32)
         self._stream_combo = stream_combo
+        self._refresh_stream_filter_items()
         stream_combo.currentIndexChanged.connect(self._on_filter_changed)
         lay.addWidget(stream_combo)
 
@@ -126,7 +128,7 @@ class DashboardMonitorMixin:
         else:
             expand_btn.setText("[]")
         expand_btn.setIconSize(QSize(17, 17))
-        expand_btn.setToolTip("Expand selected camera")
+        expand_btn.setToolTip("Tanlangan kamerani kattalashtirish")
         expand_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {C('bg_panel')};
@@ -230,7 +232,7 @@ class DashboardMonitorMixin:
 
     def _on_filter_changed(self):
         combo = getattr(self, "_stream_combo", None)
-        self._stream_filter = combo.currentText().lower() if combo else "all streams"
+        self._stream_filter = str(combo.currentData() or "all streams") if combo else "all streams"
         self._apply_camera_view()
 
     def _camera_matches_view(self, cam: dict) -> bool:
@@ -251,9 +253,26 @@ class DashboardMonitorMixin:
             return status == "live"
         if "offline" in filt:
             return status in {"offline", "error"}
-        if "main building" in filt or "secondary area" in filt:
-            return self._department_name(cam.get("department_id")).lower() == filt
+        if filt.startswith("dep:"):
+            return str(cam.get("department_id")) == filt[4:]
         return True
+
+    def _refresh_stream_filter_items(self):
+        """Filtr: barcha / onlayn / oflayn + sozlamadagi haqiqiy bo'limlar."""
+        combo = getattr(self, "_stream_combo", None)
+        if combo is None:
+            return
+        current = combo.currentData() or "all streams"
+        combo.blockSignals(True)
+        combo.clear()
+        for label, key in [("Barcha oqimlar", "all streams"), ("Onlayn", "online"), ("Oflayn", "offline")]:
+            combo.addItem(label, key)
+        for dep in (self.cfg.get_departments() if self.cfg else []):
+            combo.addItem(f"Bo'lim: {dep.get('name', '')}", f"dep:{dep.get('id')}")
+        idx = combo.findData(current)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+        combo.blockSignals(False)
+        self._stream_filter = str(combo.currentData() or "all streams")
 
     def _department_name(self, dep_id) -> str:
         dep = self.cfg.get_department_by_id(dep_id) if self.cfg else None

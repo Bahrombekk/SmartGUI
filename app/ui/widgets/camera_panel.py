@@ -196,6 +196,7 @@ class CameraPanel(QFrame):
         self._stats_state = state
         if connected:
             self._status_state = None
+            self._ever_connected = True
         self._set_text(self._fps_lbl, f"{fps:.0f} fps")
 
         if persons > 0:
@@ -214,7 +215,7 @@ class CameraPanel(QFrame):
             self._dot.setStyleSheet(
                 "color: #22c55e; font-size: 13px; background: transparent;"
             )
-            self._badge.setText("LIVE")
+            self._badge.setText("JONLI")
             self._badge.setStyleSheet(
                 "color: #22c55e; font-size: 10px; font-weight: 800;"
                 " letter-spacing: 1px;"
@@ -224,12 +225,22 @@ class CameraPanel(QFrame):
             self._fps_lbl.setStyleSheet(
                 "color: #60a5fa; font-size: 10px; font-weight: 700; background: transparent;"
             )
+        elif not getattr(self, "_ever_connected", False) and (self._status_state or ("",))[0] != "error":
+            # Hali birinchi marta ulanmagan va xato ham yo'q — bu "oflayn" emas, ulanish jarayoni
+            self._pulse_timer.stop()
+            self._dot.setStyleSheet("color: #fbbf24; font-size: 13px; background: transparent;")
+            self._badge.setText("Ulanmoqda")
+            self._badge.setStyleSheet(
+                "color: #fbbf24; font-size: 10px; font-weight: 800; background: transparent;"
+            )
+            if not self._video._has_frame and self._video._mode != "connecting":
+                self._video.show_connecting()
         else:
             self._pulse_timer.stop()
             self._dot.setStyleSheet(
                 "color: #374151; font-size: 13px; background: transparent;"
             )
-            self._badge.setText("Offline")
+            self._badge.setText("Oflayn")
             self._badge.setStyleSheet(
                 "color: #64748b; font-size: 10px; font-weight: 800;"
                 " background: transparent;"
@@ -251,7 +262,7 @@ class CameraPanel(QFrame):
         self._dot.setStyleSheet(
             "color: #ef4444; font-size: 13px; background: transparent;"
         )
-        self._badge.setText("Offline")
+        self._badge.setText("Oflayn")
         self._badge.setStyleSheet(
             "color: #64748b; font-size: 10px; font-weight: 800; background: transparent;"
         )

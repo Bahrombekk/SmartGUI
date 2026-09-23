@@ -9,9 +9,14 @@ Rasm joblar payload'idagi disk yo'lidan (crop_path/full_path) o'qiladi.
 Backend uchun u base64 sifatida JSON ichida ketadi; fayl topilmasa yozuv
 rasmsiz yuboriladi.
 
-Startda `_backfill_unsent()` bazadagi hech qachon yuborilmagan buzilishlarni
-(sync_status 'queued'/'synced' emas) navbatga qo'yadi va hammasi birdan
-drain qilinadi.
+Startda va keyin har `backfill_interval` sekundda `_backfill_unsent()`
+bazadagi yuborilmagan buzilishlarni (sync_status 'queued'/'synced' emas)
+navbatga qo'yadi. Backend job'i abadiy xato bo'lsa buzilish 'failed' qilinadi
+— shuning uchun uzoq uzilishdan keyin ham keyingi backfill uni qayta yuboradi,
+yozuv yo'qolmaydi.
+
+BackendClient bitta nusxada saqlanadi (token keshlanadi) — har job uchun
+qayta login qilinmaydi.
 """
 from __future__ import annotations
 
@@ -34,8 +39,9 @@ class NotificationWorker(QThread):
     """notification_jobs navbatini fon rejimida yuboradi (retry + backoff)."""
 
     def __init__(self, db, cfg, *, poll_interval: float = 5.0,
-                 max_retries: int = 5, batch_limit: int = 20,
-                 backfill_limit: int = 5000, parent=None):
+                 max_retries: int = 12, batch_limit: int = 20,
+                 backfill_limit: int = 5000, backfill_interval: float = 600.0,
+                 parent=None):
         super().__init__(parent)
         self.db = db
         self.cfg = cfg
@@ -44,7 +50,10 @@ class NotificationWorker(QThread):
         self.max_retries = int(max_retries)
         self.batch_limit = int(batch_limit)
         self.backfill_limit = int(backfill_limit)
+        self.backfill_interval = float(backfill_interval)
         self._running = False
+        self._backend = None
+        self._backend_key: tuple = ()
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -55,8 +64,12 @@ class NotificationWorker(QThread):
             self._drain_all()
         except Exception as exc:
             _log.error("NotificationWorker backfill xatosi: %s", exc)
+        last_backfill = time.monotonic()
         while self._running:
             try:
+                if time.monotonic() - last_backfill >= self.backfill_interval:
+                    last_backfill = time.monotonic()
+                    self._backfill_unsent()
                 self._drain_once()
             except Exception as exc:  # navbat ishlashi hech qachon to'xtamasin
                 _log.error("NotificationWorker drain xatosi: %s", exc)
@@ -88,6 +101,7 @@ class NotificationWorker(QThread):
             self.queue.mark_permanent_failed(
                 job["id"], f"max retries ({self.max_retries}) oshib ketdi"
             )
+            self._on_job_given_up(job, "failed")
         for job in to_send:
             if not self._running:
                 break
@@ -107,13 +121,16 @@ class NotificationWorker(QThread):
                 raise _ChannelDisabled(f"noma'lum kanal: {channel}")
         except _ChannelDisabled as exc:
             self.queue.mark_permanent_failed(job_id, str(exc))
+            # Kanal qayta yoqilganda backfill uni yana oladi
+            self._on_job_given_up(job, "local")
             _log.warning("Notification job #%s abadiy xato: %s", job_id, exc)
         except Exception as exc:
             self.queue.mark_failed(job_id, str(exc))
             _log.warning("Notification job #%s yuborilmadi (retry): %s", job_id, exc)
         else:
             self.queue.mark_sent(job_id)
-            self._mark_violation_synced(payload)
+            if channel == "backend":
+                self._set_violation_status(payload, "synced")
 
     # ── Yuborish ─────────────────────────────────────────────────────────────
 
@@ -129,20 +146,24 @@ class NotificationWorker(QThread):
     def _send_backend(self, payload: dict):
         if not (self.cfg.backend_enabled and self.cfg.get("backend_url", "")):
             raise _ChannelDisabled("backend cfg da o'chirilgan")
-        from app.infrastructure.notifications.backend_client import BackendClient
-
-        backend = BackendClient(
-            api_url=self.cfg.get("backend_url", ""),
-            login=self.cfg.get("backend_login", ""),
-            password=self.cfg.get("backend_password", ""),
-        )
-        backend.send_event(
+        self._backend_client().send_event(
             payload.get("camera_name", ""),
             payload.get("company_id", ""),
             timestamp=payload.get("timestamp"),
             crop_bytes=self._read_file(payload.get("crop_path", "")),
             full_bytes=self._read_file(payload.get("full_path", "")),
         )
+
+    def _backend_client(self):
+        """Bitta BackendClient (JWT keshi bilan); sozlama o'zgarsa qayta yaratiladi."""
+        key = (self.cfg.get("backend_url", ""), self.cfg.get("backend_login", ""),
+               self.cfg.get("backend_password", ""))
+        if self._backend is None or key != self._backend_key:
+            from app.infrastructure.notifications.backend_client import BackendClient
+
+            self._backend = BackendClient(api_url=key[0], login=key[1], password=key[2])
+            self._backend_key = key
+        return self._backend
 
     # ── Backfill ─────────────────────────────────────────────────────────────
 
@@ -221,13 +242,19 @@ class NotificationWorker(QThread):
                 return Path(p).read_bytes()
         raise FileNotFoundError("buzilish rasmi topilmadi (crop_path/full_path)")
 
-    def _mark_violation_synced(self, payload: dict):
+    def _on_job_given_up(self, job: dict, status: str):
+        """Backend job'idan voz kechildi — buzilish keyingi backfill'ga qoladi."""
+        if job.get("channel") != "backend":
+            return
+        self._set_violation_status(self.queue.decode_payload(job.get("payload", "{}")), status)
+
+    def _set_violation_status(self, payload: dict, status: str):
         try:
             self.db.update_violation_sync_status(
                 int(payload.get("track_id", -1)),
                 int(payload.get("timestamp", 0)),
                 payload.get("camera_name", ""),
-                "synced",
+                status,
             )
         except Exception:
-            pass  # sync_status faqat ko'rsatuv uchun — kritik emas
+            pass  # sync_status faqat holat belgisi — kritik emas

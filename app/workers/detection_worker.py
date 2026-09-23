@@ -176,6 +176,9 @@ class DetectionWorker(QThread):
                 _log.error("Backend yuklanmadi: %s", e)
 
     def _setup_faceid(self):
+        if not (self.cfg.get("faceid_enabled", False) or self.cfg.get("access_roster_enabled", False)):
+            self.faceid_service = None
+            return
         try:
             full_cfg = getattr(self.cfg, "_base", self.cfg)
             svc = FaceIdService(self.db, full_cfg)
@@ -185,30 +188,36 @@ class DetectionWorker(QThread):
             self.faceid_service = None
             _log.warning("FaceID tayyorlanmadi: %s", e)
 
-    def _try_recognize_face(self, frame: np.ndarray, person: dict):
-        if self.faceid_service is None:
+    def _try_recognize_face(self, frame: np.ndarray, person: dict, force: bool = False):
+        """
+        Odamning yuzini taniydi (track bo'yicha 5 s da bir marta, `force` bo'lsa
+        darhol). Tanilsa natija `person` ga yoziladi — shu zahoti saqlanadigan
+        buzilish yozuvi xodim bilan bog'lanadi.
+        """
+        if self.faceid_service is None or not self.cfg.get("faceid_enabled", False):
             return
         tid = person.get("track_id", -1)
         now = time.perf_counter()
-        if now - self._face_last_recog.get(tid, 0) < 5.0:
+        if not force and now - self._face_last_recog.get(tid, 0) < 5.0:
             return
         self._face_last_recog[tid] = now
         crop = self._crop_person(frame, person)
         if crop is None:
             return
-        # Upper 45% of bounding box — yuz shu qismda bo'ladi
+        # Yuz odatda kesimning yuqori 45% qismida
         h = crop.shape[0]
         face_region = crop[:max(32, int(h * 0.45)), :]
-        face = self.faceid_service._extract_face(face_region)
-        if face is None:
-            face = self.faceid_service._extract_face(crop)
-        if face is None:
-            return
         identity = self.faceid_service.match_person_crop(crop)
-        name = identity.employee_name or "Unknown" if identity else "Unknown"
-        confidence = identity.confidence if identity else 0.0
-        matched = identity.matched if identity else False
-        emp_id = identity.employee_id if identity else None
+        if identity is None:
+            return  # yuz topilmadi yoki juda kichik
+        matched = identity.matched
+        name = identity.employee_name if matched else "Noma'lum"
+        confidence = identity.confidence
+        emp_id = identity.employee_id if matched else None
+        if matched:
+            person["employee_id"] = emp_id
+            person["employee_name"] = name
+            person["identity_confidence"] = confidence
         self.face_recognized.emit({
             "track_id": tid,
             "cam_id": self._cam_id,
@@ -448,6 +457,8 @@ class DetectionWorker(QThread):
         self._running     = True
         self._today_count = self.db.get_today_count()
         self._violation_runtime.today_count = self._today_count
+        self._violation_runtime.camera_today = self.db.get_today_count_for_camera(
+            self.cfg.camera_id, self.cfg.camera_name)
         self._violation_runtime.set_running(True)
         # Oldingi sessiyada saqlangan deteksiya sonini yuklash
         self._detections_today = self.db.get_daily_detections(self.cfg.camera_name)
@@ -460,6 +471,11 @@ class DetectionWorker(QThread):
         rtsp_url = self.cfg.rtsp_url
         if not rtsp_url:
             self.error_occurred.emit("RTSP URL ko'rsatilmagan")
+            self._running = False
+            return
+        if "<kamera-ip>" in rtsp_url or "<login>" in rtsp_url:
+            # Standart namuna manzil — ulanishga urinish befoyda
+            self.error_occurred.emit("Kamera manzili hali kiritilmagan — Sozlamalar → Kameralar")
             self._running = False
             return
 
@@ -523,7 +539,7 @@ class DetectionWorker(QThread):
                     ) and now - last_no_frame_emit >= 2.0:
                         last_no_frame_emit = now
                         self.stats_updated.emit({
-                            "fps": 0.0, "today_count": self._violation_runtime.today_count,
+                            "fps": 0.0, "today_count": self._violation_runtime.camera_today,
                             "detections_today": self._detections_today,
                             "active_persons": 0, "connected": False, "ping_ms": None,
                         })
@@ -538,7 +554,7 @@ class DetectionWorker(QThread):
                     no_frame_count += 1
                     if no_frame_count % 40 == 0:
                         self.stats_updated.emit({
-                            "fps": 0.0, "today_count": self._violation_runtime.today_count,
+                            "fps": 0.0, "today_count": self._violation_runtime.camera_today,
                             "detections_today": self._detections_today,
                             "active_persons": 0, "connected": False, "ping_ms": None,
                         })
@@ -592,8 +608,10 @@ class DetectionWorker(QThread):
                     violation_frame = result.raw_frame if result.raw_frame is not None else frame
                     for p in persons:
                         if p.get("is_new_violation", False):
+                            # Avval yuz — buzilish yozuvi xodim bilan saqlansin
+                            self._try_recognize_face(violation_frame, p, force=True)
                             self._handle_violation(violation_frame, p, "no_helmet")
-                        if p.get("has_helmet") is False:
+                        elif p.get("has_helmet") is False:
                             self._try_recognize_face(violation_frame, p)
 
                 persons = self._last_persons
@@ -622,14 +640,14 @@ class DetectionWorker(QThread):
                 if self._frame_count % 30 == 0:
                     self.stats_updated.emit({
                         "fps":            self._fps,
-                        "today_count":    self._violation_runtime.today_count,
+                        "today_count":    self._violation_runtime.camera_today,
                         "detections_today": self._detections_today,
                         "active_persons": len(persons),
                         "connected":      connected,
                         "ping_ms":        self._ping_ms() if connected else None,
                     })
                     self.status_changed.emit(
-                        f"Ulangan | FPS: {self._fps:.1f} | Bugun: {self._violation_runtime.today_count}"
+                        f"Ulangan | FPS: {self._fps:.1f} | Bugun: {self._violation_runtime.camera_today} buzilish"
                         if connected else "Qayta ulanmoqda..."
                     )
                     self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
@@ -642,7 +660,7 @@ class DetectionWorker(QThread):
                 if self._frame_count % max(1, video_fps) == 0:
                     self.stats_updated.emit({
                         "fps":            self._fps,
-                        "today_count":    self._violation_runtime.today_count,
+                        "today_count":    self._violation_runtime.camera_today,
                         "detections_today": self._detections_today,
                         "active_persons": 0,
                         "connected":      connected,
@@ -716,14 +734,20 @@ class DetectionWorker(QThread):
 
     # ── Reconnect callbacklar (CV2RTSPReader dan) ─────────────────────────
 
-    def _on_reconnect_attempt(self, attempt: int, wait_sec: float):
-        self.status_changed.emit(
-            f"Qayta ulanmoqda... ({attempt}-urinish, {int(wait_sec)}s dan keyin)"
-        )
+    def _on_reconnect_attempt(self, attempt: int, wait_sec: float, reason: str = ""):
+        if reason:
+            # Xato sababi panelda ko'rinsin (masalan "Login yoki parol noto'g'ri")
+            self.error_occurred.emit(f"{reason}\nQayta urinish {int(wait_sec)} s dan keyin ({attempt})")
+        else:
+            self.status_changed.emit(
+                f"Qayta ulanmoqda... ({attempt}-urinish, {int(wait_sec)}s dan keyin)"
+            )
 
     def _on_max_retries(self):
+        reason = getattr(self._reader, "last_error", "") if self._reader is not None else ""
+        attempts = int(self.cfg.get("max_reconnects", 10))
         self.error_occurred.emit(
-            "Kameraga ulanib bo'lmadi (10 urinish). "
-            "\"↻ Reconnect\" tugmasini bosing."
+            (f"{reason}\n" if reason else "")
+            + f"Kameraga ulanib bo'lmadi ({attempts} urinish). \"Qayta ulash\" tugmasini bosing."
         )
         self._running = False

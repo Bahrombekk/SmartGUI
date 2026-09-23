@@ -22,6 +22,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QVBoxLayout, QWidget,
 )
 
+from app.ui.widgets.frameless import FramedDialog
+from app.ui.widgets.app_dialog import AppMessageBox
 from app.ui.styles import C
 
 
@@ -295,7 +297,7 @@ class _PolygonCanvas(QWidget):
         self.update()
 
 
-class PolygonEditorDialog(QDialog):
+class PolygonEditorDialog(FramedDialog):
     """
     Kamera kadrida zona polygon chizish va tahrirlash dialogi.
 
@@ -307,10 +309,10 @@ class PolygonEditorDialog(QDialog):
     """
 
     def __init__(self, pixmap: QPixmap, existing_pts: list,
-                 cam_name: str = "Camera",
+                 cam_name: str = "Kamera",
                  existing_color: str = "#f97316",
                  parent=None):
-        super().__init__(parent)
+        super().__init__(parent, resizable=True)
         self.setWindowTitle(f"Zona chizish — {cam_name}")
         self.setMinimumSize(720, 540)
         self.resize(1000, 680)
@@ -323,11 +325,11 @@ class PolygonEditorDialog(QDialog):
     # ── UI ────────────────────────────────────────────────────────────────
 
     def _build(self, pixmap: QPixmap, existing_pts: list, existing_color: str):
-        self.setStyleSheet(
-            f"QDialog {{ background: {C('bg_main')}; }}"
+        self.body.setStyleSheet(
+            f"QWidget#appFrameBody {{ background: {C('bg_main')}; }}"
             f"QLabel  {{ background: transparent; color: {C('text_primary')}; border: none; }}"
         )
-        root = QVBoxLayout(self)
+        root = QVBoxLayout(self.body)
         root.setContentsMargins(16, 14, 16, 14)
         root.setSpacing(10)
 
@@ -472,7 +474,7 @@ class PolygonEditorDialog(QDialog):
     def _on_save(self):
         pts = self._canvas.get_points()
         if len(pts) < 3:
-            QMessageBox.warning(
+            AppMessageBox.warning(
                 self, "Kam nuqta",
                 "Polygon kamida 3 ta nuqtadan iborat bo'lishi kerak.\n"
                 "Kadr ustiga bosib nuqtalar qo'shing."

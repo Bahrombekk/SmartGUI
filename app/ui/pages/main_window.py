@@ -3,6 +3,7 @@ MainWindow тАФ asosiy oyna.
 SmartHelmet dizayni: maxsus top navbar + dashboard + violations + analytics.
 """
 
+import sys
 import time
 from pathlib import Path
 
@@ -14,9 +15,14 @@ from PyQt6.QtWidgets import (
     QMessageBox, QSizePolicy, QWidget, QHBoxLayout, QVBoxLayout,
     QApplication, QLineEdit
 )
-from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtCore import Qt, QTimer, QSize, QEvent
 from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QImage, QPainter, QBrush, QShortcut
 
+from app.ui.widgets.app_dialog import AppMessageBox
+from app.ui.widgets.toast import show_toast
+from app.ui.widgets.frameless import (
+    GLYPH_CLOSE, GLYPH_MAX, GLYPH_MIN, GLYPH_RESTORE, EdgeResizer,
+)
 from app.config.settings_manager import ConfigManager
 from app.bootstrap.startup_checks import run_startup_checks
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
@@ -65,16 +71,16 @@ class TopNavBar(QWidget):
 
     def _setup_ui(self):
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 12, 0)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         # тФАтФА Nav tugmalari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         nav_items = [
-            (self.PAGE_DASHBOARD, "Dashboard", "dashboard.svg"),
-            (1,                   "Cameras",   "camera.svg"),
-            (self.PAGE_ANALYTICS, "Analytics", "analytics.svg"),
-            (self.PAGE_REPORTS,   "Reports",   "reports.svg"),
-            (self.PAGE_USERS,     "Users",     "users.svg"),
+            (self.PAGE_DASHBOARD, "Bosh sahifa", "dashboard.svg"),
+            (1,                   "Kameralar", "camera.svg"),
+            (self.PAGE_ANALYTICS, "Tahlil",    "analytics.svg"),
+            (self.PAGE_REPORTS,   "Hisobotlar", "reports.svg"),
+            (self.PAGE_USERS,     "Xodimlar",  "users.svg"),
         ]
 
         for page_id, label, icon_name in nav_items:
@@ -89,7 +95,7 @@ class TopNavBar(QWidget):
             lay.addWidget(btn)
             self._nav_btns[page_id] = btn
 
-        settings_btn = QPushButton("Settings")
+        settings_btn = QPushButton("Sozlamalar")
         settings_btn.setCheckable(True)
         settings_btn.setFixedHeight(58)
         settings_btn.setMinimumWidth(86)
@@ -100,7 +106,7 @@ class TopNavBar(QWidget):
         lay.addWidget(settings_btn)
         self._nav_btns[self.PAGE_SETTINGS] = settings_btn
 
-        self._refresh_btn = QPushButton("Refresh")
+        self._refresh_btn = QPushButton("Yangilash")
         self._refresh_btn.setFixedHeight(58)
         self._refresh_btn.setMinimumWidth(86)
         self._refresh_btn.setIcon(self._colored_icon("refresh.svg", C("text_primary"), 16))
@@ -144,8 +150,8 @@ class TopNavBar(QWidget):
 
         # ── O'ng tomon: qidiruv + bell + controls тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search...")
-        self._search.setFixedWidth(190)
+        self._search.setPlaceholderText("Qidirish...")
+        self._search.setFixedWidth(160)
         self._search.setFixedHeight(32)
         self._search.setStyleSheet(self._search_style())
         self._search.textChanged.connect(self._on_search_changed)
@@ -158,7 +164,7 @@ class TopNavBar(QWidget):
         self._bell_btn.setIcon(self._icon("bell.svg"))
         self._bell_btn.setIconSize(QSize(18, 18))
         self._bell_btn.setStyleSheet(self._icon_btn_style())
-        self._bell_btn.setToolTip("Reports / violations")
+        self._bell_btn.setToolTip("Hisobotlar / buzilishlar")
         self._bell_btn.clicked.connect(self._open_notifications)
         lay.addWidget(self._bell_btn)
 
@@ -178,7 +184,7 @@ class TopNavBar(QWidget):
         self._theme_btn.setFixedSize(30, 30)
         self._theme_btn.setIcon(self._icon("moon.svg"))
         self._theme_btn.setIconSize(QSize(18, 18))
-        self._theme_btn.setToolTip("Light mode")
+        self._theme_btn.setToolTip("Yashil mavzu")
         self._theme_btn.setCheckable(True)
         self._theme_btn.setStyleSheet(self._icon_btn_style())
         self._theme_btn.clicked.connect(self._toggle_theme)
@@ -189,7 +195,7 @@ class TopNavBar(QWidget):
         self._expand_btn.setFixedSize(30, 30)
         self._expand_btn.setIcon(self._icon("expand.svg"))
         self._expand_btn.setIconSize(QSize(18, 18))
-        self._expand_btn.setToolTip("Fullscreen")
+        self._expand_btn.setToolTip("To'liq ekran")
         self._expand_btn.setStyleSheet(self._icon_btn_style())
         self._expand_btn.clicked.connect(self._toggle_fullscreen)
         lay.addWidget(self._expand_btn)
@@ -227,24 +233,25 @@ class TopNavBar(QWidget):
         lay.addSpacing(8)
 
         # Screenshot
-        ss_btn = QPushButton("Screenshot")
+        ss_btn = QPushButton("Skrinshot")
         ss_btn.setFixedHeight(32)
         ss_btn.setStyleSheet(self._action_btn_style())
         lay.addWidget(ss_btn)
         self._ss_btn = ss_btn
         self._ss_btn.hide()
 
-        lay.addSpacing(8)
+        lay.addSpacing(10)
 
-        # Chiqish
-        self._quit_btn = QPushButton()
-        self._quit_btn.setFixedSize(30, 30)
-        self._quit_btn.setIcon(self._icon("close.svg"))
-        self._quit_btn.setIconSize(QSize(18, 18))
-        self._quit_btn.setStyleSheet(self._quit_btn_style())
-        self._quit_btn.setToolTip("Exit")
+        # ── Oyna boshqaruvi: minimize / maximize / close ─────────────────
+        self._min_btn = self._window_btn(self._GLYPH_MIN, "Kichraytirish")
+        self._min_btn.clicked.connect(lambda: self.window().showMinimized())
+        self._max_btn = self._window_btn(self._GLYPH_MAX, "Kattalashtirish")
+        self._max_btn.clicked.connect(self._toggle_maximize)
+        self._quit_btn = self._window_btn(self._GLYPH_CLOSE, "Yopish")
         self._quit_btn.clicked.connect(self._on_quit)
-        lay.addWidget(self._quit_btn)
+        for btn in (self._min_btn, self._max_btn, self._quit_btn):
+            lay.addWidget(btn)
+        self._apply_window_btn_styles()
 
         # Dashboard boshlang'ich holat
         self._set_active(self.PAGE_DASHBOARD)
@@ -258,7 +265,7 @@ class TopNavBar(QWidget):
             background: transparent;
             color: {C('text_secondary')};
             border: none;
-            padding: 0 12px;
+            padding: 0 10px;
             font-size: 12px;
             font-weight: 600;
         }}
@@ -333,22 +340,67 @@ class TopNavBar(QWidget):
             }}
         """
 
+    _GLYPH_MIN, _GLYPH_MAX = GLYPH_MIN, GLYPH_MAX
+    _GLYPH_RESTORE, _GLYPH_CLOSE = GLYPH_RESTORE, GLYPH_CLOSE
+
+    def _window_btn(self, glyph: str, tooltip: str) -> QPushButton:
+        btn = QPushButton(glyph)
+        btn.setFixedSize(46, 58)
+        btn.setToolTip(tooltip)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        return btn
+
     @staticmethod
-    def _quit_btn_style() -> str:
+    def _window_btn_style(close: bool = False) -> str:
+        hover_bg = "#e81123" if close else "rgba(148,163,184,0.14)"
+        pressed_bg = "#f1707a" if close else "rgba(148,163,184,0.22)"
         return f"""
             QPushButton {{
                 background: transparent;
-                color: {C('text_muted')};
+                color: {C('text_secondary')};
                 border: none;
-                border-radius: 16px;
-                font-size: 16px;
-                font-weight: bold;
+                border-radius: 0px;
+                font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+                font-size: 10px;
             }}
-            QPushButton:hover {{
-                background: {C('danger_dim')};
-                color: {C('danger')};
-            }}
+            QPushButton:hover {{ background: {hover_bg}; color: #ffffff; }}
+            QPushButton:pressed {{ background: {pressed_bg}; color: #ffffff; }}
         """
+
+    def _apply_window_btn_styles(self):
+        self._min_btn.setStyleSheet(self._window_btn_style())
+        self._max_btn.setStyleSheet(self._window_btn_style())
+        self._quit_btn.setStyleSheet(self._window_btn_style(close=True))
+
+    def _toggle_maximize(self):
+        window = self.window()
+        if window.isFullScreen():
+            return
+        if window.isMaximized():
+            window.showNormal()
+        else:
+            window.showMaximized()
+
+    def update_window_state(self, maximized: bool):
+        self._max_btn.setText(self._GLYPH_RESTORE if maximized else self._GLYPH_MAX)
+        self._max_btn.setToolTip("Tiklash" if maximized else "Kattalashtirish")
+
+    # ── Navbar bo'sh joyi = sarlavha qatori (sudrash, ikki marta bosish) ──
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and not self.window().isFullScreen():
+            handle = self.window().windowHandle()
+            if handle is not None:
+                handle.startSystemMove()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._toggle_maximize()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     @staticmethod
     def _action_btn_style() -> str:
@@ -418,7 +470,7 @@ class TopNavBar(QWidget):
         if app:
             app.setStyleSheet(get_main_stylesheet())
         self.setStyleSheet("background: #0c1a2e;")
-        self._theme_btn.setToolTip("Dark mode" if is_light else "Light mode")
+        self._theme_btn.setToolTip("Ko'k mavzu" if is_light else "Yashil mavzu")
         self._apply_navbar_style()
 
     def _refresh_requested(self):
@@ -476,7 +528,7 @@ class TopNavBar(QWidget):
         )
         for btn in (self._pause_btn, self._restart_btn, self._ss_btn):
             btn.setStyleSheet(self._action_btn_style())
-        self._quit_btn.setStyleSheet(self._quit_btn_style())
+        self._apply_window_btn_styles()
 
     def _toggle_fullscreen(self):
         window = self.window()
@@ -487,12 +539,12 @@ class TopNavBar(QWidget):
                 window.showMaximized()
             else:
                 window.showNormal()
-            self._expand_btn.setToolTip("Fullscreen")
+            self._expand_btn.setToolTip("To'liq ekran")
             self._expand_btn.setChecked(False)
         else:
             self._restore_maximized_after_fullscreen = window.isMaximized()
             window.showFullScreen()
-            self._expand_btn.setToolTip("Exit fullscreen")
+            self._expand_btn.setToolTip("To'liq ekrandan chiqish")
             self._expand_btn.setChecked(True)
         QTimer.singleShot(0, self._position_notif_badge)
 
@@ -562,8 +614,16 @@ class MainWindow(QMainWindow):
         self._settings = None
         self._connect_runtime_signals()
 
-        self.setWindowTitle("SafeZone - Live Safety Monitoring")
+        self.setWindowTitle("SafeZone - Jonli xavfsizlik monitoringi")
         self.setMinimumSize(1280, 760)
+        # Windows sarlavha qatori o'rniga navbar ishlatiladi (min/max/close navbar'da)
+        self.setWindowFlags(
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+        )
+        self._edge_resizer = EdgeResizer(self, margin=6)
 
         self._setup_ui()
         self._setup_statusbar()
@@ -573,12 +633,14 @@ class MainWindow(QMainWindow):
         if getattr(self.db, "recovered_from_corruption", False):
             self._sb_status.setText(f"DB tiklandi: {Path(str(self.db.db_path)).name}")
         elif failed_checks:
-            self._sb_status.setText(f"Startup checks: {len(failed_checks)} warning")
+            self._sb_status.setText(f"Ishga tushirish tekshiruvi: {len(failed_checks)} ta ogohlantirish")
         self.showMaximized()
 
         QTimer.singleShot(600, self._start_all_cameras)
         QTimer.singleShot(1200, self._runtime.start_cleanup)
         QTimer.singleShot(1400, self._runtime.start_notifications)
+        if self.cfg.needs_setup_wizard:
+            QTimer.singleShot(1200, self._open_setup_wizard)
 
     # тФАтФА UI тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
@@ -620,10 +682,10 @@ class MainWindow(QMainWindow):
 
         self._stack.addWidget(self._dashboard)   # 0
         self._stack.addWidget(self._cameras)     # 1
-        self._stack.addWidget(self._lazy_placeholder("Reports"))    # 2
-        self._stack.addWidget(self._lazy_placeholder("Analytics"))  # 3
-        self._stack.addWidget(self._lazy_placeholder("Users"))      # 4
-        self._stack.addWidget(self._lazy_placeholder("Settings"))   # 5
+        self._stack.addWidget(self._lazy_placeholder("Hisobotlar"))    # 2
+        self._stack.addWidget(self._lazy_placeholder("Tahlil"))  # 3
+        self._stack.addWidget(self._lazy_placeholder("Xodimlar"))      # 4
+        self._stack.addWidget(self._lazy_placeholder("Sozlamalar"))   # 5
 
         self._connect_primary_pages()
 
@@ -654,9 +716,9 @@ class MainWindow(QMainWindow):
         self._dashboard.go_violations.connect(
             lambda: self._switch_page(self.PAGE_VIOLATIONS)
         )
-        self._dashboard.add_camera_requested.connect(self._open_settings)
+        self._dashboard.add_camera_requested.connect(self._open_add_camera)
         self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
-        self._cameras.add_camera_requested.connect(self._open_settings)
+        self._cameras.add_camera_requested.connect(self._open_add_camera)
         self._cameras.departments_changed.connect(self._on_departments_changed)
         self._cameras.reconnect_requested.connect(self._restart_camera)
 
@@ -683,7 +745,7 @@ class MainWindow(QMainWindow):
             self._users_loaded = False
         if self._settings is not None:
             self._settings = SettingsPage(self.cfg)
-            self._settings.settings_saved.connect(self._on_settings_saved)
+            self._connect_settings_page()
             self._replace_stack_page(self.PAGE_SETTINGS, self._settings)
 
         self._dashboard.setup_cameras(cameras)
@@ -728,7 +790,7 @@ class MainWindow(QMainWindow):
         if page == self.PAGE_SETTINGS:
             if self._settings is None:
                 self._settings = SettingsPage(self.cfg)
-                self._settings.settings_saved.connect(self._on_settings_saved)
+                self._connect_settings_page()
                 self._replace_stack_page(page, self._settings)
             return self._settings
         return self._stack.widget(page)
@@ -965,6 +1027,7 @@ class MainWindow(QMainWindow):
             data["crop_frame"] = None
         cam = self.cfg.get_camera_by_id(cam_id)
         data["camera_name"] = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
+        self._dashboard.count_face_attempt(bool(data.get("matched")))
         if self._stack.currentIndex() == self.PAGE_DASHBOARD:
             self._dashboard.on_face_recognized(data)
 
@@ -1050,6 +1113,32 @@ class MainWindow(QMainWindow):
         self._settings._load_values()
         self._switch_page(self.PAGE_SETTINGS)
 
+    def _open_add_camera(self):
+        """Dashboard / Cameras "+ Add" — sozlamalar ochilib, darhol qo'shish oynasi."""
+        self._open_settings()
+        self._navbar.set_active_page(TopNavBar.PAGE_SETTINGS)
+        self._settings.open_add_camera()
+
+    def _open_setup_wizard(self):
+        from app.ui.widgets.setup_wizard import SetupWizard
+
+        if SetupWizard(self.cfg, self).exec() == SetupWizard.DialogCode.Accepted:
+            show_toast(self, "Sozlamalar saqlandi — kamera ulanmoqda...", "success")
+            if self._settings is not None:
+                self._settings._load_values()
+            self._on_cameras_changed()
+
+    def _connect_settings_page(self):
+        self._settings.wizard_requested.connect(self._open_setup_wizard)
+        self._settings.settings_saved.connect(self._on_settings_saved)
+        self._settings.cameras_changed.connect(self._on_cameras_changed)
+        self._settings.departments_changed.connect(self._on_departments_changed)
+
+    def _on_cameras_changed(self):
+        """Kamera qo'shildi/o'zgardi/o'chirildi — workerlar va sahifalar yangilanadi."""
+        self._refresh_sb_cams()
+        self._restart_all_cameras()
+
     def _open_notifications_from_nav(self):
         self._violation_count = 0
         self._switch_page(self.PAGE_VIOLATIONS, 3)
@@ -1068,7 +1157,7 @@ class MainWindow(QMainWindow):
             self._accent_sep.setStyleSheet(f"background: {C('accent')};")
         self._apply_statusbar_style()
         self._rebuild_stack_pages()
-        self._sb_status.setText("Theme yangilandi")
+        self._sb_status.setText("Mavzu yangilandi")
 
     def _refresh_application(self):
         app = QApplication.instance()
@@ -1107,9 +1196,9 @@ class MainWindow(QMainWindow):
             pm = first_panel._video.pixmap()
             if pm and not pm.isNull():
                 pm.save(path, "JPEG", 95)
-                self._sb_status.setText(f"Screenshot saqlandi: {path}")
+                self._sb_status.setText(f"Skrinshot saqlandi: {path}")
                 return
-        self._sb_status.setText("Screenshot: video frame topilmadi")
+        self._sb_status.setText("Skrinshot: video kadr topilmadi")
 
     def _refresh_current(self):
         page = self._stack.currentIndex()
@@ -1136,9 +1225,37 @@ class MainWindow(QMainWindow):
 
     # тФАтФА Yopish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._enable_native_min_max()
+
+    def _enable_native_min_max(self):
+        """
+        Ramkasiz oynada ham taskbar'dan bosib yig'ish/ochish va Win+↑/↓
+        ishlashi uchun WS_MINIMIZEBOX / WS_MAXIMIZEBOX / WS_SYSMENU yoqiladi.
+        """
+        if sys.platform != "win32" or getattr(self, "_native_styles_set", False):
+            return
+        try:
+            import ctypes
+            hwnd = int(self.winId())
+            GWL_STYLE = -16
+            WS_SYSMENU, WS_MINIMIZEBOX, WS_MAXIMIZEBOX = 0x00080000, 0x00020000, 0x00010000
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(hwnd, GWL_STYLE)
+            user32.SetWindowLongW(hwnd, GWL_STYLE, style | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
+            self._native_styles_set = True
+        except Exception:
+            pass
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange and hasattr(self, "_navbar"):
+            self._navbar.update_window_state(self.isMaximized() or self.isFullScreen())
+
     def closeEvent(self, event):
         cam_count = self._runtime.worker_count
-        reply = QMessageBox.question(
+        reply = AppMessageBox.question(
             self, "Dasturdan chiqish",
             f"SafeZone tizimini to'xtatib chiqmoqchimisiz?\n"
             f"({cam_count} ta kamera worker to'xtatiladi)",

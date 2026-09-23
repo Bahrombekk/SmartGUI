@@ -24,7 +24,8 @@ class BarChart(QWidget):
     """
     Kunlik buzilishlar uchun vertikal bar chart.
 
-    data: [{'date': '04/15', 'count': 12}, ...]
+    data: [{'date': '04/15', 'count': 12, 'no_helmet': 9, 'other': 3}, ...]
+    Qizil — shlemsiz, sariq — boshqa buzilishlar (noma'lum shaxs, ruxsatsiz hudud).
     """
 
     def __init__(self, data: list = None, parent=None):
@@ -76,18 +77,19 @@ class BarChart(QWidget):
             x   = pad_l + int(chart_w * i / n) + 1
             y   = pad_t + chart_h - bh
 
-            helmet_h = int(bh * 0.42)
-            no_helmet_h = max(0, bh - helmet_h)
+            other = int(d.get("other", 0) or 0)
+            other_h = int(bh * other / cnt) if cnt else 0
+            no_helmet_h = max(0, bh - other_h)
             r = min(3, bar_w // 2)
 
-            if helmet_h > 0:
-                green = QLinearGradient(x, y + no_helmet_h, x, y + bh)
-                green.setColorAt(0.0, QColor(C("success")))
-                green.setColorAt(1.0, QColor(C("success_dim")))
-                p.setBrush(QBrush(green))
+            if other_h > 0:
+                amber = QLinearGradient(x, y + no_helmet_h, x, y + bh)
+                amber.setColorAt(0.0, QColor(C("warning")))
+                amber.setColorAt(1.0, QColor(C("warning_dim")))
+                p.setBrush(QBrush(amber))
                 p.setPen(Qt.PenStyle.NoPen)
                 base = QPainterPath()
-                base.addRoundedRect(x, y + no_helmet_h, bar_w, helmet_h, r, r)
+                base.addRoundedRect(x, y + no_helmet_h, bar_w, other_h, r, r)
                 p.drawPath(base)
 
             if no_helmet_h > 0:
@@ -99,6 +101,12 @@ class BarChart(QWidget):
                 top = QPainterPath()
                 top.addRoundedRect(x, y, bar_w, no_helmet_h, r, r)
                 p.drawPath(top)
+
+            if cnt > 0 and bar_w >= 14:
+                p.setPen(QColor(C("text_secondary")))
+                p.setFont(QFont("Segoe UI", 7))
+                p.drawText(QRect(x - 6, y - 14, bar_w + 12, 12),
+                           Qt.AlignmentFlag.AlignCenter, str(cnt))
 
             # X label (har 3 chi)
             if i % max(1, n // 10) == 0:
@@ -270,16 +278,14 @@ class HourlyBarChart(QWidget):
             y   = pad_t + chart_h - bh
 
             hour = d.get("hour", i)
-            # Ish vaqti (8–18) — boshqa rang
-            if 14 <= hour < 17:
-                color = C("danger")
-                dim   = C("accent_dim")
-            elif 8 <= hour < 18:
-                color = C("accent")
-                dim   = C("accent_dim")
-            else:
-                color = C("success")
-                dim   = C("success_dim")
+            # Bitta rang (buzilish = qizil), to'yinganlik soniga qarab:
+            # eng ko'p soat — to'liq, kam soatlar — xiraroq
+            share = cnt / max_v if max_v else 0.0
+            base = QColor(C("danger") if share >= 0.999 else C("accent"))
+            color = QColor(base)
+            color.setAlphaF(0.45 + 0.55 * share)
+            dim = QColor(base)
+            dim.setAlphaF(0.12 + 0.18 * share)
 
             grad = QLinearGradient(x, y, x, y + bh)
             grad.setColorAt(0.0, QColor(color))
@@ -292,6 +298,12 @@ class HourlyBarChart(QWidget):
                 r    = min(2, bar_w // 2)
                 path.addRoundedRect(x, y, bar_w, bh, r, r)
                 p.drawPath(path)
+                # Qiymat ustun tepasida — o'q bo'lmasa ham son o'qilsin
+                p.setPen(QColor(C("text_secondary")))
+                p.setFont(QFont("Segoe UI", 8))
+                p.drawText(QRect(x - 6, y - 15, bar_w + 12, 13),
+                           Qt.AlignmentFlag.AlignCenter, str(cnt))
+                p.setPen(Qt.PenStyle.NoPen)
 
             # Soat label (har 2 soatda)
             if hour % 2 == 0:

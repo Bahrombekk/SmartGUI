@@ -141,6 +141,8 @@ class ViolationsDB:
                     UNIQUE(employee_id, model_version)
                 )
             """)
+            # Rasm(lar) imzosi — rasm almashtirilsa embedding qayta hisoblanadi
+            self._ensure_column(conn, "face_embeddings", "source_sig", "TEXT DEFAULT ''")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS cameras (
                     id              INTEGER PRIMARY KEY,
@@ -273,7 +275,7 @@ class ViolationsDB:
         rows = conn.execute("""
             SELECT * FROM notification_jobs
             WHERE status='pending'
-            ORDER BY created_at ASC
+            ORDER BY retry_count ASC, created_at ASC
             LIMIT ?
         """, (limit,)).fetchall()
         return [dict(r) for r in rows]
@@ -322,16 +324,28 @@ class ViolationsDB:
         model_version: str,
         embedding: bytes,
         created_at: int,
+        source_sig: str = "",
     ) -> None:
         with self._write_lock:
             conn = self._conn()
             conn.execute("""
-                INSERT INTO face_embeddings (employee_id, model_version, embedding, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO face_embeddings
+                    (employee_id, model_version, embedding, created_at, source_sig)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(employee_id, model_version) DO UPDATE SET
                     embedding=excluded.embedding,
-                    created_at=excluded.created_at
-            """, (employee_id, model_version, embedding, created_at))
+                    created_at=excluded.created_at,
+                    source_sig=excluded.source_sig
+            """, (employee_id, model_version, embedding, created_at, source_sig))
+            conn.commit()
+
+    def delete_face_embedding(self, employee_id: str, model_version: str) -> None:
+        with self._write_lock:
+            conn = self._conn()
+            conn.execute(
+                "DELETE FROM face_embeddings WHERE employee_id=? AND model_version=?",
+                (employee_id, model_version),
+            )
             conn.commit()
 
     def get_face_embedding(self, employee_id: str, model_version: str) -> dict | None:
@@ -434,8 +448,9 @@ class ViolationsDB:
     def get_unsynced_violations(self, limit: int = 1000) -> list[dict]:
         """Hech qachon navbatga qo'yilmagan buzilishlar (eng eskisidan boshlab).
 
-        'queued' — job yaratilgan, 'synced' — yuborilgan. Qolgani (odatda
-        'local': o'sha paytda backend/telegram o'chiq bo'lgan) backfill uchun.
+        'queued' — job yaratilgan, 'synced' — yuborilgan. Qolgani backfill
+        uchun: 'local' (o'sha paytda backend o'chiq edi) va 'failed' (job
+        retry'lari tugagan — masalan uzoq internet uzilishi).
         """
         conn = self._conn()
         rows = conn.execute(
@@ -515,6 +530,44 @@ class ViolationsDB:
             params,
         ).fetchone()
         return row["cnt"] if row else 0
+
+    def get_day_count(self, day: date, violation_type: str | None = None) -> int:
+        """Berilgan kundagi buzilishlar soni (masalan, kecha bilan taqqoslash uchun)."""
+        ts_from = int(datetime.combine(day, datetime.min.time()).timestamp())
+        ts_to   = int(datetime.combine(day, datetime.max.time()).timestamp())
+        conditions = ["timestamp BETWEEN ? AND ?"]
+        params: list = [ts_from, ts_to]
+        if violation_type:
+            conditions.append("violation_type = ?")
+            params.append(violation_type)
+        row = self._conn().execute(
+            "SELECT COUNT(*) as cnt FROM violations WHERE " + " AND ".join(conditions),
+            params,
+        ).fetchone()
+        return row["cnt"] if row else 0
+
+    def get_day_detections_total(self, day: date) -> int:
+        """Berilgan kundagi barcha kameralar deteksiyalari yig'indisi."""
+        row = self._conn().execute(
+            "SELECT COALESCE(SUM(detections), 0) AS total FROM daily_stats WHERE date = ?",
+            (day.isoformat(),),
+        ).fetchone()
+        return int(row["total"]) if row else 0
+
+    def get_today_count_for_camera(self, camera_id=None, camera_name: str = "") -> int:
+        """Shu kameraning bugungi buzilishlari (camera_id bo'lmasa nomi bo'yicha)."""
+        today = date.today()
+        ts_from = int(datetime.combine(today, datetime.min.time()).timestamp())
+        ts_to = int(datetime.combine(today, datetime.max.time()).timestamp())
+        if camera_id is not None:
+            cond, param = "camera_id = ?", camera_id
+        else:
+            cond, param = "camera_name = ?", camera_name
+        row = self._conn().execute(
+            f"SELECT COUNT(*) AS cnt FROM violations WHERE timestamp BETWEEN ? AND ? AND {cond}",
+            (ts_from, ts_to, param),
+        ).fetchone()
+        return int(row["cnt"]) if row else 0
 
     def get_today_counts_by_camera(self) -> dict[int, int]:
         today = date.today()
@@ -713,16 +766,19 @@ class ViolationsDB:
             extra_params.append(department_id)
         conn = self._conn()
         rows = conn.execute(
-            f"SELECT date(timestamp,'unixepoch','localtime') AS day, COUNT(*) AS cnt"
+            f"SELECT date(timestamp,'unixepoch','localtime') AS day, COUNT(*) AS cnt,"
+            f" SUM(CASE WHEN COALESCE(violation_type,'no_helmet')='no_helmet' THEN 1 ELSE 0 END) AS nh"
             f" FROM violations WHERE timestamp BETWEEN ? AND ?{extra_cond} GROUP BY day",
             [ts_from, ts_to] + extra_params,
         ).fetchall()
-        raw = {row["day"]: row["cnt"] for row in rows}
-        return [
-            {"date": (today - timedelta(days=i)).strftime("%m/%d"),
-             "count": raw.get((today - timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
-            for i in range(days - 1, -1, -1)
-        ]
+        raw = {row["day"]: (row["cnt"], row["nh"] or 0) for row in rows}
+        out = []
+        for i in range(days - 1, -1, -1):
+            day = today - timedelta(days=i)
+            cnt, nh = raw.get(day.strftime("%Y-%m-%d"), (0, 0))
+            out.append({"date": day.strftime("%m/%d"), "count": cnt,
+                        "no_helmet": nh, "other": cnt - nh})
+        return out
 
     def get_hourly_counts(self, target_date: date = None) -> list[dict]:
         """Berilgan kun uchun soatlik taqsimot. 1 ta GROUP BY query."""

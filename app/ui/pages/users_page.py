@@ -12,6 +12,11 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QPen, QFont
 
+from app.application.services.faceid_service import (
+    photos_with_face, store_employee_photos, user_photo_paths,
+)
+from app.ui.widgets.toast import persist_config, show_toast
+from app.ui.widgets.app_dialog import AppMessageBox
 from app.ui.theme import C
 from app.ui.ui_kit import button_style, input_style, panel_style, soft_card_style
 
@@ -56,11 +61,11 @@ class UserAvatar(QLabel):
 
 
 class UserCard(QFrame):
-    def __init__(self, user: dict, department_name: str, on_remove, parent=None):
+    def __init__(self, user: dict, department_name: str, on_remove, on_add_photos=None, parent=None):
         super().__init__(parent)
         self._user = user
         self._on_remove = on_remove
-        self.setFixedHeight(112)
+        self.setFixedHeight(118)
         self.setStyleSheet(f"""
             QFrame {{
                 background: {C('bg_card')};
@@ -91,25 +96,28 @@ class UserCard(QFrame):
         info.addWidget(name)
 
         active = bool(user.get("active", True))
-        emp_id = QLabel(f"ID: {user.get('employee_id', '')}  |  {'Active' if active else 'Inactive'}")
+        emp_id = QLabel(f"ID: {user.get('employee_id', '')}  |  {'Faol' if active else 'Nofaol'}")
         emp_id.setStyleSheet(f"color: {C('accent')}; font-size: 12px; font-weight: 600;")
         info.addWidget(emp_id)
 
         dep = QLabel(department_name or "Bo'limsiz")
         dep.setStyleSheet(f"color: {C('text_secondary')}; font-size: 12px;")
         info.addWidget(dep)
-        face_status = "FaceID photo ready" if user.get("photo_path") and Path(user.get("photo_path")).exists() else "FaceID photo missing"
+        photos = [p for p in user_photo_paths(user) if Path(p).exists()]
+        has_photo = bool(photos)
+        face_status = (f"FaceID: {len(photos)} ta rasm" if has_photo
+                       else "FaceID rasmi yo'q — rasm qo'shing")
         face = QLabel(face_status)
         face.setStyleSheet(
-            f"color: {C('success')}; font-size: 11px;" if "ready" in face_status
+            f"color: {C('success')}; font-size: 11px;" if has_photo
             else f"color: {C('warning')}; font-size: 11px;"
         )
         info.addWidget(face)
         info.addStretch()
         lay.addLayout(info, 1)
 
-        remove_btn = QPushButton("Remove")
-        remove_btn.setFixedSize(72, 30)
+        remove_btn = QPushButton("O'chirish")
+        remove_btn.setFixedSize(80, 30)
         remove_btn.setStyleSheet("""
             QPushButton {
                 background: transparent;
@@ -125,7 +133,18 @@ class UserCard(QFrame):
             }
         """)
         remove_btn.clicked.connect(lambda: self._on_remove(user.get("id")))
-        lay.addWidget(remove_btn, 0, Qt.AlignmentFlag.AlignTop)
+        btn_col = QVBoxLayout()
+        btn_col.setSpacing(6)
+        btn_col.addWidget(remove_btn)
+        if on_add_photos is not None:
+            photo_btn = QPushButton("+ Rasm")
+            photo_btn.setFixedSize(80, 30)
+            photo_btn.setToolTip("Tanishni yaxshilash uchun turli burchakdan 3–5 ta rasm qo'shing")
+            photo_btn.setStyleSheet(button_style("secondary"))
+            photo_btn.clicked.connect(lambda: on_add_photos(user.get("id")))
+            btn_col.addWidget(photo_btn)
+        btn_col.addStretch()
+        lay.addLayout(btn_col)
 
 
 class UsersPage(QWidget):
@@ -147,16 +166,16 @@ class UsersPage(QWidget):
         header = QHBoxLayout()
         title_col = QVBoxLayout()
         title_col.setSpacing(2)
-        title = QLabel("Employees")
+        title = QLabel("Xodimlar")
         title.setStyleSheet(f"color: {C('text_primary')}; font-size: 20px; font-weight: 800;")
         title_col.addWidget(title)
-        subtitle = QLabel("Hodimlar rasmlari, ID raqamlari va bo'limlar bo'yicha ro'yxat")
+        subtitle = QLabel("Xodimlar rasmlari, ID raqamlari va bo'limlar bo'yicha ro'yxat")
         subtitle.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
         title_col.addWidget(subtitle)
         header.addLayout(title_col)
         header.addStretch()
 
-        self._total_badge = QLabel("0 employees")
+        self._total_badge = QLabel("0 ta xodim")
         self._total_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._total_badge.setFixedHeight(32)
         self._total_badge.setStyleSheet(
@@ -194,13 +213,13 @@ class UsersPage(QWidget):
         lay.setContentsMargins(16, 16, 16, 16)
         lay.setSpacing(10)
 
-        title = QLabel("Add Employee / FaceID")
+        title = QLabel("Xodim qo'shish / FaceID")
         title.setStyleSheet(f"color: {C('text_primary')}; font-size: 15px; font-weight: 800;")
         lay.addWidget(title)
 
         self._first_name = self._input("Ism")
-        self._last_name = self._input("Familya")
-        self._employee_id = self._input("Hodim ID")
+        self._last_name = self._input("Familiya")
+        self._employee_id = self._input("Xodim ID")
         lay.addWidget(self._first_name)
         lay.addWidget(self._last_name)
         lay.addWidget(self._employee_id)
@@ -211,8 +230,10 @@ class UsersPage(QWidget):
         lay.addWidget(self._department)
 
         photo_row = QHBoxLayout()
+        self._chosen_photos: list[str] = []
         self._photo_path = QLineEdit()
-        self._photo_path.setPlaceholderText("Rasm path")
+        self._photo_path.setReadOnly(True)
+        self._photo_path.setPlaceholderText("Yuz rasmlari (1–5 ta, turli burchakdan)")
         self._photo_path.setFixedHeight(36)
         self._photo_path.setStyleSheet(input_style())
         photo_row.addWidget(self._photo_path, 1)
@@ -224,13 +245,13 @@ class UsersPage(QWidget):
         photo_row.addWidget(browse)
         lay.addLayout(photo_row)
 
-        add_btn = QPushButton("+ Add Employee")
+        add_btn = QPushButton("+ Xodim qo'shish")
         add_btn.setFixedHeight(38)
         add_btn.setStyleSheet(button_style("primary"))
         add_btn.clicked.connect(self._add_user)
         lay.addWidget(add_btn)
 
-        self._search = self._input("Search employees...")
+        self._search = self._input("Xodimlarni qidirish...")
         self._search.textChanged.connect(self.set_search_text)
         lay.addWidget(self._search)
 
@@ -241,7 +262,7 @@ class UsersPage(QWidget):
         lay.addWidget(self._dept_filter)
         lay.addStretch()
 
-        hint = QLabel("Hodimlar mavjud kamera bo'limlariga biriktiriladi.")
+        hint = QLabel("Xodimlar mavjud kamera bo'limlariga biriktiriladi.")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {C('text_muted')}; font-size: 11px; line-height: 16px;")
         lay.addWidget(hint)
@@ -255,19 +276,52 @@ class UsersPage(QWidget):
         inp.setStyleSheet(input_style())
         return inp
 
-    def _choose_photo(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Rasm tanlash", "", "Images (*.png *.jpg *.jpeg *.bmp)"
+    def _pick_photos(self) -> list[str]:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Yuz rasmlarini tanlash", "", "Rasmlar (*.png *.jpg *.jpeg *.bmp)"
         )
-        if path:
-            self._photo_path.setText(path)
+        return paths
+
+    def _choose_photo(self):
+        paths = self._pick_photos()
+        if paths:
+            self._chosen_photos = paths
+            self._photo_path.setText(
+                Path(paths[0]).name if len(paths) == 1 else f"{len(paths)} ta rasm tanlandi"
+            )
+            self._photo_path.setToolTip("\n".join(paths))
+
+    def _checked_photos(self, paths: list[str]) -> list[str] | None:
+        """
+        Rasmlarda yuz borligini tekshiradi. Yuzsizlari tashlab yuboriladi.
+        None — foydalanuvchi bekor qildi.
+        """
+        if not paths:
+            return []
+        ok = photos_with_face(paths)
+        good = [p for p, has in zip(paths, ok) if has]
+        bad = [Path(p).name for p, has in zip(paths, ok) if not has]
+        if not good:
+            reply = AppMessageBox.question(
+                self, "Yuz topilmadi",
+                "Tanlangan rasmlarning birortasida aniq yuz topilmadi "
+                "(yuz kichik, yon tomondan yoki xira bo'lishi mumkin).\n\n"
+                "Rasmsiz davom etilsinmi? FaceID bu xodimni tanimaydi.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return [] if reply == QMessageBox.StandardButton.Yes else None
+        if bad:
+            show_toast(self, f"{len(paths)} ta rasmdan {len(good)} tasida yuz topildi. "
+                             f"Yuzsiz: {', '.join(bad[:3])}", "warning", 5000)
+        return good
 
     def _load_departments(self):
         self._department.clear()
         if hasattr(self, "_dept_filter"):
             self._dept_filter.blockSignals(True)
             self._dept_filter.clear()
-            self._dept_filter.addItem("All departments", "all")
+            self._dept_filter.addItem("Barcha bo'limlar", "all")
         self._dept_combo_items = []
         for dep in self.cfg.get_departments():
             dep_id = dep.get("id")
@@ -284,28 +338,65 @@ class UsersPage(QWidget):
     def _add_user(self):
         try:
             dep_id = self._department.currentData()
+            emp_id = self._employee_id.text().strip()
+            if not (self._first_name.text().strip() and self._last_name.text().strip() and emp_id):
+                raise ValueError("Ism, familiya va xodim ID kiritilishi shart")
+            photos = self._checked_photos(self._chosen_photos)
+            if photos is None:
+                return
+            stored = store_employee_photos(emp_id, photos) if photos else []
             self.cfg.add_user(
                 self._first_name.text(),
                 self._last_name.text(),
-                self._employee_id.text(),
-                self._photo_path.text(),
-                dep_id,
+                emp_id,
+                department_id=dep_id,
+                photo_paths=stored,
             )
-            self.cfg.save()
+            if not persist_config(self, self.cfg,
+                                  f"Xodim qo'shildi: {self._first_name.text().strip()} {self._last_name.text().strip()}"):
+                return
             self._first_name.clear()
             self._last_name.clear()
             self._employee_id.clear()
             self._photo_path.clear()
+            self._photo_path.setToolTip("")
+            self._chosen_photos = []
             self.refresh()
         except Exception as exc:
-            QMessageBox.warning(self, "Users", str(exc))
+            AppMessageBox.warning(self, "Xodimlar", str(exc))
 
     def _remove_user(self, user_id: int):
         if user_id is None:
             return
+        user = next((u for u in self.cfg.get_users() if u.get("id") == user_id), {})
+        full = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Xodim"
+        reply = AppMessageBox.question(
+            self, "Xodimni o'chirish",
+            f'"{full}" o\'chirilsinmi? U endi FaceID orqali tanilmaydi.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         self.cfg.remove_user(user_id)
-        self.cfg.save()
+        persist_config(self, self.cfg, f"Xodim o'chirildi: {full}")
         self.refresh()
+
+    def _add_photos(self, user_id: int):
+        user = next((u for u in self.cfg.get_users() if u.get("id") == user_id), None)
+        if user is None:
+            return
+        photos = self._checked_photos(self._pick_photos())
+        if not photos:
+            return
+        stored = store_employee_photos(user.get("employee_id", ""), photos)
+        existing = [p for p in user_photo_paths(user) if Path(p).exists()]
+        all_photos = existing + [p for p in stored if p not in existing]
+        self.cfg.update_user(user_id, photo_paths=all_photos,
+                             photo_path=all_photos[0] if all_photos else "")
+        if persist_config(self, self.cfg,
+                          f"{len(stored)} ta rasm qo'shildi — FaceID 30 soniya ichida yangilanadi"):
+            self.refresh()
 
     def set_search_text(self, text: str):
         self._search_text = (text or "").strip().lower()
@@ -339,7 +430,7 @@ class UsersPage(QWidget):
             ]
         if self._dept_filter_value != "all":
             users = [user for user in users if user.get("department_id") == self._dept_filter_value]
-        self._total_badge.setText(f"{len(users)} employees")
+        self._total_badge.setText(f"{len(users)} ta xodim")
 
         dep_map = {dep_id: name for dep_id, name in self._dept_combo_items}
         for dep_id, dep_name in self._dept_combo_items:
@@ -353,7 +444,7 @@ class UsersPage(QWidget):
             self._list_layout.addWidget(self._section("Bo'limsiz", ungrouped, dep_map))
 
         if not users:
-            empty = QLabel("Hali hodim qo'shilmagan.")
+            empty = QLabel("Hali xodim qo'shilmagan.")
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setMinimumHeight(220)
             empty.setStyleSheet(
@@ -398,7 +489,8 @@ class UsersPage(QWidget):
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(10)
         for i, user in enumerate(users):
-            card = UserCard(user, dep_map.get(user.get("department_id"), title), self._remove_user)
+            card = UserCard(user, dep_map.get(user.get("department_id"), title), self._remove_user,
+                            on_add_photos=self._add_photos)
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             grid.addWidget(card, i // 2, i % 2)
         lay.addLayout(grid)

@@ -4,22 +4,23 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QCursor, QImage, QPixmap
+from PyQt6.QtCore import QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QCursor, QImage, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QVBoxLayout, QWidget,
+    QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from app.ui.widgets.frameless import FramedDialog
 from app.ui.theme import C
 from app.ui.ui_kit import button_style, chip_style, panel_style, soft_card_style
 
 # ── Violation type → (badge_fg, badge_bg, label, accent_color) ───────────────
 _VTYPE: dict[str, tuple[str, str, str, str]] = {
-    "no_helmet":      ("#fecaca", "rgba(239,68,68,0.18)",    "NO HELMET",     "#ef4444"),
-    "access_denied":  ("#fed7aa", "rgba(249,115,22,0.18)",   "ACCESS DENIED", "#f97316"),
-    "unknown_person": ("#e2e8f0", "rgba(148,163,184,0.14)",  "UNKNOWN",       "#94a3b8"),
-    "low_confidence": ("#fef3c7", "rgba(234,179,8,0.18)",    "LOW CONF.",     "#fbbf24"),
+    "no_helmet":      ("#fecaca", "rgba(239,68,68,0.18)",    "SHLEMSIZ",      "#ef4444"),
+    "access_denied":  ("#fed7aa", "rgba(249,115,22,0.18)",   "RUXSAT YO'Q",   "#f97316"),
+    "unknown_person": ("#e2e8f0", "rgba(148,163,184,0.14)",  "NOMA'LUM",      "#94a3b8"),
+    "low_confidence": ("#fef3c7", "rgba(234,179,8,0.18)",    "PAST ISHONCH",  "#fbbf24"),
 }
 
 
@@ -45,10 +46,17 @@ class EvidenceImage(QLabel):
     _img_ready = pyqtSignal(QImage)
 
     def __init__(self, path: str, empty_text: str,
-                 size: tuple[int, int], parent=None):
+                 size: tuple[int, int], parent=None, fill: bool = False):
         super().__init__(parent)
         self._size = size
-        self.setFixedSize(*size)
+        self._fill = fill          # True: kenglik bo'yicha cho'ziladi, rasm "cover" kesiladi
+        self._img: QImage | None = None
+        if fill:
+            self.setMinimumWidth(size[0])
+            self.setFixedHeight(size[1])
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        else:
+            self.setFixedSize(*size)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet(
             f"background: {C('bg_input')}; border-radius: 8px;"
@@ -73,6 +81,11 @@ class EvidenceImage(QLabel):
             pass
 
     def _on_img_ready(self, img: QImage):
+        if self._fill:
+            self._img = img
+            self.setText("")
+            self.update()
+            return
         pix = QPixmap.fromImage(img).scaled(
             self._size[0], self._size[1],
             Qt.AspectRatioMode.KeepAspectRatio,
@@ -81,6 +94,24 @@ class EvidenceImage(QLabel):
         self.setText("")
         self.setPixmap(pix)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def paintEvent(self, event):
+        if not (self._fill and self._img is not None):
+            super().paintEvent(event)
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        r = self.rect()
+        clip = QPainterPath()
+        clip.addRoundedRect(QRectF(r), 8, 8)
+        p.setClipPath(clip)
+        img = self._img
+        # cover: nisbatni saqlab, bo'sh joy qoldirmay kesish (markazdan)
+        scale = max(r.width() / img.width(), r.height() / img.height())
+        sw, sh = r.width() / scale, r.height() / scale
+        src = QRectF((img.width() - sw) / 2, (img.height() - sh) / 2, sw, sh)
+        p.drawImage(QRectF(r), img, src)
+        p.end()
 
 
 # ── ViolationCard ─────────────────────────────────────────────────────────────
@@ -124,7 +155,7 @@ class ViolationCard(QFrame):
         lay.setSpacing(7)
 
         crop_path = self.violation.get("crop_path", "")
-        lay.addWidget(EvidenceImage(crop_path, "NO\nIMAGE", (222, 158)))
+        lay.addWidget(EvidenceImage(crop_path, "RASM\nYO'Q", (222, 158)))
 
         vtype = str(self.violation.get("violation_type") or "no_helmet")
         fg, bg, label, _ = _vtype(vtype)
@@ -140,7 +171,7 @@ class ViolationCard(QFrame):
         top.addWidget(conf)
         lay.addLayout(top)
 
-        cam = QLabel(str(self.violation.get("camera_name") or "Unknown"))
+        cam = QLabel(str(self.violation.get("camera_name") or "Noma'lum"))
         cam.setStyleSheet(
             f"color: {C('text_primary')}; font-size: 13px; font-weight: 900;"
         )
@@ -172,19 +203,35 @@ class ViolationCard(QFrame):
 
 # ── ViolationDetailDialog ─────────────────────────────────────────────────────
 
-class ViolationDetailDialog(QDialog):
+def _open_path(path: str) -> None:
+    import os
+    try:
+        os.startfile(path)  # noqa: S606 — Windows: tizim rasm ko'rgichi
+    except Exception:
+        pass
+
+
+def _reveal_in_folder(path: str) -> None:
+    import subprocess
+    try:
+        subprocess.Popen(["explorer", "/select,", str(Path(path))])
+    except Exception:
+        pass
+
+
+class ViolationDetailDialog(FramedDialog):
     def __init__(self, violation: dict, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, resizable=True)
         self.violation = violation
         self.setWindowTitle(
-            f"Violation Evidence  —  ID: {violation.get('track_id', '?')}"
+            f"Buzilish dalili  —  ID: {violation.get('track_id', '?')}"
         )
         self.setMinimumSize(960, 600)
-        self.setStyleSheet(f"QDialog {{ background: {C('bg_main')}; }}")
+        self.body.setStyleSheet(f"QWidget#appFrameBody {{ background: {C('bg_main')}; }}")
         self._setup_ui()
 
     def _setup_ui(self):
-        root = QHBoxLayout(self)
+        root = QHBoxLayout(self.body)
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(14)
 
@@ -196,7 +243,7 @@ class ViolationDetailDialog(QDialog):
         image_lay.setContentsMargins(14, 14, 14, 14)
         image_lay.setSpacing(10)
 
-        title = QLabel("Evidence Review")
+        title = QLabel("Dalilni ko'rib chiqish")
         title.setStyleSheet(
             f"color: {C('text_primary')}; font-size: 18px; font-weight: 900;"
         )
@@ -205,7 +252,7 @@ class ViolationDetailDialog(QDialog):
         image_lay.addWidget(
             EvidenceImage(
                 self.violation.get("full_path", ""),
-                "FULL FRAME\nNOT FOUND",
+                "TO'LIQ KADR\nTOPILMADI",
                 (580, 360),
             )
         )
@@ -214,12 +261,12 @@ class ViolationDetailDialog(QDialog):
         crop_row.addWidget(
             EvidenceImage(
                 self.violation.get("crop_path", ""),
-                "CROP\nNOT FOUND",
+                "KESILGAN RASM\nTOPILMADI",
                 (180, 120),
             )
         )
         crop_hint = QLabel(
-            "Crop image from detection frame. Full frame is available for context."
+            "Aniqlash kadridan kesilgan rasm. Umumiy holatni ko'rish uchun to'liq kadr mavjud."
         )
         crop_hint.setWordWrap(True)
         crop_hint.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
@@ -242,19 +289,37 @@ class ViolationDetailDialog(QDialog):
         badge.setStyleSheet(chip_style(fg, bg))
         info_lay.addWidget(badge, 0, Qt.AlignmentFlag.AlignLeft)
 
+        emp = str(self.violation.get("employee_name") or "").strip()
+        ident = float(self.violation.get("identity_confidence", 0) or 0)
         for lbl, val in [
-            ("Violation ID",  self.violation.get("id", "-")),
-            ("Track ID",      self.violation.get("track_id", "-")),
-            ("Camera",        self.violation.get("camera_name", "-")),
-            ("Time",          _time_text(self.violation.get("timestamp"))),
-            ("Confidence",    f"{float(self.violation.get('confidence', 0) or 0) * 100:.1f}%"),
-            ("Crop path",     self.violation.get("crop_path", "-") or "-"),
-            ("Full path",     self.violation.get("full_path", "-") or "-"),
+            ("Xodim",         (f"{emp}  ·  {ident * 100:.0f}%" if ident else emp) if emp else "Aniqlanmagan"),
+            ("Kamera",        self.violation.get("camera_name", "-")),
+            ("Vaqt",          _time_text(self.violation.get("timestamp"))),
+            ("AI ishonchi",   f"{float(self.violation.get('confidence', 0) or 0) * 100:.1f}%"),
+            ("Buzilish ID / Track ID", f"{self.violation.get('id', '-')}  /  {self.violation.get('track_id', '-')}"),
         ]:
             info_lay.addWidget(self._info_row(lbl, val))
 
+        # Fayl yo'llari o'rniga — rasmni ochish / papkada ko'rsatish
+        path = str(self.violation.get("full_path") or self.violation.get("crop_path") or "")
+        if path and Path(path).exists():
+            files_row = QHBoxLayout()
+            open_btn = QPushButton("Rasmni ochish")
+            open_btn.setFixedHeight(32)
+            open_btn.setStyleSheet(button_style("secondary"))
+            open_btn.setToolTip(path)
+            open_btn.clicked.connect(lambda: _open_path(path))
+            folder_btn = QPushButton("Papkada ko'rsatish")
+            folder_btn.setFixedHeight(32)
+            folder_btn.setStyleSheet(button_style("secondary"))
+            folder_btn.setToolTip(str(Path(path).parent))
+            folder_btn.clicked.connect(lambda: _reveal_in_folder(path))
+            files_row.addWidget(open_btn)
+            files_row.addWidget(folder_btn)
+            info_lay.addLayout(files_row)
+
         info_lay.addStretch()
-        close = QPushButton("Close")
+        close = QPushButton("Yopish")
         close.setFixedHeight(36)
         close.setStyleSheet(button_style("primary"))
         close.clicked.connect(self.accept)

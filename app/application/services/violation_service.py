@@ -73,7 +73,7 @@ class ViolationService:
             employee_id=employee_id,
             employee_name=employee_name,
             identity_confidence=identity_confidence,
-            sync_status="queued" if (notifier or backend) else "local",
+            sync_status="queued" if backend else "local",
         )
 
         event = ViolationEvent(
@@ -88,7 +88,7 @@ class ViolationService:
             employee_id=employee_id,
             employee_name=employee_name,
             identity_confidence=identity_confidence,
-            sync_status="queued" if (notifier or backend) else "local",
+            sync_status="queued" if backend else "local",
             crop_path=crop_path,
             full_path=full_path,
             crop_frame=crop_frame,

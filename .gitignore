@@ -58,6 +58,7 @@ settings.json
 dist/
 build/
 *.spec
+!SmartGUI.spec
 
 # Training / runs
 runs/
@@ -68,3 +69,6 @@ yolov8*.pt
 # SQLite WAL/SHM
 *.db-wal
 *.db-shm
+
+# Inno Setup natijasi
+installer/Output/

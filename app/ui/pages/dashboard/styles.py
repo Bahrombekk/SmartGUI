@@ -56,13 +56,15 @@ class DashboardStylesMixin:
         t = QLabel(title)
         t.setStyleSheet(panel_title_style())
         hdr.addWidget(t)
+        self._last_section_meta = None
         if meta_text:
             meta = QLabel(meta_text)
             meta.setStyleSheet(panel_meta_style())
             hdr.addWidget(meta)
+            self._last_section_meta = meta  # holatga qarab yangilash uchun
         hdr.addStretch()
         if link:
-            view_all = QPushButton("View All")
+            view_all = QPushButton("Barchasi")
             view_all.setStyleSheet(link_button_style())
             view_all.clicked.connect(self.go_violations)
             hdr.addWidget(view_all)

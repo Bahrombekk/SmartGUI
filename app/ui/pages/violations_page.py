@@ -28,6 +28,7 @@ from app.ui.widgets.violation_card import EvidenceImage, ViolationDetailDialog
 
 _ICON_DIR = Path(__file__).resolve().parents[3] / "images"
 _PAGE_LIMIT = 120
+_ALL_CAMERAS = "Barcha kameralar"  # combo sentinel: display + filter logic
 _SVG_CACHE: dict[tuple[str, str, int], QPixmap] = {}
 
 # ── Design tokens (self-contained) ────────────────────────────────────────────
@@ -109,11 +110,11 @@ def _date_text(value) -> str:
 
 def _type_style(vtype: str) -> tuple[str, str, str]:
     return {
-        "no_helmet":      ("NO HELMET",      _RED,    f"rgba({_rgb(_RED)},0.16)"),
-        "access_denied":  ("ACCESS DENIED",  _ORANGE, f"rgba({_rgb(_ORANGE)},0.14)"),
-        "unknown_person": ("UNKNOWN PERSON", _LBLUE,  f"rgba({_rgb(_LBLUE)},0.12)"),
-        "low_confidence": ("LOW CONF.",      _AMBER,  f"rgba({_rgb(_AMBER)},0.14)"),
-    }.get(str(vtype or "no_helmet"), ("NO HELMET", _RED, f"rgba({_rgb(_RED)},0.16)"))
+        "no_helmet":      ("SHLEMSIZ",       _RED,    f"rgba({_rgb(_RED)},0.16)"),
+        "access_denied":  ("RUXSAT YO'Q",    _ORANGE, f"rgba({_rgb(_ORANGE)},0.14)"),
+        "unknown_person": ("NOMA'LUM SHAXS", _LBLUE,  f"rgba({_rgb(_LBLUE)},0.12)"),
+        "low_confidence": ("PAST ISHONCH",   _AMBER,  f"rgba({_rgb(_AMBER)},0.14)"),
+    }.get(str(vtype or "no_helmet"), ("SHLEMSIZ", _RED, f"rgba({_rgb(_RED)},0.16)"))
 
 
 # ── Proportional bar (QPainter-based) ─────────────────────────────────────────
@@ -183,9 +184,8 @@ class _EvidenceTile(QFrame):
         img_lay.setContentsMargins(0, 0, 0, 0)
         full_path = str(violation.get("full_path") or "")
         crop_path = str(violation.get("crop_path") or "")
-        image = EvidenceImage(full_path or crop_path, "NO IMAGE", (240, 144))
-        image.setStyleSheet("border-radius: 9px 9px 0 0;")
-        img_lay.addWidget(image, 0, Qt.AlignmentFlag.AlignCenter)
+        image = EvidenceImage(full_path or crop_path, "RASM YO'Q", (240, 150), fill=True)
+        img_lay.addWidget(image)
         lay.addWidget(img_wrap)
 
         # Badges row (overlays on image via spacing trick)
@@ -207,6 +207,7 @@ class _EvidenceTile(QFrame):
         top.addStretch()
         conf = float(violation.get("confidence", 0) or 0) * 100
         conf_lbl = QLabel(f"{conf:.0f}%")
+        conf_lbl.setToolTip("AI aniqlash ishonchi")
         conf_lbl.setStyleSheet(
             f"color: {_TEXT2}; background: rgba({_rgb(_BDR)},0.45);"
             "border-radius: 5px; padding: 3px 8px; font-size: 10px; font-weight: 900;"
@@ -214,10 +215,16 @@ class _EvidenceTile(QFrame):
         top.addWidget(conf_lbl)
         meta_lay.addLayout(top)
 
-        camera = QLabel(str(violation.get("camera_name") or "Unknown camera"))
+        camera = QLabel(str(violation.get("camera_name") or "Noma'lum kamera"))
         camera.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 900;")
         camera.setMaximumWidth(230)
         meta_lay.addWidget(camera)
+        emp = str(violation.get("employee_name") or "").strip()
+        who = QLabel(f"Xodim: {emp}" if emp else "Xodim: aniqlanmagan")
+        who.setStyleSheet(
+            f"color: {_TEXT if emp else _MUTED}; font-size: 11px; font-weight: {700 if emp else 500};"
+        )
+        meta_lay.addWidget(who)
 
         foot = QHBoxLayout()
         track_id = QLabel(f"ID {violation.get('track_id', '?')}")
@@ -254,7 +261,7 @@ class ViolationsPage(QWidget):
         self._violations: list[dict] = []
         self._loading = False
         self._pending_reload = False
-        self._camera_filter = "All Cameras"
+        self._camera_filter = _ALL_CAMERAS
         self._active_period_idx = 1
         self._summary_labels: dict[str, QLabel] = {}
         self._period_btns: list[QPushButton] = []
@@ -311,10 +318,10 @@ class ViolationsPage(QWidget):
 
         tc = QVBoxLayout()
         tc.setSpacing(3)
-        t = QLabel("Reports")
+        t = QLabel("Hisobotlar")
         t.setStyleSheet(f"color: {_TEXT}; font-size: 20px; font-weight: 900;")
         tc.addWidget(t)
-        s = QLabel("Evidence board for reviewing helmet-safety violations")
+        s = QLabel("Shlem xavfsizligi buzilishlarini ko'rib chiqish uchun dalillar paneli")
         s.setStyleSheet(f"color: {_MUTED}; font-size: 11px; font-weight: 600;")
         tc.addWidget(s)
         lay.addLayout(tc)
@@ -336,9 +343,9 @@ class ViolationsPage(QWidget):
         lay.setSpacing(10)
         for key, title, icon, accent in [
             ("today", "BUGUN",  "alerts.svg",    _RED),
-            ("week",  "HAFTA",  "analytics.svg", _ORANGE),
-            ("month", "OY",     "reports.svg",   _AMBER),
-            ("total", "JAMI",   "database.svg",  _LBLUE),
+            ("week",  "BU HAFTA", "analytics.svg", _ORANGE),
+            ("month", "BU OY",    "reports.svg",   _ORANGE),
+            ("total", "JAMI",   "database.svg",  _TEXT2),
         ]:
             self._summary_labels[key] = self._kpi_card(lay, title, icon, accent)
         return wrap
@@ -349,10 +356,8 @@ class ViolationsPage(QWidget):
         card.setMinimumHeight(88)
         card.setStyleSheet(
             "QFrame {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:1,"
-            f"stop:0 rgba({rgb},0.10),stop:0.5 {_CARD},stop:1 {_CARD});"
-            f"border: 1px solid rgba({rgb},0.24);"
-            f"border-left: 4px solid {accent};"
+            f"background: {_CARD2};"
+            f"border: 1px solid {C('border_soft')};"
             "border-radius: 10px; }"
             "QLabel { background: transparent; border: none; }"
         )
@@ -378,7 +383,7 @@ class ViolationsPage(QWidget):
         col.setSpacing(2)
         t = QLabel(title)
         t.setStyleSheet(
-            f"color: rgba({rgb},0.85); font-size: 9px; font-weight: 900; letter-spacing: 1.4px;"
+            f"color: {_TEXT2}; font-size: 10px; font-weight: 800; letter-spacing: 1.2px;"
         )
         col.addWidget(t)
         val = QLabel("0")
@@ -404,7 +409,7 @@ class ViolationsPage(QWidget):
         seg_lay = QHBoxLayout(seg_wrap)
         seg_lay.setContentsMargins(4, 4, 4, 4)
         seg_lay.setSpacing(3)
-        for i, label in enumerate(["Today", "Week", "Month", "All"]):
+        for i, label in enumerate(["Bugun", "7 kun", "30 kun", "Barchasi"]):
             btn = QPushButton(label)
             btn.setFixedHeight(30)
             btn.setMinimumWidth(68)
@@ -420,18 +425,18 @@ class ViolationsPage(QWidget):
         outer.addWidget(self._vsep())
 
         # Date range
-        from_lbl = QLabel("From")
+        from_lbl = QLabel("Dan")
         from_lbl.setStyleSheet(f"color: {_MUTED}; font-size: 10px; font-weight: 800;")
         outer.addWidget(from_lbl)
         self._date_from = QDateEdit()
         self._date_from.setCalendarPopup(True)
         self._date_from.setDisplayFormat("dd.MM.yyyy")
-        self._date_from.setDate(QDate.currentDate().addDays(-7))
+        self._date_from.setDate(QDate.currentDate().addDays(-6))
         self._date_from.setFixedSize(120, 34)
         self._date_from.setStyleSheet(self._input_style())
         outer.addWidget(self._date_from)
 
-        to_lbl = QLabel("To")
+        to_lbl = QLabel("Gacha")
         to_lbl.setStyleSheet(f"color: {_MUTED}; font-size: 10px; font-weight: 800;")
         outer.addWidget(to_lbl)
         self._date_to = QDateEdit()
@@ -446,7 +451,7 @@ class ViolationsPage(QWidget):
 
         # Camera filter
         self._camera_combo = QComboBox()
-        self._camera_combo.addItem("All Cameras")
+        self._camera_combo.addItem(_ALL_CAMERAS)
         self._camera_combo.setMinimumWidth(160)
         self._camera_combo.setMaximumWidth(220)
         self._camera_combo.setFixedHeight(34)
@@ -455,8 +460,8 @@ class ViolationsPage(QWidget):
         outer.addWidget(self._camera_combo, 1)
         outer.addStretch(1)
 
-        apply_btn = QPushButton("  Apply")
-        apply_btn.setFixedSize(86, 34)
+        apply_btn = QPushButton("  Qo'llash")
+        apply_btn.setFixedSize(100, 34)
         apply_btn.setIcon(_icon_btn("check.svg", C("text_on_accent"), 14))
         apply_btn.setIconSize(QSize(14, 14))
         apply_btn.setStyleSheet(
@@ -467,8 +472,8 @@ class ViolationsPage(QWidget):
         apply_btn.clicked.connect(self._on_apply)
         outer.addWidget(apply_btn)
 
-        refresh_btn = QPushButton("  Refresh")
-        refresh_btn.setFixedSize(96, 34)
+        refresh_btn = QPushButton("  Yangilash")
+        refresh_btn.setFixedSize(112, 34)
         refresh_btn.setIcon(_icon_btn("refresh.svg", _TEXT2, 13))
         refresh_btn.setIconSize(QSize(13, 13))
         refresh_btn.setStyleSheet(
@@ -499,9 +504,8 @@ class ViolationsPage(QWidget):
         hdr.setFixedHeight(46)
         hdr.setStyleSheet(
             "QWidget#boardHdr {"
-            f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 rgba({_rgb(_TEAL)},0.18),stop:0.5 rgba({_rgb(_TEAL)},0.05),stop:1 transparent);"
-            f"border-bottom: 1px solid rgba({_rgb(_TEAL)},0.25);"
+            f"background: {C('bg_panel_alt')};"
+            f"border-bottom: 1px solid {C('border_soft')};"
             "border-radius: 9px 9px 0 0; }"
             "QLabel { background: transparent; border: none; }"
         )
@@ -517,23 +521,21 @@ class ViolationsPage(QWidget):
         pwl.setSpacing(0)
         pill = QWidget()
         pill.setStyleSheet(
-            f"background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
-            f"stop:0 {_TEAL},stop:1 rgba({_rgb(_TEAL)},0.3));"
-            "border-radius: 3px; border: none;"
+            f"background: {_ORANGE}; border-radius: 2px; border: none;"
         )
         pwl.addWidget(pill)
         hl.addWidget(pill_wrap)
         hl.addSpacing(4)
 
-        board_title = QLabel("Evidence Board")
+        board_title = QLabel("Dalillar paneli")
         board_title.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 900;")
         hl.addWidget(board_title)
         hl.addStretch()
 
-        self._count_badge = QLabel("0 items")
+        self._count_badge = QLabel("0 ta")
         self._count_badge.setStyleSheet(
-            f"color: {_TEAL}; background: rgba({_rgb(_TEAL)},0.12);"
-            f"border: 1px solid rgba({_rgb(_TEAL)},0.28);"
+            f"color: {_TEXT}; background: {C('bg_hover')};"
+            f"border: 1px solid {C('border_soft')};"
             "border-radius: 7px; padding: 3px 10px; font-size: 11px; font-weight: 900;"
         )
         hl.addWidget(self._count_badge)
@@ -574,8 +576,8 @@ class ViolationsPage(QWidget):
         hdr.setStyleSheet(
             "QWidget#snapHdr {"
             f"background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            f"stop:0 rgba({_rgb(_ORANGE)},0.20),stop:0.55 rgba({_rgb(_ORANGE)},0.05),stop:1 transparent);"
-            f"border-bottom: 1px solid rgba({_rgb(_ORANGE)},0.25);"
+            f"stop:0 {C('bg_panel_alt')},stop:1 {C('bg_panel_alt')});"
+            f"border-bottom: 1px solid {C('border_soft')};"
             "border-radius: 9px 9px 0 0; }"
             "QLabel { background: transparent; border: none; }"
         )
@@ -599,12 +601,12 @@ class ViolationsPage(QWidget):
         hl.addWidget(pill_wrap)
         hl.addSpacing(4)
 
-        snap_title = QLabel("Snapshot")
+        snap_title = QLabel("Qisqacha xulosa")
         snap_title.setStyleSheet(f"color: {_TEXT}; font-size: 13px; font-weight: 900;")
         hl.addWidget(snap_title)
         hl.addStretch()
 
-        self._snapshot_range = QLabel("Week")
+        self._snapshot_range = QLabel("7 kun")
         self._snapshot_range.setStyleSheet(
             f"color: {_ORANGE}; background: rgba({_rgb(_ORANGE)},0.12);"
             f"border: 1px solid rgba({_rgb(_ORANGE)},0.28);"
@@ -624,18 +626,18 @@ class ViolationsPage(QWidget):
         body_lay.addLayout(self._insights_layout)
 
         body_lay.addSpacing(6)
-        body_lay.addWidget(self._section_label("TOP CAMERAS", "camera.svg", _LBLUE))
+        body_lay.addWidget(self._section_label("TOP KAMERALAR", "camera.svg", _LBLUE))
         self._camera_breakdown = QVBoxLayout()
         self._camera_breakdown.setSpacing(7)
         body_lay.addLayout(self._camera_breakdown)
 
         body_lay.addSpacing(6)
-        body_lay.addWidget(self._section_label("ACTIONS", "shield-alert.svg", _MUTED))
+        body_lay.addWidget(self._section_label("AMALLAR", "shield-alert.svg", _MUTED))
 
         for text, icon, color, slot in [
-            ("Export CSV",    "download.svg",      _GREEN,  self._export_csv),
-            ("Open latest",   "external-link.svg", _LBLUE,  self._open_latest),
-            ("Clear filters", "x.svg",             _MUTED,  lambda: self._quick_filter(7, 1)),
+            ("CSV eksport",         "download.svg",      _GREEN,  self._export_csv),
+            ("Oxirgisini ochish",   "external-link.svg", _LBLUE,  self._open_latest),
+            ("Filtrlarni tozalash", "x.svg",             _MUTED,  lambda: self._quick_filter(7, 1)),
         ]:
             btn = self._action_btn(text, icon, color)
             if slot:
@@ -727,13 +729,13 @@ class ViolationsPage(QWidget):
             return
         self._loading = True
         self._pending_reload = False
-        self._status_lbl.setText("Refreshing...")
+        self._status_lbl.setText("Yangilanmoqda...")
         if not self._violations:
             self._show_loading_state()
 
         d_from = self._date_from.date().toPyDate()
         d_to   = self._date_to.date().toPyDate()
-        cam    = None if self._camera_filter == "All Cameras" else self._camera_filter
+        cam    = None if self._camera_filter == _ALL_CAMERAS else self._camera_filter
 
         def _bg():
             try:
@@ -776,20 +778,21 @@ class ViolationsPage(QWidget):
         current = self._camera_filter
         self._camera_combo.blockSignals(True)
         self._camera_combo.clear()
-        self._camera_combo.addItem("All Cameras")
+        self._camera_combo.addItem(_ALL_CAMERAS)
         self._camera_combo.addItems(camera_names)
         idx = self._camera_combo.findText(current)
         self._camera_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self._camera_combo.blockSignals(False)
 
     def _on_camera_filter_changed(self, text: str):
-        self._camera_filter = text or "All Cameras"
+        self._camera_filter = text or _ALL_CAMERAS
         self._load_violations()
 
     def _quick_filter(self, days: int, btn_idx: int):
         self._set_active_period(btn_idx)
         today = date.today()
-        d_from = today if days == 0 else (today - timedelta(days=days) if days > 0 else date(2000, 1, 1))
+        # "7 kun" = bugun bilan birga 7 kun (16.09 emas, 17.09–23.09)
+        d_from = today if days == 0 else (today - timedelta(days=days - 1) if days > 0 else date(2000, 1, 1))
         self._date_from.setDate(QDate(d_from.year, d_from.month, d_from.day))
         self._date_to.setDate(QDate(today.year, today.month, today.day))
         self._load_violations()
@@ -799,14 +802,14 @@ class ViolationsPage(QWidget):
         for i, btn in enumerate(self._period_btns):
             btn.setChecked(i == idx)
             btn.setStyleSheet(self._seg_btn_style(i == idx))
-        labels = {0: "Today", 1: "Week", 2: "Month", 3: "All"}
+        labels = {0: "Bugun", 1: "7 kun", 2: "30 kun", 3: "Barchasi"}
         if hasattr(self, "_snapshot_range"):
-            self._snapshot_range.setText(labels.get(idx, "Custom"))
+            self._snapshot_range.setText(labels.get(idx, "Oraliq"))
 
     # ── Grid ──────────────────────────────────────────────────────────────────
     def _show_loading_state(self):
         self._clear_grid()
-        lbl = QLabel("Loading evidence board...")
+        lbl = QLabel("Dalillar yuklanmoqda...")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet(f"color: {_MUTED}; font-size: 14px; font-weight: 700;")
         lbl.setMinimumHeight(260)
@@ -821,9 +824,9 @@ class ViolationsPage(QWidget):
     def _rebuild_grid(self):
         self._clear_grid()
         n = len(self._violations)
-        self._count_badge.setText(f"{n} items")
+        self._count_badge.setText(f"{n} ta")
         if not n:
-            lbl = QLabel("No violations found — try another date range or camera filter.")
+            lbl = QLabel("Buzilishlar topilmadi — boshqa sana oralig'i yoki kamera filtrini tanlang.")
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet(f"color: {_MUTED}; font-size: 13px; font-weight: 700;")
             lbl.setMinimumHeight(280)
@@ -845,7 +848,7 @@ class ViolationsPage(QWidget):
                 if item.widget():
                     item.widget().deleteLater()
 
-        cameras = Counter(str(v.get("camera_name") or "Unknown") for v in self._violations)
+        cameras = Counter(str(v.get("camera_name") or "Noma'lum") for v in self._violations)
         types   = Counter(str(v.get("violation_type") or "no_helmet") for v in self._violations)
         avg_conf = 0.0
         if self._violations:
@@ -857,9 +860,9 @@ class ViolationsPage(QWidget):
         type_label, _, _ = _type_style(top_type[0])
 
         for title, value, color in [
-            ("Filtered Events",  _fmt(len(self._violations)), _CYAN),
-            (f"Main Type",       f"{type_label} ({top_type[1]})", _RED),
-            ("Avg. Confidence",  f"{avg_conf:.1f}%", _AMBER),
+            ("Filtrlangan hodisalar", _fmt(len(self._violations)), _CYAN),
+            ("Asosiy tur",            f"{type_label} ({top_type[1]})", _RED),
+            ("O'rtacha ishonch",      f"{avg_conf:.1f}%", _AMBER),
         ]:
             self._insights_layout.addWidget(self._insight_row(title, value, color))
 
@@ -912,16 +915,16 @@ class ViolationsPage(QWidget):
 
     def _export_csv(self):
         if not self._violations:
-            self._status_lbl.setText("No data to export.")
+            self._status_lbl.setText("Eksport uchun ma'lumot yo'q.")
             return
         import csv, os
         d_from = self._date_from.date().toPyDate()
         d_to   = self._date_to.date().toPyDate()
         default_name = f"violations_{d_from:%Y%m%d}_{d_to:%Y%m%d}.csv"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export CSV",
+            self, "CSV eksport",
             os.path.join(os.path.expanduser("~"), "Desktop", default_name),
-            "CSV files (*.csv)",
+            "CSV fayllar (*.csv)",
         )
         if not path:
             return
@@ -937,9 +940,9 @@ class ViolationsPage(QWidget):
                     if ts:
                         row["timestamp"] = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
                     writer.writerow(row)
-            self._status_lbl.setText(f"Exported {len(self._violations)} rows → {os.path.basename(path)}")
+            self._status_lbl.setText(f"{len(self._violations)} ta qator eksport qilindi → {os.path.basename(path)}")
         except Exception as exc:
-            self._status_lbl.setText(f"Export failed: {exc}")
+            self._status_lbl.setText(f"Eksport xatosi: {exc}")
 
     def _open_detail(self, violation: dict):
         dlg = ViolationDetailDialog(violation, self)

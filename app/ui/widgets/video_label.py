@@ -36,6 +36,7 @@ class VideoLabel(QLabel):
         self._anim_step  = 0
         self._qimage: QImage | None = None
         self._offline    = False          # True bo'lsa frozen frame ustiga overlay
+        self._offline_reason = ""         # oflayn ekranda ko'rsatiladigan xato sababi
 
         self._anim_timer = QTimer(self)
         self._anim_timer.setInterval(700)
@@ -97,7 +98,7 @@ class VideoLabel(QLabel):
                     p.setFont(f)
                     p.setPen(QColor("#ffffff"))
                     p.drawText(QRect(bx, by, badge_w, badge_h),
-                               Qt.AlignmentFlag.AlignCenter, "● OFFLINE")
+                               Qt.AlignmentFlag.AlignCenter, "● OFLAYN")
             p.end()
             return
         if self._mode == "offline" and not self._has_frame:
@@ -176,17 +177,32 @@ class VideoLabel(QLabel):
             # ── Matn ──
             ty = int(icy + bh / 2 + u * 0.85)
 
-            f1 = QFont("Segoe UI", max(9, int(11.5 * sc)), QFont.Weight.DemiBold)
+            reason = (self._offline_reason or "").strip()
+            # Matn ikonka bilan birga cheksiz kattalashmasin — o'qiladigan chegarada
+            f1 = QFont("Segoe UI", min(15, max(9, int(11.5 * sc))), QFont.Weight.DemiBold)
             p.setFont(f1)
-            p.setPen(QColor("#4e6e84"))
-            p.drawText(QRect(0, ty, w, int(u) + 10),
-                       Qt.AlignmentFlag.AlignCenter, "Kamera offline")
+            p.setPen(QColor("#6b8aa0"))
+            title_h = p.fontMetrics().height()
+            p.drawText(QRect(0, ty, w, title_h + 4),
+                       Qt.AlignmentFlag.AlignCenter,
+                       "Ulanib bo'lmadi" if reason else "Kamera oflayn")
 
-            f2 = QFont("Segoe UI", max(7, int(9 * sc)))
+            f2 = QFont("Segoe UI", min(11, max(8, int(9 * sc))))
             p.setFont(f2)
-            p.setPen(QColor("#2b3e4e"))
-            p.drawText(QRect(0, ty + int(u * 0.88), w, int(u * 0.85) + 8),
-                       Qt.AlignmentFlag.AlignCenter, "Ulanish yo'q")
+            line_h = p.fontMetrics().height()
+            sub_y = ty + title_h + 8
+            text_w = min(w - 32, 520)
+            text_x = int((w - text_w) / 2)
+            if reason:
+                # Sabab: o'qiladigan kenglikda, 3 qatorgacha
+                p.setPen(QColor("#e8a23a"))
+                p.drawText(QRect(text_x, sub_y, text_w, line_h * 3 + 4),
+                           Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+                           | Qt.TextFlag.TextWordWrap, reason)
+            else:
+                p.setPen(QColor("#6b8499"))
+                p.drawText(QRect(0, sub_y, w, line_h + 4),
+                           Qt.AlignmentFlag.AlignCenter, "Ulanish yo'q")
 
             p.end()
         elif self._mode == "live" and not self._has_frame:
@@ -217,7 +233,7 @@ class VideoLabel(QLabel):
 
             p.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
             p.setPen(QColor("#7fb3df"))
-            p.drawText(QRect(0, int(cy + r + 14), w, 28), Qt.AlignmentFlag.AlignCenter, self.text() or "Preview available")
+            p.drawText(QRect(0, int(cy + r + 14), w, 28), Qt.AlignmentFlag.AlignCenter, self.text() or "Preview mavjud")
             p.end()
         else:
             super().paintEvent(event)
@@ -275,6 +291,7 @@ class VideoLabel(QLabel):
             self._anim_timer.start()
 
     def show_error(self, msg: str = ""):
+        self._offline_reason = msg or ""
         self._offline = True
         self._mode = "offline"
         self._anim_timer.stop()

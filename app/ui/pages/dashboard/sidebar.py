@@ -113,7 +113,7 @@ class CameraListItem(QWidget):
 
         self._menu_lbl = QLabel()
         self._menu_lbl.setFixedSize(20, 20)
-        menu_path = Path(__file__).resolve().parents[3] / "images" / "more-vertical.svg"
+        menu_path = Path(__file__).resolve().parents[4] / "images" / "more-vertical.svg"
         menu_pix = QPixmap(str(menu_path)) if menu_path.exists() else QPixmap()
         if not menu_pix.isNull():
             self._menu_lbl.setPixmap(menu_pix.scaled(
@@ -133,7 +133,7 @@ class CameraListItem(QWidget):
             self._dot.setStyleSheet(
                 f"color: {C('success')}; font-size: 11px; background: transparent; border: none;"
             )
-            self._status_lbl.setText("Live")
+            self._status_lbl.setText("Jonli")
             self._status_lbl.setStyleSheet(
                 f"color: {C('success')}; font-size: 12px; background: transparent; border: none;"
             )
@@ -141,7 +141,7 @@ class CameraListItem(QWidget):
             self._dot.setStyleSheet(
                 f"color: {C('text_muted')}; font-size: 11px; background: transparent; border: none;"
             )
-            self._status_lbl.setText("Offline")
+            self._status_lbl.setText("Oflayn")
             self._status_lbl.setStyleSheet(
                 f"color: {C('text_muted')}; font-size: 12px; background: transparent; border: none;"
             )
@@ -252,14 +252,14 @@ class DashboardSidebarMixin:
         hdr_lay = QHBoxLayout()
         hdr_lay.setContentsMargins(0, 0, 0, 12)
 
-        cam_title = QLabel("CAMERAS")
+        cam_title = QLabel("KAMERALAR")
         cam_title.setStyleSheet(
             f"color: {C('text_primary')}; font-size: 11px; font-weight: bold;"
             " letter-spacing: 1px; background: transparent; border: none;"
         )
         hdr_lay.addWidget(cam_title, 1)
 
-        add_btn = QPushButton("+ Add")
+        add_btn = QPushButton("+ Qo'shish")
         add_btn.setFixedHeight(32)
         add_btn.setStyleSheet(f"""
             QPushButton {{
@@ -290,7 +290,7 @@ class DashboardSidebarMixin:
 
         cam_icon = QLabel()
         cam_icon.setFixedSize(22, 22)
-        cam_icon_path = Path(__file__).resolve().parents[3] / "images" / "camera-small.svg"
+        cam_icon_path = Path(__file__).resolve().parents[4] / "images" / "camera-small.svg"
         cam_pix = QPixmap(str(cam_icon_path)) if cam_icon_path.exists() else QPixmap()
         if not cam_pix.isNull():
             cam_icon.setPixmap(cam_pix.scaled(
@@ -299,7 +299,7 @@ class DashboardSidebarMixin:
         cam_icon.setStyleSheet("background: transparent; border: none;")
         all_cam_lay.addWidget(cam_icon)
 
-        all_lbl = QLabel("All Cameras")
+        all_lbl = QLabel("Barcha kameralar")
         all_lbl.setStyleSheet(
             f"color: {C('accent')}; font-size: 13px; font-weight: bold; background: transparent; border: none;"
         )

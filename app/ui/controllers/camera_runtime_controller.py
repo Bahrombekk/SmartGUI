@@ -214,7 +214,7 @@ class CameraRuntimeController(QObject):
         worker = self._workers.get(cam_id)
         if worker and worker.isRunning():
             worker.reconnect()
-            self.runtime_status.emit(f"CAM {cam_id:02d}: qayta ulanmoqda...")
+            self.runtime_status.emit(f"Kamera {cam_id:02d}: qayta ulanmoqda...")
             return True
         return self.restart_camera(cam_id)
 
@@ -227,10 +227,10 @@ class CameraRuntimeController(QObject):
 
         cam = self.cfg.get_camera_by_id(cam_id)
         if not cam or not cam.get("enabled", True):
-            self.runtime_status.emit(f"CAM {cam_id:02d}: kamera faol emas")
+            self.runtime_status.emit(f"Kamera {cam_id:02d}: faol emas")
             return False
 
-        self.runtime_status.emit(f"CAM {cam_id:02d}: qayta ulanmoqda...")
+        self.runtime_status.emit(f"Kamera {cam_id:02d}: qayta ulanmoqda...")
         QTimer.singleShot(after_ms, lambda c=cam: self.start_camera(c))
         return True
 
@@ -258,11 +258,11 @@ class CameraRuntimeController(QObject):
         )
         self._cleanup_worker.finished_cleanup.connect(
             lambda info: self.cleanup_status.emit(
-                f"Cleanup OK: {info.get('keep_days')} kun, {info.get('deleted_files')} fayl"
+                f"Tozalash bajarildi: {info.get('keep_days')} kun, {info.get('deleted_files')} fayl"
             )
         )
         self._cleanup_worker.error_occurred.connect(
-            lambda msg: self.cleanup_status.emit(f"Cleanup xato: {msg[:60]}")
+            lambda msg: self.cleanup_status.emit(f"Tozalash xatosi: {msg[:60]}")
         )
         self._cleanup_worker.start()
 

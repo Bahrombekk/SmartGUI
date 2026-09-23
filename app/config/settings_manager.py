@@ -3,11 +3,14 @@ ConfigManager — settings.json ni o'qish/yozish.
 Ko'p kamera qo'llab-quvvatlash bilan.
 """
 
+import copy
 import json
 import os
 from pathlib import Path
 
 import logging
+
+from app.shared.paths import resolve_model_path
 
 _log = logging.getLogger(__name__)
 
@@ -30,7 +33,7 @@ _DEFAULT_CAMERA = {
 
 _DEFAULT_DEPARTMENT = {
     "id": 1,
-    "name": "Main Building",
+    "name": "Asosiy bino",
     "expanded": True,
 }
 
@@ -86,7 +89,8 @@ DEFAULT_SETTINGS = {
 
     # FaceID / access roster
     "faceid_enabled": False,
-    "faceid_threshold": 0.72,
+    "faceid_threshold": 0.42,
+    "faceid_min_face_px": 40,
     "access_roster_enabled": False,
 
     # Polygon
@@ -117,32 +121,55 @@ DEFAULT_SETTINGS = {
 }
 
 
+MAX_CAMERAS = 32
+
+
 class ConfigManager:
     """Ilova sozlamalarini boshqaruvchi klass."""
 
     def __init__(self, settings_file: str = "settings.json"):
         self.settings_file = Path(settings_file)
+        self.last_save_error = ""
         self._settings: dict = {}
         self._load()
 
     # ── Yuklash / Saqlash ─────────────────────────────────────────────────
 
     def _load(self):
-        if self.settings_file.exists():
+        # deepcopy: standart ro'yxatlar (cameras, departments) nusxalar orasida
+        # umumiy bo'lib qolmasin — aks holda add_camera DEFAULT_SETTINGS ni o'zgartiradi
+        self.is_new = not self.settings_file.exists()
+        if not self.is_new:
             try:
-                with open(self.settings_file, "r", encoding="utf-8") as f:
+                with open(self.settings_file, "r", encoding="utf-8-sig") as f:
                     saved = json.load(f)
-                self._settings = {**DEFAULT_SETTINGS, **saved}
+                self._settings = {**copy.deepcopy(DEFAULT_SETTINGS), **saved}
+                # Eski o'rnatishlar: kamera haqiqiy bo'lsa ustani qayta ko'rsatmaymiz
+                self._settings.setdefault("setup_completed", True)
             except Exception as e:
                 _log.error("settings.json o'qishda xatolik: %s", e)
-                self._settings = dict(DEFAULT_SETTINGS)
+                self._settings = copy.deepcopy(DEFAULT_SETTINGS)
         else:
-            self._settings = dict(DEFAULT_SETTINGS)
+            self._settings = copy.deepcopy(DEFAULT_SETTINGS)
+            self._settings["setup_completed"] = False
             self.save()
 
         self._migrate_cameras()
         self._migrate_users()
         self._migrate_class_ids()
+        self._migrate_faceid_threshold()
+
+    @property
+    def needs_setup_wizard(self) -> bool:
+        """Birinchi ishga tushirish yoki kamera hali namuna (<kamera-ip>) holida."""
+        if not self._settings.get("setup_completed", False):
+            return True
+        return any("<kamera-ip>" in str(c.get("rtsp_url", "")) for c in self.get_cameras())
+
+    def _migrate_faceid_threshold(self):
+        """Eski standart 0.72 SFace uchun juda baland edi (deyarli hech kim tanilmasdi)."""
+        if abs(float(self._settings.get("faceid_threshold", 0.42)) - 0.72) < 1e-6:
+            self._settings["faceid_threshold"] = 0.42
 
     def _migrate_class_ids(self):
         """Eski helmet_class_ids:[0]/no_helmet_class_ids:[1] → [1]/[2] ga ko'chirish."""
@@ -227,12 +254,39 @@ class ConfigManager:
                 user["active"] = True
         self._settings["users"] = users
 
-    def save(self):
+    def save(self) -> bool:
+        """
+        settings.json ga atomik yozadi (avval .tmp, keyin almashtirish) —
+        yozish o'rtasida uzilsa ham eski fayl buzilmaydi.
+        Muvaffaqiyatsiz bo'lsa False qaytaradi, sababi `last_save_error` da.
+        """
+        tmp = self.settings_file.with_name(self.settings_file.name + ".tmp")
         try:
-            with open(self.settings_file, "w", encoding="utf-8") as f:
+            with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(self._settings, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.settings_file)
+            self.last_save_error = ""
+            return True
         except Exception as e:
-            _log.error("Saqlashda xatolik: %s", e)
+            self.last_save_error = self._friendly_save_error(e)
+            _log.error("Saqlashda xatolik: %s (%s)", self.settings_file.resolve(), e)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return False
+
+    def _friendly_save_error(self, exc: Exception) -> str:
+        folder = str(self.settings_file.resolve().parent)
+        if isinstance(exc, PermissionError):
+            return f"papkaga yozishga ruxsat yo'q ({folder})"
+        if isinstance(exc, FileNotFoundError):
+            return f"papka topilmadi ({folder})"
+        if getattr(exc, "errno", None) == 28:
+            return "diskda bo'sh joy qolmagan"
+        return str(exc)
 
     # ── Get / Set ─────────────────────────────────────────────────────────
 
@@ -312,20 +366,21 @@ class ConfigManager:
         return self._settings.get("users", [])
 
     def add_user(self, first_name: str, last_name: str, employee_id: str,
-                 photo_path: str = "", department_id: int | None = None) -> dict:
+                 photo_path: str = "", department_id: int | None = None,
+                 photo_paths: list[str] | None = None) -> dict:
         first_name = (first_name or "").strip()
         last_name = (last_name or "").strip()
         employee_id = (employee_id or "").strip()
         if not first_name:
             raise ValueError("Ism kiritilishi shart")
         if not last_name:
-            raise ValueError("Familya kiritilishi shart")
+            raise ValueError("Familiya kiritilishi shart")
         if not employee_id:
-            raise ValueError("Hodim ID kiritilishi shart")
+            raise ValueError("Xodim ID kiritilishi shart")
 
         users = self.get_users()
         if any(str(u.get("employee_id", "")).lower() == employee_id.lower() for u in users):
-            raise ValueError("Bunday ID bilan hodim allaqachon bor")
+            raise ValueError("Bunday ID bilan xodim allaqachon bor")
 
         existing_ids = {u.get("id", 0) for u in users}
         new_id = 1
@@ -338,7 +393,8 @@ class ConfigManager:
             "first_name": first_name,
             "last_name": last_name,
             "employee_id": employee_id,
-            "photo_path": photo_path or "",
+            "photo_path": photo_path or (photo_paths[0] if photo_paths else ""),
+            "photo_paths": list(photo_paths or ([photo_path] if photo_path else [])),
             "department_id": dep_id,
             "active": True,
         }
@@ -372,10 +428,10 @@ class ConfigManager:
 
     def add_camera(self, name: str, rtsp_url: str, company_id: str,
                    enabled: bool = True, department_id: int | None = None) -> dict:
-        """Yangi kamera qo'shish. Maksimal 10 ta."""
+        """Yangi kamera qo'shish. Maksimal MAX_CAMERAS ta."""
         cameras = self.get_cameras()
-        if len(cameras) >= 10:
-            raise ValueError("Maksimal 10 ta kamera qo'shish mumkin")
+        if len(cameras) >= MAX_CAMERAS:
+            raise ValueError(f"Maksimal {MAX_CAMERAS} ta kamera qo'shish mumkin")
 
         existing_ids = {c.get("id", 0) for c in cameras}
         new_id = 1
@@ -434,7 +490,8 @@ class ConfigManager:
 
     @property
     def model_path(self) -> str:
-        return self._settings.get("model_path", "")
+        raw = self._settings.get("model_path", "")
+        return str(resolve_model_path(raw)) if raw else ""
 
     @property
     def ai_model_enabled(self) -> bool:
@@ -524,8 +581,12 @@ class CameraConfigProxy:
     def update(self, data: dict):
         self._base.update(data)
 
-    def save(self):
-        self._base.save()
+    def save(self) -> bool:
+        return self._base.save()
+
+    @property
+    def last_save_error(self) -> str:
+        return self._base.last_save_error
 
     def get_all(self) -> dict:
         return self._base.get_all()

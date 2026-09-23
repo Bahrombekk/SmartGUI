@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import datetime
 
-from PyQt6.QtCore import QTimer, pyqtSignal
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QFrame
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QFrame, QLabel, QPushButton
 
 from app.ui.pages.dashboard.bottom_panels import DashboardBottomPanelsMixin
 from app.ui.pages.dashboard.monitor import DashboardMonitorMixin
-from app.ui.pages.dashboard.sidebar import DashboardSidebarMixin
+from app.ui.pages.dashboard.sidebar import CameraListItem, DashboardSidebarMixin
 from app.ui.pages.dashboard.styles import DashboardStylesMixin
+from app.ui.styles import C
 from app.ui.widgets.camera_panel import CameraPanel
 
 
@@ -103,6 +104,7 @@ class DashboardPage(
     # ════════════════════════════════════════════════════════════════════════
 
     def setup_cameras(self, cameras: list):
+        self._refresh_stream_filter_items()  # bo'limlar qo'shilgan/o'zgargan bo'lishi mumkin
         # Eski panellarni tozalash
         for p in self._panels.values():
             p.hide()
@@ -132,10 +134,12 @@ class DashboardPage(
         self._online_count = 0
         self._ov_total.setText(str(n))
         self._all_count_lbl.setText(str(n))
-        self._cam_count_badge.setText(f"● {n} Cameras")
+        self._cam_count_badge.setText(f"● {n} kamera")
         self._ov_online.setText("0")
-        self._cam_count_badge.setText(f"{n} Cameras")
+        self._cam_count_badge.setText(f"{n} kamera")
         self._ov_offline.setText(str(n))
+        if hasattr(self, "_update_ai_health"):
+            self._update_ai_health()
 
         if not cameras:
             no_lbl = QLabel("Faol kamera yo'q.\nSozlamalarda kamera qo'shing.")
@@ -162,7 +166,7 @@ class DashboardPage(
 
         self._rebuild_camera_sidebar()
         self._apply_camera_view()
-        self._rebuild_recent_events()
+        self._refresh_stats()   # bugungi sonlar darhol (30 s kutmasdan)
         if self._selected_cam_id is not None:
             self._select_camera(self._selected_cam_id)
 
@@ -190,6 +194,7 @@ class DashboardPage(
         no_helmet = data.get("no_helmet_count")
         if no_helmet is not None and hasattr(self, "_no_helmet_today_lbl"):
             self._no_helmet_today_lbl.setText(str(no_helmet))
+            self._refresh_day_deltas()
 
     def _do_violation_rebuild(self):
         self._rebuild_recent_events()
@@ -211,6 +216,7 @@ class DashboardPage(
             self._detections_today_per_cam[cam_id] = int(detections_today or 0)
             if hasattr(self, "_detections_today_lbl"):
                 self._detections_today_lbl.setText(str(sum(self._detections_today_per_cam.values())))
+                self._refresh_day_deltas()
 
         # Sidebar item statusini yangilash
         if old_status != new_status:
@@ -251,6 +257,11 @@ class DashboardPage(
         if hasattr(self, "_add_face_recognition"):
             self._add_face_recognition(data)
 
+    def count_face_attempt(self, matched: bool):
+        """Qaysi sahifa ochiq bo'lishidan qat'i nazar — tanish darajasi statistikasi."""
+        if hasattr(self, "_count_face_attempt"):
+            self._count_face_attempt(matched)
+
     def set_total_persons(self, count: int):
         self._total_persons = max(0, int(count or 0))
         if self._last_total_persons == self._total_persons:
@@ -269,7 +280,8 @@ class DashboardPage(
         self._ov_online.setText(str(online))
         self._ov_offline.setText(str(self._total_count - online))
         if hasattr(self, "_update_ai_health"):
-            self._update_ai_health()
+            self._update_ai_health()  # AI va "Tizim holati" belgilarini ham yangilaydi
+        self._rebuild_recent_events()  # bo'limlar: jonli/oflayn soni
 
     def _refresh_stats(self):
         try:
@@ -280,7 +292,10 @@ class DashboardPage(
                 self._detections_today_lbl.setText(str(sum(self._detections_today_per_cam.values())))
             if hasattr(self, "_no_helmet_today_lbl"):
                 self._no_helmet_today_lbl.setText(str(no_helmet))
+            self._refresh_day_deltas()
             self._rebuild_recent_events()
+            if hasattr(self, "_rebuild_no_helmet"):
+                self._rebuild_no_helmet()
         except Exception:
             pass
 
