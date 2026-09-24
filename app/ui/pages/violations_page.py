@@ -254,9 +254,10 @@ class _EvidenceTile(QFrame):
 class ViolationsPage(QWidget):
     _data_ready = pyqtSignal(list, str, dict)
 
-    def __init__(self, db, parent=None):
+    def __init__(self, db, parent=None, cfg=None):
         super().__init__(parent)
         self.db = db
+        self.cfg = cfg
         self.analytics = AnalyticsService(db)
         self._violations: list[dict] = []
         self._loading = False
@@ -945,7 +946,7 @@ class ViolationsPage(QWidget):
             self._status_lbl.setText(f"Eksport xatosi: {exc}")
 
     def _open_detail(self, violation: dict):
-        dlg = ViolationDetailDialog(violation, self)
+        dlg = ViolationDetailDialog(violation, self, cfg=self.cfg)
         dlg.exec()
 
     def _open_latest(self):

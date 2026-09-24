@@ -90,7 +90,7 @@ DEFAULT_SETTINGS = {
     # FaceID / access roster
     "faceid_enabled": False,
     "faceid_threshold": 0.42,
-    "faceid_min_face_px": 40,
+    "faceid_min_face_px": 24,
     "access_roster_enabled": False,
 
     # Polygon
@@ -170,6 +170,9 @@ class ConfigManager:
         """Eski standart 0.72 SFace uchun juda baland edi (deyarli hech kim tanilmasdi)."""
         if abs(float(self._settings.get("faceid_threshold", 0.42)) - 0.72) < 1e-6:
             self._settings["faceid_threshold"] = 0.42
+        # 40 px eski standart: endi kichik yuzlar bir necha kadr birlashtirilib ishlatiladi
+        if int(self._settings.get("faceid_min_face_px", 24)) == 40:
+            self._settings["faceid_min_face_px"] = 24
 
     def _migrate_class_ids(self):
         """Eski helmet_class_ids:[0]/no_helmet_class_ids:[1] → [1]/[2] ga ko'chirish."""

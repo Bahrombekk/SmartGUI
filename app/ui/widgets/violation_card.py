@@ -7,7 +7,7 @@ from pathlib import Path
 from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QCursor, QImage, QPainter, QPainterPath, QPixmap
 from PyQt6.QtWidgets import (
-    QDialog, QFrame, QHBoxLayout, QLabel,
+    QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
@@ -220,9 +220,10 @@ def _reveal_in_folder(path: str) -> None:
 
 
 class ViolationDetailDialog(FramedDialog):
-    def __init__(self, violation: dict, parent=None):
+    def __init__(self, violation: dict, parent=None, cfg=None):
         super().__init__(parent, resizable=True)
         self.violation = violation
+        self.cfg = cfg
         self.setWindowTitle(
             f"Buzilish dalili  —  ID: {violation.get('track_id', '?')}"
         )
@@ -318,6 +319,8 @@ class ViolationDetailDialog(FramedDialog):
             files_row.addWidget(folder_btn)
             info_lay.addLayout(files_row)
 
+        self._build_sample_section(info_lay)
+
         info_lay.addStretch()
         close = QPushButton("Yopish")
         close.setFixedHeight(36)
@@ -325,6 +328,56 @@ class ViolationDetailDialog(FramedDialog):
         close.clicked.connect(self.accept)
         info_lay.addWidget(close)
         root.addWidget(info)
+
+    def _build_sample_section(self, lay: QVBoxLayout) -> None:
+        """
+        Shu kadrdagi yuzni xodimga namuna sifatida qo'shish. Namuna shu kamera
+        sharoitida olingani uchun uzoqdagi kichik yuzlarni tanish ancha oshadi.
+        """
+        img_path = str(self.violation.get("crop_path") or self.violation.get("full_path") or "")
+        users = [u for u in (self.cfg.get_users() if self.cfg else []) if u.get("active", True)]
+        if not (img_path and Path(img_path).exists() and users):
+            return
+        title = QLabel("Yuz namunasi")
+        title.setStyleSheet(f"color: {C('text_muted')}; font-size: 10px; font-weight: 800;")
+        lay.addWidget(title)
+        hint = QLabel("Bu kim ekanini bilsangiz, tanlang — shu kameradagi yuz xodim "
+                      "namunalariga qo'shiladi va keyingi safar tanish osonlashadi.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {C('text_secondary')}; font-size: 11px;")
+        lay.addWidget(hint)
+        self._sample_combo = QComboBox()
+        self._sample_combo.setFixedHeight(32)
+        for u in users:
+            label = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or u.get("employee_id", "")
+            self._sample_combo.addItem(f"{label} ({u.get('employee_id', '')})", u.get("id"))
+        emp = str(self.violation.get("employee_id") or "")
+        idx = next((i for i, u in enumerate(users) if str(u.get("employee_id")) == emp), -1)
+        if idx >= 0:
+            self._sample_combo.setCurrentIndex(idx)
+        lay.addWidget(self._sample_combo)
+        add_btn = QPushButton("Namunani xodimga qo'shish")
+        add_btn.setFixedHeight(32)
+        add_btn.setStyleSheet(button_style("secondary"))
+        add_btn.clicked.connect(lambda: self._add_face_sample(img_path))
+        lay.addWidget(add_btn)
+
+    def _add_face_sample(self, img_path: str) -> None:
+        from app.application.services.faceid_service import save_face_sample, user_photo_paths
+        from app.ui.widgets.toast import persist_config, show_toast
+
+        user_id = self._sample_combo.currentData()
+        user = next((u for u in self.cfg.get_users() if u.get("id") == user_id), None)
+        if user is None:
+            return
+        stored = save_face_sample(str(user.get("employee_id", "")), img_path)
+        if not stored:
+            show_toast(self, "Bu rasmda yuz topilmadi (juda kichik, xira yoki orqa tomondan)", "warning")
+            return
+        photos = [p for p in user_photo_paths(user) if Path(p).exists()] + [stored]
+        self.cfg.update_user(user_id, photo_paths=photos, photo_path=photos[0])
+        persist_config(self, self.cfg,
+                       f"Namuna qo'shildi ({len(photos)} ta) — FaceID 30 soniyada yangilanadi")
 
     def _info_row(self, label: str, value) -> QWidget:
         row = QFrame()

@@ -733,7 +733,7 @@ class MainWindow(QMainWindow):
         self._replace_stack_page(self.PAGE_CAMERAS, self._cameras)
 
         if self._violations is not None:
-            self._violations = ViolationsPage(self.db)
+            self._violations = ViolationsPage(self.db, cfg=self.cfg)
             self._replace_stack_page(self.PAGE_VIOLATIONS, self._violations)
         if self._analytics is not None:
             self._analytics = AnalyticsPage(self.db, self.cfg)
@@ -773,7 +773,7 @@ class MainWindow(QMainWindow):
     def _ensure_page(self, page: int) -> QWidget:
         if page == self.PAGE_VIOLATIONS:
             if self._violations is None:
-                self._violations = ViolationsPage(self.db)
+                self._violations = ViolationsPage(self.db, cfg=self.cfg)
                 self._replace_stack_page(page, self._violations)
             return self._violations
         if page == self.PAGE_ANALYTICS:

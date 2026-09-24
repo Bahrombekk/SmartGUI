@@ -17,7 +17,7 @@ import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from app.application.services.detection_analysis import PersonDetectionAnalyzer
-from app.application.services.faceid_service import FaceIdService
+from app.application.services.faceid_service import FaceIdService, TrackIdentity
 from app.application.services.violation_runtime import ViolationRuntime
 from app.domain.policies import AccessPolicy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
@@ -115,6 +115,8 @@ class DetectionWorker(QThread):
         self._access_frames = self._violation_runtime.access_frames
 
         self._face_last_recog: dict[int, float] = {}
+        self._track_ident: TrackIdentity | None = None
+        self._face_last_any = 0.0
 
         # Notifiers
         self._notifier = None
@@ -184,40 +186,60 @@ class DetectionWorker(QThread):
             svc = FaceIdService(self.db, full_cfg)
             svc.enroll_from_settings_users()
             self.faceid_service = svc
+            self._track_ident = TrackIdentity(svc)
         except Exception as e:
             self.faceid_service = None
             _log.warning("FaceID tayyorlanmadi: %s", e)
 
+    FACE_SAMPLE_INTERVAL = 1.0   # bitta odam uchun soniyasiga ko'pi bilan 1 ta yuz tahlili
+    FACE_CAMERA_INTERVAL = 0.25  # kamera bo'yicha: 0.25 s da ko'pi bilan 1 ta (~30–40 ms CPU)
+
     def _try_recognize_face(self, frame: np.ndarray, person: dict, force: bool = False):
         """
-        Odamning yuzini taniydi (track bo'yicha 5 s da bir marta, `force` bo'lsa
-        darhol). Tanilsa natija `person` ga yoziladi — shu zahoti saqlanadigan
-        buzilish yozuvi xodim bilan bog'lanadi.
+        Shlemsiz odamning yuzini track bo'yicha yig'ib taniydi (TrackIdentity):
+        uzoq kamerada bitta kadr emas, eng yaxshi bir necha kadr birlashtiriladi.
+        Tanilgan bo'lsa natija `person` ga yoziladi; buzilish avvalroq xodimsiz
+        saqlangan bo'lsa, u ham yangilanadi. Xodim aniqlangach bu track uchun hisob to'xtaydi.
         """
-        if self.faceid_service is None or not self.cfg.get("faceid_enabled", False):
+        if self.faceid_service is None or self._track_ident is None \
+                or not self.cfg.get("faceid_enabled", False):
             return
         tid = person.get("track_id", -1)
-        now = time.perf_counter()
-        if not force and now - self._face_last_recog.get(tid, 0) < 5.0:
+        known = self._track_ident.identity(tid)
+        if known is not None:
+            self._apply_identity(person, known)
             return
+        now = time.perf_counter()
+        if not force and (now - self._face_last_recog.get(tid, 0) < self.FACE_SAMPLE_INTERVAL
+                          or now - self._face_last_any < self.FACE_CAMERA_INTERVAL):
+            return
+        if len(self._face_last_recog) > 2000:   # uzoq ishlaganda lug'at cheksiz o'smasin
+            self._face_last_recog.clear()
         self._face_last_recog[tid] = now
+        self._face_last_any = now
         crop = self._crop_person(frame, person)
         if crop is None:
             return
-        # Yuz odatda kesimning yuqori 45% qismida
+        sample = self.faceid_service.analyze(crop)
+        if sample is None:
+            return  # yuz topilmadi, juda kichik yoki burilgan
+        identity = self._track_ident.add(tid, sample)
+        if identity is None:
+            return  # hali yetarli kadr yo'q
         h = crop.shape[0]
         face_region = crop[:max(32, int(h * 0.45)), :]
-        identity = self.faceid_service.match_person_crop(crop)
-        if identity is None:
-            return  # yuz topilmadi yoki juda kichik
         matched = identity.matched
         name = identity.employee_name if matched else "Noma'lum"
         confidence = identity.confidence
         emp_id = identity.employee_id if matched else None
         if matched:
-            person["employee_id"] = emp_id
-            person["employee_name"] = name
-            person["identity_confidence"] = confidence
+            self._apply_identity(person, identity)
+            try:
+                self.db.update_violation_identity(
+                    int(tid), self.cfg.camera_name, emp_id, name, confidence,
+                    since_ts=int(time.time()) - 900)
+            except Exception as exc:
+                _log.debug("Buzilishga xodimni qo'shib bo'lmadi: %s", exc)
         self.face_recognized.emit({
             "track_id": tid,
             "cam_id": self._cam_id,
@@ -228,6 +250,12 @@ class DetectionWorker(QThread):
             "confidence": confidence,
             "matched": matched,
         })
+
+    @staticmethod
+    def _apply_identity(person: dict, identity) -> None:
+        person["employee_id"] = identity.employee_id
+        person["employee_name"] = identity.employee_name
+        person["identity_confidence"] = identity.confidence
 
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 

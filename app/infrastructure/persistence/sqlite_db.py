@@ -445,6 +445,21 @@ class ViolationsDB:
             )
             conn.commit()
 
+    def update_violation_identity(self, track_id: int, camera_name: str, employee_id: str,
+                                  employee_name: str, confidence: float, since_ts: int) -> int:
+        """Xodim keyinroq (bir necha kadrdan so'ng) tanilsa — shu track'ning yaqindagi
+        xodimsiz buzilish yozuvlariga qo'shiladi. Yangilangan qatorlar sonini qaytaradi."""
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "UPDATE violations SET employee_id=?, employee_name=?, identity_confidence=?"
+                " WHERE track_id=? AND camera_name=? AND timestamp>=?"
+                " AND (employee_id IS NULL OR employee_id='')",
+                (employee_id, employee_name, float(confidence), track_id, camera_name, since_ts),
+            )
+            conn.commit()
+            return cur.rowcount
+
     def get_unsynced_violations(self, limit: int = 1000) -> list[dict]:
         """Hech qachon navbatga qo'yilmagan buzilishlar (eng eskisidan boshlab).
 

@@ -1847,8 +1847,9 @@ class SettingsPage(QWidget):
         roster = QLabel(
             "Xodim rasmlari Xodimlar sahifasida qo'shiladi (har biriga turli burchakdan "
             "3–5 ta rasm tavsiya etiladi). O'zgarishlar 30 soniya ichida kuchga kiradi.\n"
-            "FaceID yuz kadrda kamida ~40 px bo'lganda ishlaydi: kamerani kirish joyiga, "
-            "odamlar yuziga qaratib, 2–4 m masofaga o'rnating."
+            "Uzoq kamerada (yuz 25–40 px) odam kadrda turgan paytdagi bir necha kadr birlashtiriladi; "
+            "60 px dan katta yuzda eng ishonchli. Tanishni oshirish uchun Hisobotlar → buzilish oynasidan "
+            "«Namunani xodimga qo'shish» — shu kameradagi yuz xodimga namuna bo'ladi."
         )
         roster.setWordWrap(True)
         roster.setStyleSheet(f"color: {C('text_muted')}; font-size: 12px;")
