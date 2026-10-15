@@ -11,6 +11,7 @@ from __future__ import annotations
 import threading
 import time
 from collections import deque
+from datetime import date
 
 import cv2
 import numpy as np
@@ -23,6 +24,7 @@ from app.domain.policies import AccessPolicy
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.infrastructure.camera.cv2_rtsp_reader import CV2RTSPReader
 from app.workers.camera_service import svc_acquire, svc_register, svc_unregister
+from app.shared.utils.rate_gate import RateGate
 from app.shared.utils.frame_display import (
     draw_helmet_overlay,
     frame_to_qimage,
@@ -94,6 +96,10 @@ class DetectionWorker(QThread):
         self._prev_result_ts: float | None = None      # bir oldingi result timestamp
         self._det_interval_ema: float | None = None     # detection orasidagi real interval (sek)
         self._last_display_emit_ts: float = 0.0
+        self._display_gate: RateGate | None = None
+        # None — config'dagi display_max_width (kichik plitka); katta oynadagi
+        # kamera uchun controller kattaroq o'lcham beradi (set_display_width)
+        self._display_width: int | None = None
 
         # Polygon zone cache
         self._poly_np: np.ndarray | None = None
@@ -109,6 +115,7 @@ class DetectionWorker(QThread):
         self._today_count = 0
         self._detections_today = 0
         self._seen_detection_tracks: set[int] = set()
+        self._stats_date: date = date.today()   # kunlik hisoblagichlar qaysi kunga tegishli
         self._saved_violations = self._violation_runtime.saved_violations
         self._spatial_violations = self._violation_runtime.spatial_violations
         self._no_helmet_frames = self._violation_runtime.no_helmet_frames
@@ -147,10 +154,18 @@ class DetectionWorker(QThread):
         svc_register() model yuklashni (sekin) shu yerda bajaradi.
         """
         self.status_changed.emit("AI model yuklanmoqda...")
-        svc_register(self._cam_id, self._reader)
-        if self._running:
-            self.model_loaded.emit()
-            self.status_changed.emit("AI tayyor")
+        reader = self._reader
+        error = svc_register(self._cam_id, reader, svc=self._svc)
+        if not self._running or reader is not self._reader:
+            return
+        if error:
+            # Model yuklanmadi — video ishlashda davom etadi, lekin foydalanuvchi bilsin
+            _log.error("Kamera %s: %s", self._cam_id, error)
+            self.error_occurred.emit(f"{error}\nVideo AI tahlilisiz ko'rsatilmoqda.")
+            self.status_changed.emit("Video rejim (AI xato)")
+            return
+        self.model_loaded.emit()
+        self.status_changed.emit("AI tayyor")
 
     # ── Notifiers ─────────────────────────────────────────────────────────
 
@@ -259,8 +274,8 @@ class DetectionWorker(QThread):
 
     # ── Natijalarni tahlil ────────────────────────────────────────────────
 
-    def _process_detections(self, detections: list[dict]) -> list[dict]:
-        return self._detection_analyzer.process(detections)
+    def _process_detections(self, detections: list[dict], ts: float | None = None) -> list[dict]:
+        return self._detection_analyzer.process(detections, ts=ts)
 
     @staticmethod
     def _pad_box(box: list, pad: int) -> list:
@@ -409,6 +424,42 @@ class DetectionWorker(QThread):
                 self._seen_detection_tracks.add(track_id)
                 self._detections_today += 1
 
+    def _check_day_rollover(self, today: date | None = None) -> bool:
+        """Yarim tun o'tgan bo'lsa kunlik hisoblagichlarni yangi kunga o'tkazadi.
+
+        Aks holda kechagi deteksiya soni bugungi daily_stats qatoriga yozilardi va
+        _seen_detection_tracks cheksiz o'sardi. True — kun almashdi."""
+        today = today or date.today()
+        if today == self._stats_date:
+            return False
+        self._stats_date = today
+        self._seen_detection_tracks.clear()
+        try:
+            self._detections_today = int(self.db.get_daily_detections(self.cfg.camera_name))
+        except Exception:
+            self._detections_today = 0
+        try:
+            today_count = int(self.db.get_today_count())
+            camera_today = int(self.db.get_today_count_for_camera(
+                getattr(self.cfg, "camera_id", None), self.cfg.camera_name))
+        except Exception:
+            today_count = camera_today = 0
+        self._today_count = today_count
+        self._violation_runtime.reset_day(today_count, camera_today)
+        return True
+
+    def _prune_dead_tracks(self) -> None:
+        """Tracker unutgan track ID lariga oid lug'atlarni tozalaydi."""
+        live = getattr(self._tracker, "live_track_ids", None)
+        if live is None:
+            return
+        live_ids = live()
+        if self._seen_detection_tracks:
+            self._seen_detection_tracks &= live_ids
+        for tid in [t for t in self._face_last_recog if t not in live_ids]:
+            del self._face_last_recog[tid]
+        self._violation_runtime.prune_tracks(live_ids)
+
     @staticmethod
     def _box_center_size(person: dict) -> tuple[float, float, float]:
         return ViolationRuntime.box_center_size(person)
@@ -425,7 +476,12 @@ class DetectionWorker(QThread):
     # ── Yordamchi metodlar ────────────────────────────────────────────────
 
     def _resize_for_display(self, frame: np.ndarray) -> np.ndarray:
-        return resize_for_display(frame, int(self.cfg.get("display_max_width", 640)))
+        width = self._display_width or int(self.cfg.get("display_max_width", 640))
+        return resize_for_display(frame, width)
+
+    def set_display_width(self, width: int | None):
+        """UI dan: katta oynadagi kamera to'liq sifatda, plitkalar kichik o'lchamda."""
+        self._display_width = int(width) if width else None
 
     @staticmethod
     def _to_qimage(frame: np.ndarray):
@@ -439,11 +495,15 @@ class DetectionWorker(QThread):
         if not self._emit_frames:
             return False
         now = time.perf_counter()
-        display_fps = max(1, int(self.cfg.get(
-            "display_fps_limit",
-            min(int(self.cfg.get("video_fps_limit", 25)), 18),
-        )))
-        if now - self._last_display_emit_ts < (1.0 / display_fps):
+        if self._display_gate is None:
+            display_fps = max(1, int(self.cfg.get(
+                "display_fps_limit",
+                min(int(self.cfg.get("video_fps_limit", 25)), 25),
+            )))
+            # Token-bucket: qattiq interval notekis keladigan RTSP kadrlarning
+            # yarmini tashlardi (o'lchangan: 15.7 → 7.7 fps).
+            self._display_gate = RateGate(display_fps, burst=2.0)
+        if not self._display_gate.try_take(now):
             return False
         self._last_display_emit_ts = now
         return True
@@ -483,6 +543,10 @@ class DetectionWorker(QThread):
 
     def _run_body(self):
         self._running     = True
+        # Track ID lar jarayon bo'yicha yagona — worker qayta ishga tushganda eski
+        # buzilishlar (FaceID yangilanishi track_id bo'yicha) boshqa odamga o'tmasin
+        self._tracker.enable_global_ids()
+        self._stats_date  = date.today()
         self._today_count = self.db.get_today_count()
         self._violation_runtime.today_count = self._today_count
         self._violation_runtime.camera_today = self.db.get_today_count_for_camera(
@@ -522,6 +586,8 @@ class DetectionWorker(QThread):
                 on_max_retries       = self._on_max_retries,
             )
             self._reader.cam_id = self._cam_id
+            # Ekran uchun tartibli navbat — start()dan oldin (birinchi kadrlar ham tushsin)
+            self._reader.subscribe("display", maxlen=40)
             self._reader.start()  # Video darhol boshlanadi
 
             # CameraService ga registratsiya — background thread'da (model yuklanishi sekin)
@@ -534,8 +600,16 @@ class DetectionWorker(QThread):
         else:
             self._reader = cv2.VideoCapture(rtsp_url)
 
+        if is_stream:
+            self._run_stream_loop(has_ai)
+            return
+
         video_fps      = max(1, int(self.cfg.get("video_fps_limit", 25)))
         video_interval = 1.0 / video_fps
+        # Stream: token-bucket — o'rtacha tezlik video_fps bilan cheklanadi, lekin
+        # to'p-to'p kelgan kadrlar tashlanmaydi (qattiq interval 20 FPS kamerani
+        # ~7 FPS gacha tushirardi va trekingni buzardi).
+        video_gate     = RateGate(video_fps, burst=2.0)
 
         last_emit_ts   = 0.0
         last_frame_id  = -1
@@ -547,20 +621,18 @@ class DetectionWorker(QThread):
                 time.sleep(0.05)
                 continue
 
-            # ── Video rate limiting (frame copy dan OLDIN) ────────────────
-            now = time.perf_counter()
-            remaining = video_interval - (now - last_emit_ts)
-            if remaining > 0.008:
-                time.sleep(remaining - 0.005)
-                continue
-            elif remaining > 0:
-                time.sleep(remaining)
-                continue
-
             # ── Frame olish ───────────────────────────────────────────────
             if is_stream:
+                # Yangi kadrni polling'siz kutamiz (kelishi bilan uyg'onadi)
+                wait_new = getattr(self._reader, "wait_new_frame", None)
+                if wait_new is not None:
+                    has_new = wait_new(last_frame_id, 0.25)
+                else:  # pragma: no cover — eski reader
+                    time.sleep(0.01)
+                    has_new = getattr(self._reader, "frame_count", self._frame_count) != last_frame_id
+                now = time.perf_counter()
                 current_id = getattr(self._reader, "frame_count", self._frame_count)
-                if current_id == last_frame_id:
+                if not has_new or current_id == last_frame_id:
                     if (
                         not self._reader.is_connected
                         or getattr(self._reader, "latency_ms", 0.0) > 15_000
@@ -572,10 +644,24 @@ class DetectionWorker(QThread):
                             "active_persons": 0, "connected": False, "ping_ms": None,
                         })
                         self.status_changed.emit("Qayta ulanmoqda...")
-                    # Yangi frame yo'q — video_interval yarmigacha kutish (busy-wait kamaytirish)
-                    time.sleep(min(0.020, video_interval * 0.5))
+                    if not self._reader.is_connected:
+                        time.sleep(0.05)   # ulanmagan kamera — CPU/GIL band qilinmasin
+                    continue
+                if not video_gate.try_take(now):
+                    last_frame_id = current_id   # limitdan tez — bu kadr o'tkaziladi
+                    continue
+            else:
+                # ── Video fayl: qattiq interval (fayl o'z tezligida o'qiladi) ──
+                now = time.perf_counter()
+                remaining = video_interval - (now - last_emit_ts)
+                if remaining > 0.008:
+                    time.sleep(remaining - 0.005)
+                    continue
+                elif remaining > 0:
+                    time.sleep(remaining)
                     continue
 
+            if is_stream:
                 ok, frame = self._reader.get_frame()
                 connected = self._reader.is_connected
                 if not ok:
@@ -627,10 +713,14 @@ class DetectionWorker(QThread):
                                 di if self._det_interval_ema is None
                                 else 0.6 * self._det_interval_ema + 0.4 * di
                             )
+                    self._check_day_rollover()
                     persons = self._process_detections(result.detections)
+                    self._prune_dead_tracks()
                     self._update_detection_counter(persons)
-                    persons = self._check_violations(persons)
+                    # Avval zona filtri, keyin buzilish tekshiruvi: zonadan tashqarida
+                    # chegaraga yetgan odam zonaga kirganda ham qayd etilsin.
                     persons = self._filter_by_polygon(persons, frame)
+                    persons = self._check_violations(persons)
                     self._last_persons = persons
 
                     violation_frame = result.raw_frame if result.raw_frame is not None else frame
@@ -678,6 +768,7 @@ class DetectionWorker(QThread):
                         f"Ulangan | FPS: {self._fps:.1f} | Bugun: {self._violation_runtime.camera_today} buzilish"
                         if connected else "Qayta ulanmoqda..."
                     )
+                    self._check_day_rollover()
                     self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
 
             else:
@@ -698,7 +789,189 @@ class DetectionWorker(QThread):
                         f"Ulangan | FPS: {self._fps:.1f}"
                         if connected else "Qayta ulanmoqda..."
                     )
+                    self._check_day_rollover()
                     self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
+
+    # ── Oqim sikli: tartibli AI natijalari + jitter buffer ────────────────
+
+    def _handle_result(self, result) -> list[dict]:
+        """Bitta AI natijasini (vaqt tartibida) tracker va qaror mantiqidan o'tkazadi."""
+        ts = result.timestamp
+        if self._last_result_ts is not None and ts is not None:
+            di = ts - self._last_result_ts
+            if 0.0 < di < 2.0:
+                self._det_interval_ema = (di if self._det_interval_ema is None
+                                          else 0.6 * self._det_interval_ema + 0.4 * di)
+        self._prev_result_ts = self._last_result_ts
+        self._last_result_ts = ts
+        self._last_result_completed_at = getattr(result, "completed_at", None) or time.perf_counter()
+
+        frame = result.raw_frame
+        self._check_day_rollover()
+        persons = self._process_detections(result.detections, ts=ts)
+        self._prune_dead_tracks()
+        self._update_detection_counter([p for p in persons if not p.get("coasting")])
+        # Avval zona filtri, keyin buzilish tekshiruvi: zonadan tashqarida
+        # chegaraga yetgan odam zonaga kirganda ham qayd etilsin.
+        persons = self._filter_by_polygon(persons, frame)
+        persons = self._check_violations(persons)
+        self._last_persons = persons
+        if frame is not None:
+            for p in persons:
+                if p.get("coasting"):
+                    continue
+                if p.get("is_new_violation", False):
+                    # Avval yuz — buzilish yozuvi xodim bilan saqlansin
+                    self._try_recognize_face(frame, p, force=True)
+                    self._handle_violation(frame, p, "no_helmet")
+                elif p.get("has_helmet") is False:
+                    self._try_recognize_face(frame, p)
+        return persons
+
+    def _persons_for(self, ts: float, hist) -> list[dict]:
+        """Ko'rsatilayotgan kadr vaqtiga mos odamlar: shu vaqtgacha bo'lgan oxirgi
+        AI natijasi, kadr vaqtigacha tezlik (px/s) bilan suriladi."""
+        if not hist:
+            return []
+        entry = None
+        for h in reversed(hist):
+            if h[0] <= ts:
+                entry = h
+                break
+        if entry is None:
+            entry = hist[0]
+        dt = ts - entry[0]
+        if dt > 1.0:          # AI natijasi juda eski — quti chizilmaydi (noto'g'ri joyda turmasin)
+            return []
+        dt = max(-0.3, min(dt, 0.5))
+        if abs(dt) < 0.005:
+            return entry[1]
+        out = []
+        for p in entry[1]:
+            vxs, vys = p.get("vxs", 0.0), p.get("vys", 0.0)
+            if abs(vxs) < 1.0 and abs(vys) < 1.0:
+                out.append(p)
+                continue
+            q = dict(p)
+            b = list(p.get("box", p.get("bbox_xyxy", [])))
+            if len(b) == 4:
+                dx, dy = vxs * dt, vys * dt
+                q["box"] = [b[0] + dx, b[1] + dy, b[2] + dx, b[3] + dy]
+                q["bbox_xyxy"] = q["box"]
+            out.append(q)
+        return out
+
+    def _run_stream_loop(self, has_ai: bool):
+        """Kadrlar kamera vaqti (PTS) bo'yicha tekis ko'rsatiladi.
+
+        Tarmoq kadrlarni to'p-to'p yetkazadi (1.2 s jimlikdan keyin 30 kadr birdan —
+        o'lchangan). Oldin faqat oxirgi kadr olinardi: video sakrardi, tracker odamni
+        yo'qotardi. Endi: kadr `ts + D` paytida ko'rsatiladi, D — so'nggi kelish
+        kechikishlarining 90-persentili (moslashuvchan, `video_buffer_max_ms` gacha).
+        AI natijalari ham tartib bilan qayta ishlanadi va qutilar aynan ko'rsatilayotgan
+        kadr vaqtidagi natijadan chiziladi (video bilan sinxron)."""
+        reader = self._reader
+        max_d = max(0.0, float(self.cfg.get("video_buffer_max_ms", 600)) / 1000.0)
+        buffer_on = bool(self.cfg.get("video_jitter_buffer", True)) and max_d > 0
+        pending: deque = deque()
+        lateness: deque = deque(maxlen=200)
+        delay = 0.12 if buffer_on else 0.0
+        hist: deque = deque(maxlen=60)     # (ts, persons) — AI natijalari tarixi
+        last_total = -1
+        last_no_frame_emit = 0.0
+        n_seen = 0
+        connected = False
+
+        while self._running:
+            if self._paused:
+                reader.pop_frames("display")
+                time.sleep(0.05)
+                continue
+
+            # ── AI natijalari (tartib bilan) ─────────────────────────────
+            if has_ai and self._svc is not None:
+                for res in self._svc.pop_results(self._cam_id):
+                    persons = self._handle_result(res)
+                    hist.append((res.timestamp, persons))
+
+            # ── Yangi kadrlar ────────────────────────────────────────────
+            for pk in reader.pop_frames("display"):
+                n_seen += 1
+                lateness.append(max(0.0, pk.arrival - pk.ts))
+                if not pk.corrupt:          # buzilgan kadr ko'rsatilmaydi — oxirgi toza kadr turadi
+                    pending.append(pk)
+            if buffer_on and n_seen >= 25 and lateness:
+                n_seen = 0
+                lat = sorted(lateness)
+                delay = min(max_d, max(0.06, lat[int(len(lat) * 0.9)] + 0.04))
+            last_total = reader.frame_count
+
+            now = time.perf_counter()
+            connected = reader.is_connected
+            if not pending:
+                if (not connected or reader.latency_ms > 15_000) and now - last_no_frame_emit >= 2.0:
+                    last_no_frame_emit = now
+                    self.stats_updated.emit({
+                        "fps": 0.0, "today_count": self._violation_runtime.camera_today,
+                        "detections_today": self._detections_today,
+                        "active_persons": 0, "connected": False, "ping_ms": None,
+                    })
+                    self.status_changed.emit("Qayta ulanmoqda...")
+                reader.wait_new_frame(last_total, 0.05 if connected else 0.25)
+                continue
+
+            # ── Playout: vaqti kelgan kadrlar; kechiksak — eng yangi vaqtidagisi ──
+            due = None
+            while pending and pending[0].ts + delay <= now:
+                due = pending.popleft()
+            # Buferda juda ko'p to'plansa (uzoq jimlikdan keyin) — kechikish oshib ketmasin
+            while len(pending) > 30:
+                due = pending.popleft()
+            if due is None:
+                wait = pending[0].ts + delay - now
+                if wait > 0.002:
+                    reader.wait_new_frame(last_total, min(wait, 0.02))
+                continue
+
+            self._update_fps(due.ts)
+            self._frame_count += 1
+            persons = self._persons_for(due.ts, hist) if has_ai else []
+            if self._emit_frames and self._should_emit_frame_at(due.ts):
+                frame = due.frame.copy()          # kadr AI bilan umumiy — ustiga chizmaymiz
+                display_frame = self._draw_overlay(frame, persons) if persons else frame
+                self._emit_frame(display_frame)
+
+            if self._frame_count % 30 == 0:
+                live = [p for p in self._last_persons if not p.get("coasting")]
+                self.stats_updated.emit({
+                    "fps":            self._fps,
+                    "today_count":    self._violation_runtime.camera_today,
+                    "detections_today": self._detections_today,
+                    "active_persons": len(live) if has_ai else 0,
+                    "connected":      connected,
+                    "ping_ms":        self._ping_ms() if connected else None,
+                    "buffer_ms":      round(delay * 1000),
+                    "corrupt_frames": getattr(reader, "corrupt_frames", 0),
+                })
+                if has_ai:
+                    status = (f"Ulangan | FPS: {self._fps:.1f} | Bugun: "
+                              f"{self._violation_runtime.camera_today} buzilish")
+                else:
+                    status = f"Ulangan | FPS: {self._fps:.1f}"
+                self.status_changed.emit(status if connected else "Qayta ulanmoqda...")
+                self._check_day_rollover()
+                self.db.set_daily_detections(self.cfg.camera_name, self._detections_today)
+
+    def _should_emit_frame_at(self, ts: float) -> bool:
+        """Ekran tezligi limiti — kadr vaqti bo'yicha (playout allaqachon tekis)."""
+        if self._display_gate is None:
+            display_fps = max(1, int(self.cfg.get(
+                "display_fps_limit", min(int(self.cfg.get("video_fps_limit", 25)), 25))))
+            self._display_gate = RateGate(display_fps, burst=2.0)
+        if not self._display_gate.try_take(ts):
+            return False
+        self._last_display_emit_ts = ts
+        return True
 
     # ── Tozalash ──────────────────────────────────────────────────────────
 
@@ -711,7 +984,8 @@ class DetectionWorker(QThread):
 
         # CameraService dan reader ni olib tashlaymiz
         if self._svc is not None:
-            svc_unregister(self._cam_id)
+            # Faqat o'z reader'imizni va o'z servisimizdan — yangi worker'nikiga tegmaymiz
+            svc_unregister(self._cam_id, self._reader, svc=self._svc)
 
         if self._reader:
             if hasattr(self._reader, "stop"):
@@ -738,14 +1012,19 @@ class DetectionWorker(QThread):
         self.request_stop()
         self.wait(800)
 
-    def reconnect(self):
-        """Qayta ulash tugmasidan chaqiriladi — backoff ni reset qilib darhol qayta urinadi."""
-        if self._reader and hasattr(self._reader, "reset_backoff"):
-            self._reader.reset_backoff()
-            self._reader._running = True  # max_retries dan keyin to'xtagan bo'lishi mumkin
-            if not self._reader.is_alive():
-                self._reader.start()
-        self._running = True
+    def reconnect(self) -> bool:
+        """Qayta ulash tugmasidan chaqiriladi — backoff ni reset qilib darhol qayta urinadi.
+
+        False — reader yoki worker allaqachon to'xtagan (masalan max_reconnects'dan
+        keyin). Tugagan thread'ni qayta start() qilib bo'lmaydi, shuning uchun
+        chaqiruvchi worker'ni to'liq qayta yaratishi kerak."""
+        reader = self._reader
+        if not self._running or reader is None or not hasattr(reader, "reset_backoff"):
+            return False
+        if not reader.is_alive() or not getattr(reader, "_running", True):
+            return False
+        reader.reset_backoff()
+        return True
 
     def pause(self):
         self._paused = True
@@ -772,10 +1051,14 @@ class DetectionWorker(QThread):
             )
 
     def _on_max_retries(self):
+        """Reader max_reconnects dan keyin ham to'xtamaydi (har 60 s qayta urinadi) —
+        worker ham ishlashda davom etadi, aks holda tungi uzilishdan keyin kamera
+        qo'lda bosilmaguncha o'lik qolardi. Xabar har uzilish davrida bir marta chiqadi
+        (reader har limitga yetganda bir marta chaqiradi)."""
         reason = getattr(self._reader, "last_error", "") if self._reader is not None else ""
         attempts = int(self.cfg.get("max_reconnects", 10))
         self.error_occurred.emit(
             (f"{reason}\n" if reason else "")
-            + f"Kameraga ulanib bo'lmadi ({attempts} urinish). \"Qayta ulash\" tugmasini bosing."
+            + f"Kameraga ulanib bo'lmadi ({attempts} urinish). Har 60 s da qayta urinilmoqda —"
+            " darhol urinish uchun \"Qayta ulash\" tugmasini bosing."
         )
-        self._running = False

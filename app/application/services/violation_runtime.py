@@ -40,6 +40,9 @@ class ViolationRuntime:
             maxsize=max(1, int(cfg.get("violation_save_queue_size", 64)))
         )
         self._save_thread: threading.Thread | None = None
+        self._stop_writer_evt = threading.Event()
+        # Oxirgi kadrda faol bo'lgan track ID lari (spatial duplicate uchun)
+        self._active_ids: set[int] = set()
         # today_count / no_helmet_count cache — bir necha violation ketma-ket
         # kelganda DB ga ortiqcha COUNT(*) so'rovini oldini olish.
         self._today_cache_ts: float = 0.0
@@ -49,7 +52,10 @@ class ViolationRuntime:
     def set_running(self, running: bool) -> None:
         self._running = running
 
+    WRITER_DRAIN_TIMEOUT = 5.0  # to'xtatishda navbatdagi buzilishlarni yozib bo'lish uchun
+
     def start_writer(self, cam_id: int) -> None:
+        self._stop_writer_evt.clear()
         if self._save_thread and self._save_thread.is_alive():
             return
         self._save_thread = threading.Thread(
@@ -59,23 +65,49 @@ class ViolationRuntime:
         )
         self._save_thread.start()
 
-    def stop_writer(self) -> None:
-        if not self._save_thread or not self._save_thread.is_alive():
+    def stop_writer(self, timeout: float | None = None) -> None:
+        """Navbatdagi buzilishlarni yozib bo'lgach writer'ni to'xtatadi.
+
+        Navbat bo'shaguncha ko'pi bilan `timeout` (standart 5 s) kutiladi —
+        avval 1 s dan keyin navbatda qolgan buzilishlar yo'qolib ketardi."""
+        thread = self._save_thread
+        if not thread or not thread.is_alive():
             return
+        timeout = self.WRITER_DRAIN_TIMEOUT if timeout is None else float(timeout)
+        deadline = time.monotonic() + timeout
+        # Writer navbat bo'shagach o'zi chiqadi (sentinel sig'masa ham)
+        self._stop_writer_evt.set()
         try:
-            self._save_queue.put(None, timeout=0.3)
+            self._save_queue.put(None, timeout=max(0.05, deadline - time.monotonic()))
         except Full:
-            return
-        self._save_thread.join(timeout=1.0)
+            pass
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        if thread.is_alive():
+            left = self._save_queue.qsize()
+            if left:
+                self.emit_error(f"{left} ta buzilish saqlanmay qoldi (to'xtatish vaqti tugadi)")
 
     def mark_no_helmet_candidates(self, persons: list[dict]) -> list[dict]:
-        threshold = int(self.cfg.get("confirmation_threshold", 10))
+        """Shlemsiz odamlarni belgilaydi.
+
+        Buzilish `no_helmet_frames >= threshold` bo'lgan va hali saqlanmagan har
+        bir kadrda "yangi" hisoblanadi (faqat aynan `== threshold` kadrida emas):
+        o'sha kadr spatial-duplicate yoki boshqa sabab bilan o'tkazilsa ham,
+        keyingi kadrlarda qayta baholanadi.
+        """
+        threshold = max(1, int(self.cfg.get("confirmation_threshold", 10)))
         active_ids = {p["track_id"] for p in persons}
+        self._active_ids = active_ids
         self.no_helmet_frames = {
             key: value for key, value in self.no_helmet_frames.items() if key in active_ids
         }
         for person in persons:
             track_id = person["track_id"]
+            if person.get("coasting"):
+                # Detection qisqa tushib qolgan — hisob saqlanadi, lekin oshirilmaydi
+                # (bashorat qilingan kadr dalil emas) va buzilish yozilmaydi
+                person["is_new_violation"] = False
+                continue
             if not person.get("track_confirmed", True):
                 self.no_helmet_frames[track_id] = 0
                 person["is_new_violation"] = False
@@ -84,7 +116,7 @@ class ViolationRuntime:
                 self.no_helmet_frames[track_id] = self.no_helmet_frames.get(track_id, 0) + 1
                 key = (track_id, "no_helmet")
                 person["is_new_violation"] = (
-                    self.no_helmet_frames[track_id] == threshold
+                    self.no_helmet_frames[track_id] >= threshold
                     and key not in self.saved_violations
                     and not self.is_spatial_duplicate(person, "no_helmet")
                 )
@@ -122,17 +154,31 @@ class ViolationRuntime:
         self.spatial_violations.append({
             "ts": time.time(),
             "type": violation_type,
+            "track_id": person.get("track_id"),
             "cx": cx,
             "cy": cy,
         })
 
     def is_spatial_duplicate(self, person: dict, violation_type: str) -> bool:
+        """Yaqinda (cooldown ichida) shu joyda saqlangan buzilish bormi.
+
+        Maqsad — track ID almashgan bitta odamni qayta yozmaslik. Agar o'sha
+        buzilish egasi (boshqa track) hozir ham kadrda faol bo'lsa, demak bu
+        yonida turgan BOShQA odam — u bloklanmaydi."""
         now = time.time()
         self.prune_spatial_violations(now)
         cx, cy, size = self.box_center_size(person)
         max_dist = max(48.0, size * 0.65)
+        own_tid = person.get("track_id")
         for item in self.spatial_violations:
             if item["type"] != violation_type:
+                continue
+            other_tid = item.get("track_id")
+            if (
+                other_tid is not None
+                and other_tid != own_tid
+                and other_tid in self._active_ids
+            ):
                 continue
             dist = ((cx - item["cx"]) ** 2 + (cy - item["cy"]) ** 2) ** 0.5
             if dist <= max_dist:
@@ -144,6 +190,24 @@ class ViolationRuntime:
         while self.spatial_violations and now - float(self.spatial_violations[0]["ts"]) > cooldown:
             self.spatial_violations.popleft()
 
+    def prune_tracks(self, live_ids: set[int]) -> None:
+        """Tracker unutgan track'larga oid yozuvlarni o'chiradi (cheksiz o'smasin).
+
+        Track ID lar qayta ishlatilmagani uchun o'lik track kaliti endi kerak emas."""
+        # list(...) — writer thread set'ni parallel o'zgartirishi mumkin
+        for key in list(self.saved_violations):
+            if key[0] not in live_ids:
+                self.saved_violations.discard(key)
+        for tid in list(self.access_frames):
+            if tid not in live_ids:
+                self.access_frames.pop(tid, None)
+
+    def reset_day(self, today_count: int, camera_today: int) -> None:
+        """Yarim tundan keyin kunlik hisoblagichlarni yangi kun qiymatlariga o'rnatadi."""
+        self.today_count = int(today_count)
+        self.camera_today = int(camera_today)
+        self._today_cache_ts = 0.0  # keyingi buzilishda DB dan qayta o'qilsin
+
     def clear(self) -> None:
         self.spatial_violations.clear()
         self.no_helmet_frames.clear()
@@ -154,6 +218,8 @@ class ViolationRuntime:
             try:
                 item = self._save_queue.get(timeout=0.2)
             except Empty:
+                if self._stop_writer_evt.is_set():
+                    break  # to'xtatish so'ralgan va navbat bo'sh
                 continue
 
             if item is None:

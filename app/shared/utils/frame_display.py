@@ -52,25 +52,12 @@ def draw_helmet_overlay(
     polygon_points: list | None = None,
     polygon_color: str = "#f97316",
 ) -> np.ndarray:
-    """Display frame ustiga odam boxlari, holat ranglari va polygon zona chizadi."""
-    height, width = frame.shape[:2]
+    """Display frame ustiga odam boxlari va holat ranglarini chizadi.
 
-    # ── Polygon zona ─────────────────────────────────────────────────────
-    if polygon_points and len(polygon_points) >= 3:
-        pts = np.array(
-            [[int(p[0] * width), int(p[1] * height)] for p in polygon_points],
-            dtype=np.int32,
-        )
-        bgr = _hex_to_bgr(polygon_color)
-        overlay = frame.copy()
-        cv2.fillPoly(overlay, [pts], bgr)
-        cv2.addWeighted(overlay, 0.15, frame, 0.85, 0, frame)
-        cv2.polylines(frame, [pts], isClosed=True, color=bgr, thickness=2)
-        mx = min(p[0] for p in pts)
-        my = min(p[1] for p in pts)
-        cv2.putText(frame, "ZONE", (mx + 4, my + 18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, bgr, 1, cv2.LINE_AA)
-
+    Polygon zona endi kadrga "kuydirilmaydi" — UI (FeedView ustidagi zona
+    qatlami) uni o'zi chizadi, aks holda ikki xil chiziq ko'rinadi.
+    polygon_points/polygon_color parametrlari moslik uchun qoldirilgan.
+    """
     # ── Odam boxlari ─────────────────────────────────────────────────────
     if persons:
         for person in persons:
@@ -86,7 +73,4 @@ def draw_helmet_overlay(
             else:
                 color = (0, 255, 255)
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-
-    cv2.rectangle(frame, (0, 0), (width, 36), (10, 14, 20), -1)
-    cv2.rectangle(frame, (0, height - 32), (width, height), (10, 14, 20), -1)
     return frame

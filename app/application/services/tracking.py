@@ -7,6 +7,34 @@ many cameras without adding ReID/model overhead.
 """
 from __future__ import annotations
 
+import threading
+import time
+
+try:  # Vengr algoritmi — yaqin turgan odamlarda ID almashinuvini kamaytiradi
+    from scipy.optimize import linear_sum_assignment as _lsa
+except Exception:  # pragma: no cover — scipy bo'lmasa ochko'z juftlash
+    _lsa = None
+
+# Jarayon bo'yicha yagona track ID manbasi. Worker qayta ishga tushganda
+# tracker ID lari 1 dan boshlansa, eski buzilish yozuvlari (track_id bo'yicha
+# FaceID yangilanishi, rasm nomlari) boshqa odamniki bilan aralashib ketardi.
+# Boshlang'ich qiymat vaqtga bog'liq (2026-01-01 dan beri 0.1 s birlikda) —
+# ilova qayta ishga tushganda ham avvalgi ID lar takrorlanmaydi.
+_GLOBAL_ID_EPOCH = 1_767_225_600  # 2026-01-01 00:00:00 UTC
+_global_id_lock = threading.Lock()
+_global_next_id: int | None = None
+
+
+def next_global_track_id() -> int:
+    """Jarayon davomida takrorlanmaydigan (monoton o'suvchi) track ID."""
+    global _global_next_id
+    with _global_id_lock:
+        if _global_next_id is None:
+            _global_next_id = max(1, int((time.time() - _GLOBAL_ID_EPOCH) * 10))
+        tid = _global_next_id
+        _global_next_id += 1
+        return tid
+
 
 class IoUTracker:
     """
@@ -29,13 +57,44 @@ class IoUTracker:
         center_thresh: float = 1.25,
         max_age: int = 150,
         min_hits: int = 3,
+        high_thresh: float = 0.0,
+        coast_s: float = 0.6,
+        max_predict_s: float = 1.0,
+        low_max_age: int = 3,
     ):
         self._iou_thresh = float(iou_thresh)
         self._center_thresh = float(center_thresh)
         self._max_age = int(max_age)
         self._min_hits = max(1, int(min_hits))
+        # ByteTrack: score >= high_thresh — yangi track ochishi mumkin; pastroqlari
+        # faqat mavjud (yaqinda ko'ringan) track'ni davom ettiradi. 0 — hammasi "yuqori".
+        self._high_thresh = float(high_thresh)
+        # Detection tushib qolganda tasdiqlangan track shuncha vaqt bashorat bilan
+        # ko'rsatiladi ("coasting") — quti miltillamaydi; qarorlarda ishlatilmaydi.
+        self._coast_s = float(coast_s)
+        self._max_predict_s = float(max_predict_s)
+        # 2-bosqich (kuchsiz detection) faqat shuncha yangilanish ichida ko'ringan track'larga
+        self._low_max_age = int(low_max_age)
+        self._last_ts: float | None = None
         self._tracks: dict[int, dict] = {}
         self._next_id = 1
+        # True bo'lsa ID lar jarayon bo'yicha yagona hisoblagichdan olinadi
+        self._global_ids = False
+
+    def enable_global_ids(self, enabled: bool = True) -> None:
+        """Yangi track ID larni jarayon bo'yicha yagona (qayta ishlatilmaydigan) qiladi."""
+        self._global_ids = bool(enabled)
+
+    def _new_id(self) -> int:
+        if self._global_ids:
+            return next_global_track_id()
+        tid = self._next_id
+        self._next_id += 1
+        return tid
+
+    def live_track_ids(self) -> set[int]:
+        """Hali unutilmagan (ko'rinayotgan yoki qisqa yo'qolgan) track ID lari."""
+        return set(self._tracks.keys())
 
     @staticmethod
     def _center(b: list) -> tuple[float, float]:
@@ -58,8 +117,13 @@ class IoUTracker:
         ub = max(1e-6, (b[2] - b[0]) * (b[3] - b[1]))
         return inter / (ua + ub - inter)
 
-    def _predict(self, t: dict) -> list:
+    def _predict(self, t: dict, ts: float | None = None) -> list:
         x1, y1, x2, y2 = t["box"]
+        if ts is not None and t.get("ts") is not None:
+            # Vaqt rejimi: tezlik px/s, oraliq — oxirgi ko'ringan paytdan beri
+            dt = min(self._max_predict_s, max(0.0, ts - t["ts"]))
+            vx, vy = t.get("vxs", 0.0) * dt, t.get("vys", 0.0) * dt
+            return [x1 + vx, y1 + vy, x2 + vx, y2 + vy]
         age = max(1, int(t.get("age", 0)) + 1)
         vx, vy = t.get("vx", 0.0), t.get("vy", 0.0)
         # Do not let old velocity fling a lost track too far.
@@ -87,9 +151,9 @@ class IoUTracker:
         aspect_ratio = min(aspect_a, aspect_b) / max(aspect_a, aspect_b)
         return max(0.0, min(1.0, 0.65 * area_ratio + 0.35 * aspect_ratio))
 
-    def _score(self, track: dict, det: dict) -> float:
+    def _score(self, track: dict, det: dict, ts: float | None = None) -> float:
         det_box = det["box"]
-        pred = self._predict(track)
+        pred = self._predict(track, ts)
         iou = self._iou(pred, det_box)
         dist_score, _ = self._distance_score(pred, det_box)
         if iou < self._iou_thresh and dist_score <= 0.0:
@@ -118,81 +182,152 @@ class IoUTracker:
             for i in range(4)
         ]
 
-    def update(self, detections: list[dict]) -> list[dict]:
+    def _assign(self, tids: list[int], dets: list[tuple[int, dict]], ts, min_score_fn) -> list[tuple[int, int]]:
+        """(track_index, det_index) juftlari — Vengr algoritmi (bo'lmasa ochko'z)."""
+        if not tids or not dets:
+            return []
+        scores = [[0.0] * len(dets) for _ in tids]
+        for ti, tid in enumerate(tids):
+            track = self._tracks[tid]
+            for dj, (_, det) in enumerate(dets):
+                sc = self._score(track, det, ts)
+                if sc >= min_score_fn(track):
+                    scores[ti][dj] = sc
+        pairs: list[tuple[int, int]] = []
+        if _lsa is not None:
+            import numpy as _np
+            cost = 1.0 - _np.asarray(scores, dtype=float)
+            rows, cols = _lsa(cost)
+            for ti, dj in zip(rows, cols):
+                if scores[ti][dj] > 0.0:
+                    pairs.append((int(ti), int(dj)))
+            return pairs
+        flat = sorted(((scores[ti][dj], ti, dj) for ti in range(len(tids))
+                       for dj in range(len(dets)) if scores[ti][dj] > 0.0), reverse=True)
+        used_t, used_d = set(), set()
+        for _, ti, dj in flat:
+            if ti in used_t or dj in used_d:
+                continue
+            used_t.add(ti)
+            used_d.add(dj)
+            pairs.append((ti, dj))
+        return pairs
+
+    def update(self, detections: list[dict], ts: float | None = None,
+               include_coasting: bool = False) -> list[dict]:
+        """`ts` (sekund, kadr vaqti) berilsa tezlik px/s da hisoblanadi va bashorat
+        haqiqiy oraliq bo'yicha qilinadi (notekis kelgan kadrlarda to'g'ri ishlaydi)."""
         for track in self._tracks.values():
             track["age"] += 1
         self._tracks = {
             tid: t for tid, t in self._tracks.items()
             if int(t.get("age", 0)) <= self._max_age
         }
+        if ts is not None:
+            self._last_ts = ts
 
-        if not detections:
-            return []
-
-        tids = list(self._tracks.keys())
-        pairs: list[tuple[float, int, int]] = []
-        for ti, tid in enumerate(tids):
-            track = self._tracks[tid]
-            for di, det in enumerate(detections):
-                box = det.get("box", det.get("bbox_xyxy"))
-                if not box or len(box) != 4:
-                    continue
-                det = {**det, "box": box}
-                score = self._score(track, det)
-                if score >= self._match_threshold(track):
-                    pairs.append((score, ti, di))
-        pairs.sort(key=lambda item: item[0], reverse=True)
-
-        matched_t: set[int] = set()
-        matched_d: set[int] = set()
-        d2t: dict[int, int] = {}
-        for _, ti, di in pairs:
-            if ti in matched_t or di in matched_d:
-                continue
-            matched_t.add(ti)
-            matched_d.add(di)
-            d2t[di] = tids[ti]
-
-        result = []
-        for di, det in enumerate(detections):
+        valid: list[tuple[int, dict]] = []
+        for di, det in enumerate(detections or []):
             box = det.get("box", det.get("bbox_xyxy"))
             if not box or len(box) != 4:
                 continue
-            det = {**det, "box": list(box), "bbox_xyxy": list(box)}
+            valid.append((di, {**det, "box": [float(v) for v in box]}))
+
+        def conf(d: dict) -> float:
+            return float(d.get("score", d.get("confidence", 0.5)) or 0.0)
+
+        high = [(di, d) for di, d in valid if conf(d) >= self._high_thresh]
+        low = [(di, d) for di, d in valid if conf(d) < self._high_thresh]
+
+        # 1-bosqich: yuqori ishonchli detectionlar — barcha track'lar bilan
+        tids = list(self._tracks.keys())
+        d2t: dict[int, int] = {}
+        for ti, dj in self._assign(tids, high, ts, self._match_threshold):
+            d2t[high[dj][0]] = tids[ti]
+        # 2-bosqich: past ishonchlilar — faqat qolgan, yaqinda ko'ringan track'lar bilan
+        # (qisman to'silgan odam track'ini uzmaslik uchun; yangi track ochmaydi)
+        if low:
+            used = set(d2t.values())
+            rest = [tid for tid in tids if tid not in used and int(self._tracks[tid]["age"]) <= self._low_max_age]
+            for ti, dj in self._assign(rest, low, ts, lambda _t: 0.30):
+                d2t[low[dj][0]] = rest[ti]
+
+        result = []
+        for di, det in valid:
             tid = d2t.get(di)
+            if tid is None and conf(det) < self._high_thresh:
+                continue   # kuchsiz detection yangi odam hisoblanmaydi
+            det = {**det, "bbox_xyxy": list(det["box"])}
+            raw_center = self._center(det["box"])
             if tid is None:
-                tid = self._next_id
-                self._next_id += 1
-                vx = vy = 0.0
+                tid = self._new_id()
+                vx = vy = vxs = vys = 0.0
                 hits = 1
             else:
-                old = self._tracks[tid]["box"]
-                cx_old, cy_old = self._center(old)
-                cx_new, cy_new = self._center(det["box"])
+                tr = self._tracks[tid]
+                old = tr["box"]
+                cx_old, cy_old = tr.get("raw_center") or self._center(old)
+                cx_new, cy_new = raw_center
+                gap = max(1, int(tr.get("age", 1)))   # necha yangilanishdan keyin ko'rindi
                 alpha = 0.30
-                vx = (1 - alpha) * self._tracks[tid].get("vx", 0.0) + alpha * (cx_new - cx_old)
-                vy = (1 - alpha) * self._tracks[tid].get("vy", 0.0) + alpha * (cy_new - cy_old)
-                hits = int(self._tracks[tid].get("hits", 1)) + 1
-                det["box"] = self._smooth_box(old, det["box"])
+                # Bir yangilanishdagi siljish: yo'qolgan oraliqqa bo'linadi (aks holda
+                # bir necha kadrlik siljish "bir qadam" bo'lib, quti uchib ketardi)
+                vx = (1 - alpha) * tr.get("vx", 0.0) + alpha * (cx_new - cx_old) / gap
+                vy = (1 - alpha) * tr.get("vy", 0.0) + alpha * (cy_new - cy_old) / gap
+                vxs, vys = tr.get("vxs", 0.0), tr.get("vys", 0.0)
+                if ts is not None and tr.get("ts") is not None and ts - tr["ts"] > 1e-3:
+                    dt = ts - tr["ts"]
+                    a = 0.4
+                    vxs = (1 - a) * vxs + a * (cx_new - cx_old) / dt
+                    vys = (1 - a) * vys + a * (cy_new - cy_old) / dt
+                hits = int(tr.get("hits", 1)) + 1
+                det["box"] = self._smooth_box(self._predict(tr, ts) if ts is not None else old, det["box"])
                 det["bbox_xyxy"] = list(det["box"])
 
             self._tracks[tid] = {
                 "box": det["box"],
+                "raw_center": raw_center,
                 "age": 0,
                 "vx": vx,
                 "vy": vy,
+                "vxs": vxs,
+                "vys": vys,
+                "ts": ts,
                 "hits": hits,
+                "last": det,
             }
             result.append({
                 **det,
                 "track_id": tid,
                 "vx": vx,
                 "vy": vy,
+                "vxs": vxs,
+                "vys": vys,
                 "track_hits": hits,
                 "track_confirmed": hits >= self._min_hits,
+                "coasting": False,
             })
+
+        if include_coasting and ts is not None:
+            seen = {r["track_id"] for r in result}
+            for tid, tr in self._tracks.items():
+                if tid in seen or tr.get("ts") is None or int(tr.get("hits", 0)) < self._min_hits:
+                    continue
+                if ts - tr["ts"] > self._coast_s:
+                    continue
+                box = self._predict(tr, ts)
+                base = dict(tr.get("last") or {})
+                base.update({
+                    "box": box, "bbox_xyxy": list(box), "track_id": tid,
+                    "vx": tr.get("vx", 0.0), "vy": tr.get("vy", 0.0),
+                    "vxs": tr.get("vxs", 0.0), "vys": tr.get("vys", 0.0),
+                    "track_hits": int(tr.get("hits", 0)), "track_confirmed": True,
+                    "coasting": True,
+                })
+                result.append(base)
         return result
 
     def reset(self):
         self._tracks.clear()
+        # Global rejimda bu hisoblagich ishlatilmaydi — ID lar qayta takrorlanmaydi
         self._next_id = 1
