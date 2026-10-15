@@ -22,6 +22,7 @@ import logging
 import re
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 
 _log = logging.getLogger(__name__)
@@ -40,11 +41,24 @@ _UUID_RE = re.compile(
 _TOKEN_SKEW = 60.0
 
 
+def make_idempotency_key(camera_name, track_id, timestamp, violation_type="") -> str:
+    """Buzilish uchun barqaror (deterministik) idempotency kaliti.
+
+    Bir xil buzilish — qayta urinishda ham, backfill qayta navbatga qo'ysa ham —
+    bir xil kalit oladi, shuning uchun server ReadTimeout'dan keyingi retry'ni
+    dublikat deb taniy oladi.
+    """
+    name = f"safezone:{camera_name or ''}:{track_id}:{timestamp}:{violation_type or ''}"
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+
+
 class BackendClient:
-    def __init__(self, api_url: str, login: str, password: str):
+    def __init__(self, api_url: str, login: str, password: str, timeout: float = 15.0):
         self.base_url = self._normalize_base(api_url)
         self.login = login
         self.password = password
+        # Ilova yopilayotganda worker buni kichraytiradi — so'rov tez tugasin
+        self.timeout = float(timeout)
 
         self._lock = threading.Lock()
         self._access = ""
@@ -105,19 +119,19 @@ class BackendClient:
             r = requests.post(
                 f"{self.base_url}{_DEVICE_LOGIN_PATH}",
                 json={"login": self.login, "password": self.password},
-                timeout=15,
+                timeout=self.timeout,
             )
             r.raise_for_status()
             self._store_tokens(r.json())
             if self._access:
                 return
         except Exception as e:
-            _log.info("device-login ishlamadi, oddiy login: %s", e)
+            _log.info("device-login ishlamadi, oddiy login: %s", self.redact(e))
 
         r = requests.post(
             f"{self.base_url}{_LOGIN_PATH}",
             json={"login": self.login, "password": self.password},
-            timeout=15,
+            timeout=self.timeout,
         )
         r.raise_for_status()
         data = r.json()
@@ -128,7 +142,7 @@ class BackendClient:
         r2 = requests.post(
             f"{self.base_url}{_SELECT_ROLE_PATH}",
             json={"accountRoleId": roles[0]["id"], "tempToken": data["tempToken"]},
-            timeout=15,
+            timeout=self.timeout,
         )
         r2.raise_for_status()
         self._store_tokens(r2.json())
@@ -140,13 +154,13 @@ class BackendClient:
             r = requests.post(
                 f"{self.base_url}{_REFRESH_PATH}",
                 json={"refresh": self._refresh},
-                timeout=15,
+                timeout=self.timeout,
             )
             r.raise_for_status()
             self._store_tokens(r.json())
             return bool(self._access)
         except Exception as e:
-            _log.info("Backend refresh ishlamadi, qayta login qilinadi: %s", e)
+            _log.info("Backend refresh ishlamadi, qayta login qilinadi: %s", self.redact(e))
             self._refresh = ""
             return False
 
@@ -189,20 +203,32 @@ class BackendClient:
             payload["fullPictureBase64"] = base64.b64encode(full_bytes).decode()
         return payload
 
-    def _post_event(self, requests, payload: dict):
+    def _post_event(self, requests, payload: dict, idempotency_key: str | None = None):
         token = self._access_token(requests)
         url = f"{self.base_url}{_CREATE_PATH}"
-        resp = requests.post(
-            url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15
-        )
+
+        def headers(tok):
+            h = {"Authorization": f"Bearer {tok}"}
+            if idempotency_key:
+                # Retry'da ham o'zgarmaydi — server dublikatni taniy oladi
+                h["Idempotency-Key"] = idempotency_key
+            return h
+
+        resp = requests.post(url, json=payload, headers=headers(token), timeout=self.timeout)
         if resp.status_code == 401:
             # Token muddati tugagan bo'lishi mumkin — yangilab bir marta qayta urinamiz.
             token = self._access_token(requests, force=True)
-            resp = requests.post(
-                url, json=payload, headers={"Authorization": f"Bearer {token}"}, timeout=15
-            )
+            resp = requests.post(url, json=payload, headers=headers(token), timeout=self.timeout)
         resp.raise_for_status()
         return resp
+
+    def redact(self, text) -> str:
+        """Xato matnidan parol/tokenlarni olib tashlaydi (log va last_error uchun)."""
+        s = str(text)
+        for secret in (self.password, self._access, self._refresh):
+            if secret and len(str(secret)) >= 4:
+                s = s.replace(str(secret), "***")
+        return s
 
     # ── Ommaviy API ──────────────────────────────────────────────────────────
 
@@ -233,11 +259,12 @@ class BackendClient:
         try:
             self.send_event(camera_name, company_id, timestamp, crop_bytes, full_bytes)
         except Exception as e:
-            _log.error("Yuborish xatosi: %s", e)
+            _log.error("Yuborish xatosi: %s", self.redact(e))
 
     def send_event(self, camera_name: str, company_id: str, timestamp=None,
                    crop_bytes: bytes | None = None,
-                   full_bytes: bytes | None = None) -> None:
+                   full_bytes: bytes | None = None,
+                   idempotency_key: str | None = None) -> None:
         """Sinxron yuborish. Xatoda istisno ko'taradi — queue worker retry qiladi."""
         if not self.base_url:
             raise RuntimeError("Backend URL yo'q")
@@ -245,7 +272,7 @@ class BackendClient:
 
         payload = self._build_payload(camera_name, company_id, timestamp,
                                       crop_bytes, full_bytes)
-        resp = self._post_event(requests, payload)
+        resp = self._post_event(requests, payload, idempotency_key)
         _log.info(
             "Backend'ga yuborildi: %s (%s)%s",
             payload["cameraName"], resp.status_code,

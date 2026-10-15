@@ -76,6 +76,18 @@ def store_employee_photos(employee_id: str, src_paths: list[str]) -> list[str]:
     return stored
 
 
+def _imread(path) -> np.ndarray | None:
+    """cv2.imread Windows'da lotin bo'lmagan (kirill, o'zbek) yo'llarni ocholmaydi —
+    fayl baytlarini numpy orqali o'qib dekodlaymiz."""
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+    except (OSError, ValueError):
+        return None
+    if data.size == 0:
+        return None
+    return cv2.imdecode(data, cv2.IMREAD_COLOR)
+
+
 _PHOTO_DETECTOR = None
 
 
@@ -88,7 +100,7 @@ def photos_with_face(paths: list[str], min_face_px: int = DEFAULT_MIN_FACE_PX) -
         _PHOTO_DETECTOR = cv2.FaceDetectorYN.create(str(_YUNET_PATH), "", (320, 320), 0.6, 0.3, 50)
     result = []
     for p in paths:
-        img = cv2.imread(str(p))
+        img = _imread(p)
         if img is None:
             result.append(False)
             continue
@@ -220,7 +232,7 @@ class FaceIdService:
         paths = list(photo_paths or ([photo_path] if photo_path else []))
         embs = []
         for p in paths:
-            image = cv2.imread(str(p))
+            image = _imread(p)
             if image is None:
                 continue
             emb = self._get_embedding(image)
@@ -509,7 +521,7 @@ def save_face_sample(employee_id: str, image_path: str) -> str | None:
     Kamera kadridagi (buzilish rasmidagi) yuzni kesib, xodimga namuna sifatida saqlaydi.
     Namuna shu kamera sharoitida (masofa, xiralik) olingani uchun tanishni oshiradi.
     """
-    img = cv2.imread(str(image_path))
+    img = _imread(image_path)
     if img is None or not _YUNET_PATH.exists():
         return None
     scale = 2.0 if max(img.shape[:2]) < _UPSCALE_BELOW_PX else 1.0
@@ -530,7 +542,11 @@ def save_face_sample(employee_id: str, image_path: str) -> str | None:
         face = cv2.resize(face, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC)
     tmp = data_path("faces", f"_sample_{int(time.time() * 1000)}.jpg")
     tmp.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(tmp), face, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    # cv2.imwrite Windows'da lotin bo'lmagan yo'llarda jimgina ishlamaydi
+    ok, buf = cv2.imencode(".jpg", face, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    if not ok:
+        return None
+    buf.tofile(str(tmp))
     try:
         stored = store_employee_photos(employee_id, [str(tmp)])
     finally:

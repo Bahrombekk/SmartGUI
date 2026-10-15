@@ -5,6 +5,7 @@ Thread-local ulanishlar: har thread o'z connection'iga ega.
 WAL mode: bir vaqtda ko'p o'qish + 1 yozish (Python lock kutilmaydi).
 """
 
+import logging
 import sqlite3
 import threading
 from datetime import datetime, date, timedelta
@@ -12,8 +13,23 @@ from pathlib import Path
 import json
 import time
 
+_log = logging.getLogger(__name__)
+
 
 DB_FILE = "smartgui.db"
+
+# Backend'ga hali yetib bormagan buzilishlar — retention ularni o'chirmaydi.
+UNSYNCED_STATUSES = ("queued", "local", "failed")
+
+# Faqat shu xabarlar haqiqiy buzilish (corruption) belgisi. "database is
+# locked", "readonly", "disk I/O error" kabi OperationalError'lar sog' bazada
+# ham bo'ladi — ular uchun karantin qilinmaydi.
+_CORRUPTION_MARKERS = ("malformed", "not a database", "file is encrypted")
+
+
+def is_corruption_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _CORRUPTION_MARKERS)
 
 
 class ViolationsDB:
@@ -28,7 +44,13 @@ class ViolationsDB:
         try:
             self._init_db()
             self._ensure_healthy()
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError as exc:
+            if not is_corruption_error(exc):
+                # Band/faqat-o'qish/disk xatosi — baza sog', uni ko'chirmaymiz.
+                _log.error("Ma'lumotlar bazasini ochib bo'lmadi (%s): %s", self.db_path, exc)
+                self.close_current_thread()
+                raise
+            _log.error("Baza buzilgan (%s), karantinga olinadi: %s", self.db_path, exc)
             self._quarantine_corrupt_db()
             self._init_db()
 
@@ -43,12 +65,18 @@ class ViolationsDB:
         conn = getattr(self._local, 'conn', None)
         if conn is None:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA cache_size=4000")
-            conn.execute("PRAGMA temp_store=MEMORY")
-            conn.execute("PRAGMA busy_timeout=3000")  # 3s kutib turadi, error emas
+            try:
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA busy_timeout=3000")  # 3s kutib turadi, error emas
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                conn.execute("PRAGMA cache_size=4000")
+                conn.execute("PRAGMA temp_store=MEMORY")
+            except sqlite3.Error:
+                # Ochiq qolgan ulanish Windows'da faylni band qiladi — karantin
+                # (fayl ko'chirish) ishlamay qoladi.
+                conn.close()
+                raise
             self._local.conn = conn
         return conn
 
@@ -59,11 +87,13 @@ class ViolationsDB:
             self._local.conn = None
 
     def _ensure_healthy(self) -> None:
+        # quick_check — integrity_check'dan ancha tez (indeks mosligini
+        # tekshirmaydi), har startda ishlatish uchun yetarli.
         conn = self._conn()
-        row = conn.execute("PRAGMA integrity_check").fetchone()
-        result = row[0] if row else "integrity_check_failed"
+        row = conn.execute("PRAGMA quick_check").fetchone()
+        result = row[0] if row else "quick_check failed"
         if result != "ok":
-            raise sqlite3.DatabaseError(str(result))
+            raise sqlite3.DatabaseError(f"database disk image is malformed: {result}")
 
     def _quarantine_corrupt_db(self) -> None:
         self.close_current_thread()
@@ -110,6 +140,8 @@ class ViolationsDB:
             self._ensure_column(conn, "violations", "employee_name", "TEXT DEFAULT ''")
             self._ensure_column(conn, "violations", "identity_confidence", "REAL DEFAULT 0.0")
             self._ensure_column(conn, "violations", "sync_status", "TEXT DEFAULT 'queued'")
+            # Hodisalar sahifasi: ko'rib chiqish holati (new | review | confirmed | rejected)
+            self._ensure_column(conn, "violations", "review_status", "TEXT DEFAULT 'new'")
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_violations_timestamp
                 ON violations (timestamp)
@@ -117,6 +149,15 @@ class ViolationsDB:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_violations_camera_time
                 ON violations (camera_name, timestamp)
+            """)
+            # Hodisalar sahifasi filtrlari (bo'lim / ko'rib chiqish holati) uchun
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_violations_dept_time
+                ON violations (department_id, timestamp)
+            """)
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_violations_review_time
+                ON violations (review_status, timestamp)
             """)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS employees (
@@ -209,43 +250,117 @@ class ViolationsDB:
         sync_status: str = "queued",
     ) -> int:
         """Yangi buzilish yozuvi qo'shish. Yangi record ID qaytaradi."""
-        if not timestamp:
-            timestamp = int(datetime.now().timestamp())
-        created_at = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-
+        violation = dict(
+            track_id=track_id, crop_path=crop_path, full_path=full_path,
+            camera_name=camera_name, confidence=confidence, timestamp=timestamp,
+            violation_type=violation_type, camera_id=camera_id,
+            department_id=department_id, employee_id=employee_id,
+            employee_name=employee_name, identity_confidence=identity_confidence,
+            sync_status=sync_status,
+        )
         with self._write_lock:
             conn = self._conn()
-            cur = conn.execute("""
-                INSERT INTO violations
-                    (timestamp, track_id, crop_path, full_path,
-                     camera_name, confidence, created_at, violation_type,
-                     camera_id, department_id, employee_id, employee_name,
-                     identity_confidence, sync_status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (timestamp, track_id, crop_path, full_path,
-                  camera_name, confidence, created_at, violation_type,
-                  camera_id, department_id, employee_id, employee_name,
-                  identity_confidence, sync_status))
+            vid = self._insert_violation(conn, violation)
             conn.commit()
-            return cur.lastrowid
+            return vid
+
+    @staticmethod
+    def _insert_violation(conn: sqlite3.Connection, v: dict) -> int:
+        timestamp = int(v.get("timestamp") or 0) or int(datetime.now().timestamp())
+        created_at = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+        cur = conn.execute("""
+            INSERT INTO violations
+                (timestamp, track_id, crop_path, full_path,
+                 camera_name, confidence, created_at, violation_type,
+                 camera_id, department_id, employee_id, employee_name,
+                 identity_confidence, sync_status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (timestamp, v.get("track_id", -1), v.get("crop_path", ""), v.get("full_path", ""),
+              v.get("camera_name", ""), v.get("confidence", 0.0), created_at,
+              v.get("violation_type", "no_helmet"), v.get("camera_id"), v.get("department_id"),
+              v.get("employee_id"), v.get("employee_name", ""),
+              v.get("identity_confidence", 0.0), v.get("sync_status", "queued")))
+        return cur.lastrowid
+
+    @staticmethod
+    def _insert_job(conn: sqlite3.Connection, channel: str, payload: dict, now: int) -> int:
+        cur = conn.execute("""
+            INSERT INTO notification_jobs
+                (channel, payload, status, retry_count, last_error, created_at, updated_at)
+            VALUES (?, ?, 'pending', 0, '', ?, ?)
+        """, (channel, json.dumps(payload, ensure_ascii=False), now, now))
+        return cur.lastrowid
+
+    def add_violation_with_jobs(self, violation: dict,
+                                jobs: list[tuple[str, dict]]) -> tuple[int, list[int]]:
+        """Buzilish + uning notification joblarini BITTA tranzaksiyada yozadi.
+
+        Oraliqda dastur yiqilsa ham "yozuv bor, job yo'q" holati bo'lmaydi.
+        Har job payload'iga `violation_id` qo'shiladi. (violation_id, job_ids)
+        qaytaradi.
+        """
+        now = int(datetime.now().timestamp())
+        with self._write_lock:
+            conn = self._conn()
+            try:
+                vid = self._insert_violation(conn, violation)
+                job_ids = [
+                    self._insert_job(conn, channel, {**payload, "violation_id": vid}, now)
+                    for channel, payload in jobs
+                ]
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            return vid, job_ids
 
     def add_notification_job(self, channel: str, payload: dict) -> int:
         now = int(datetime.now().timestamp())
         with self._write_lock:
             conn = self._conn()
-            cur = conn.execute("""
-                INSERT INTO notification_jobs
-                    (channel, payload, status, retry_count, last_error, created_at, updated_at)
-                VALUES (?, ?, 'pending', 0, '', ?, ?)
-            """, (channel, json.dumps(payload, ensure_ascii=False), now, now))
+            job_id = self._insert_job(conn, channel, payload, now)
             conn.commit()
-            return cur.lastrowid
+            return job_id
+
+    def claim_notification_job(self, job_id: int) -> bool:
+        """Jobni atomar egallaydi: faqat 'pending' bo'lsa 'sending' qiladi.
+
+        Boshqa worker/nusxa allaqachon olgan bo'lsa False — yubormaymiz.
+        """
+        now = int(datetime.now().timestamp())
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "UPDATE notification_jobs SET status='sending', updated_at=?"
+                " WHERE id=? AND status='pending'",
+                (now, job_id),
+            )
+            conn.commit()
+            return cur.rowcount == 1
+
+    def reset_stale_sending_jobs(self) -> int:
+        """Oldingi sessiyada yuborilayotganda qolib ketgan joblarni navbatga qaytaradi.
+
+        Faqat startda chaqiriladi (yagona nusxa kafolatlangan holda).
+        """
+        now = int(datetime.now().timestamp())
+        with self._write_lock:
+            conn = self._conn()
+            cur = conn.execute(
+                "UPDATE notification_jobs SET status='pending', updated_at=?"
+                " WHERE status='sending'",
+                (now,),
+            )
+            conn.commit()
+            return cur.rowcount
 
     def update_notification_job(self, job_id: int, **kwargs) -> None:
-        allowed = {"status", "last_error", "sent_at"}
+        allowed = {"status", "last_error", "sent_at", "payload"}
         data = {k: v for k, v in kwargs.items() if k in allowed}
         if not data:
             return
+        if isinstance(data.get("payload"), dict):
+            data["payload"] = json.dumps(data["payload"], ensure_ascii=False)
         data["updated_at"] = int(datetime.now().timestamp())
         assignments = ", ".join(f"{key}=?" for key in data)
         with self._write_lock:
@@ -399,30 +514,68 @@ class ViolationsDB:
             ))
             conn.commit()
 
-    def cleanup_old(self, keep_days: int = 7):
-        """keep_days kundan eski yozuvlarni o'chirish."""
-        cutoff = int((datetime.now() - timedelta(days=keep_days)).timestamp())
+    def cleanup_old(self, keep_days: int = 365, keep_local: bool = True) -> int:
+        """keep_days kundan eski buzilish yozuvlarini o'chiradi.
+
+        Backend'ga hali yuborilmagan yozuvlar (queued/failed) hech qachon
+        o'chirilmaydi — ular sync bo'lgach keyingi tozalashda ketadi.
+        `local` (backend o'chiq paytda yozilgan) — faqat keep_local=True bo'lsa
+        saqlanadi; backend ishlatilmasa ular ham muddati o'tgach o'chadi.
+        O'chirilgan qatorlar sonini qaytaradi.
+        """
+        cutoff = int((datetime.now() - timedelta(days=max(1, int(keep_days)))).timestamp())
+        protected = tuple(s for s in UNSYNCED_STATUSES if keep_local or s != "local")
+        marks = ", ".join("?" for _ in protected)
         with self._write_lock:
             conn = self._conn()
-            conn.execute("DELETE FROM violations WHERE timestamp < ?", (cutoff,))
+            cur = conn.execute(
+                "DELETE FROM violations WHERE timestamp < ?"
+                f" AND COALESCE(sync_status, '') NOT IN ({marks})",
+                (cutoff, *protected),
+            )
             conn.commit()
+            return cur.rowcount
+
+    def get_unsynced_image_paths(self) -> set[str]:
+        """Hali yuborilmagan buzilishlar rasmlari — fayl tozalash ularni o'chirmasin."""
+        marks = ", ".join("?" for _ in UNSYNCED_STATUSES)
+        rows = self._conn().execute(
+            "SELECT crop_path, full_path FROM violations"
+            f" WHERE COALESCE(sync_status, '') IN ({marks})",
+            UNSYNCED_STATUSES,
+        ).fetchall()
+        return {str(p) for r in rows for p in (r[0], r[1]) if p}
 
     def cleanup_notification_jobs(self, keep_days: int = 7) -> int:
-        """Yuborilgan/abadiy xato joblarni keep_days kundan keyin o'chiradi.
+        """Yuborilgan/abadiy xato/rad etilgan joblarni keep_days kundan keyin o'chiradi.
 
-        'pending' joblar (hali navbatda) tegilmaydi. O'chirilgan qatorlar
-        sonini qaytaradi.
+        'pending'/'sending' joblar (hali navbatda) tegilmaydi. O'chirilgan
+        qatorlar sonini qaytaradi.
         """
         cutoff = int((datetime.now() - timedelta(days=keep_days)).timestamp())
         with self._write_lock:
             conn = self._conn()
             cur = conn.execute(
                 "DELETE FROM notification_jobs"
-                " WHERE status IN ('sent', 'failed') AND updated_at < ?",
+                " WHERE status IN ('sent', 'failed', 'rejected') AND updated_at < ?",
                 (cutoff,),
             )
             conn.commit()
             return cur.rowcount
+
+    def set_review_status(self, violation_id: int, status: str) -> bool:
+        """Hodisaning ko'rib chiqish holatini yangilaydi (new/review/confirmed/rejected)."""
+        if status not in ("new", "review", "confirmed", "rejected"):
+            return False
+        try:
+            with self._write_lock:
+                self._conn().execute("UPDATE violations SET review_status=? WHERE id=?",
+                                     (status, int(violation_id)))
+                self._conn().commit()
+            return True
+        except Exception as exc:
+            _log.warning("review_status yangilanmadi: %s", exc)
+            return False
 
     def update_violation_sync_status(
         self,
@@ -465,12 +618,13 @@ class ViolationsDB:
 
         'queued' — job yaratilgan, 'synced' — yuborilgan. Qolgani backfill
         uchun: 'local' (o'sha paytda backend o'chiq edi) va 'failed' (job
-        retry'lari tugagan — masalan uzoq internet uzilishi).
+        retry'lari tugagan — masalan uzoq internet uzilishi). 'rejected' —
+        backend uni abadiy rad etgan (4xx), qayta yuborilmaydi.
         """
         conn = self._conn()
         rows = conn.execute(
             "SELECT * FROM violations"
-            " WHERE COALESCE(sync_status, '') NOT IN ('queued', 'synced')"
+            " WHERE COALESCE(sync_status, '') NOT IN ('queued', 'synced', 'rejected')"
             " ORDER BY timestamp ASC LIMIT ?",
             (limit,),
         ).fetchall()

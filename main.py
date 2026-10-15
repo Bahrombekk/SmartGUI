@@ -112,49 +112,109 @@ _root.addHandler(_fh)
 _log = logging.getLogger("main")
 
 
+def _excepthook(exc_type, exc, tb):
+    """Qt slot ichidagi ushlanmagan xato PyQt6'da butun dasturni yopadi (qFatal).
+    O'rniga log'ga yozamiz — konsolsiz exe'da ham logs/ da ko'rinadi."""
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc, tb)
+        return
+    _log.critical("Ushlanmagan xato", exc_info=(exc_type, exc, tb))
+
+
+sys.excepthook = _excepthook
+
+
 # ── Splash Screen ─────────────────────────────────────────────────────────
 
 def _make_splash(app: QApplication) -> QSplashScreen:
-    """Ishga tushirish vaqtida splash screen."""
-    from PyQt6.QtGui import QPainter, QPen, QBrush, QLinearGradient
-    from PyQt6.QtCore import QRect
+    """Ishga tushirish vaqtida splash screen — Figma dizayni (navy karta, cyan aksent)."""
+    from PyQt6.QtGui import QPainter, QPen, QLinearGradient, QBrush, QPainterPath
+    from PyQt6.QtCore import QRectF
 
-    W, H = 480, 260
-    px = QPixmap(W, H)
-    px.fill(QColor("#0d1117"))
+    try:
+        from app.ui import fz
+        sans = lambda px, w=400: fz.qfont(px, w)
+        mono = lambda px, w=400: fz.qfont(px, w, mono=True)
+        logo = lambda size: fz.svg_pixmap("logo", size, size, fz.ACCENT)
+    except Exception:
+        sans = lambda px, w=400: QFont("Segoe UI", max(1, int(px * 0.75)), w)
+        mono = sans
+        logo = None
 
-    painter = QPainter(px)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    CARD, BORDER = "#0b1426", "#1a2842"
+    TEXT, TEXT2, MUTED, DIM, ACCENT = "#e8f0fb", "#b4c0d3", "#7e8ea8", "#4a5872", "#1fb6ff"
 
-    # Chegarali to'rtburchak
-    painter.setPen(QPen(QColor("#f97316"), 2))
-    painter.setBrush(QBrush(QColor("#161b22")))
-    painter.drawRoundedRect(16, 16, W - 32, H - 32, 12, 12)
+    SH = 18                                   # soya uchun shaffof hoshiya
+    W, H = 460, 248
+    dpr = app.primaryScreen().devicePixelRatio() if app.primaryScreen() else 1.0
+    px = QPixmap(int((W + 2 * SH) * dpr), int((H + 2 * SH) * dpr))
+    px.setDevicePixelRatio(dpr)
+    px.fill(Qt.GlobalColor.transparent)
 
-    # Sarlavha
-    font_big = QFont("Segoe UI", 26, QFont.Weight.Bold)
-    painter.setFont(font_big)
-    painter.setPen(QColor("#f97316"))
-    painter.drawText(QRect(0, 50, W, 60), Qt.AlignmentFlag.AlignCenter, "SafeZone")
+    p = QPainter(px)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-    # Kichik matn
-    font_sm = QFont("Segoe UI", 11)
-    painter.setFont(font_sm)
-    painter.setPen(QColor("#8b949e"))
-    painter.drawText(QRect(0, 115, W, 30), Qt.AlignmentFlag.AlignCenter,
-                     "Xavfsizlik kuzatuv tizimi")
+    # Yumshoq soya
+    for i in range(SH, 0, -2):
+        c = QColor(0, 0, 0, int(70 * (1 - i / SH) ** 2))
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(c)
+        p.drawRoundedRect(QRectF(SH - i, SH - i + 4, W + 2 * i, H + 2 * i), 14 + i, 14 + i)
 
-    # Yuklash matni
-    font_xs = QFont("Segoe UI", 9)
-    painter.setFont(font_xs)
-    painter.setPen(QColor("#6b7280"))
-    painter.drawText(QRect(0, H - 44, W, 24), Qt.AlignmentFlag.AlignCenter,
-                     "Yuklanmoqda...")
+    card = QRectF(SH + 0.5, SH + 0.5, W - 1, H - 1)
+    path = QPainterPath()
+    path.addRoundedRect(card, 14, 14)
+    p.fillPath(path, QColor(CARD))
+    # Yuqoridan cyan nur (juda xira)
+    glow = QLinearGradient(0, SH, 0, SH + 120)
+    glow.setColorAt(0, QColor(31, 182, 255, 26))
+    glow.setColorAt(1, QColor(31, 182, 255, 0))
+    p.fillPath(path, QBrush(glow))
+    p.setPen(QPen(QColor(BORDER), 1))
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    p.drawPath(path)
 
-    painter.end()
+    x0, y0 = SH, SH
+    # Logo qutisi
+    box = QRectF(x0 + (W - 56) / 2, y0 + 38, 56, 56)
+    p.setPen(QPen(QColor(31, 182, 255, 90), 1))
+    p.setBrush(QColor("#0e2a45"))
+    p.drawRoundedRect(box, 14, 14)
+    if logo is not None:
+        p.drawPixmap(int(box.x() + 14), int(box.y() + 14), logo(28))
 
-    splash = QSplashScreen(px, Qt.WindowType.WindowStaysOnTopHint)
-    splash.setFont(QFont("Segoe UI", 10))
+    p.setFont(sans(26, 700))
+    p.setPen(QColor(TEXT))
+    p.drawText(QRectF(x0, y0 + 106, W, 36), Qt.AlignmentFlag.AlignCenter, "SafeZone")
+    p.setFont(sans(13, 400))
+    p.setPen(QColor(TEXT2))
+    p.drawText(QRectF(x0, y0 + 142, W, 20), Qt.AlignmentFlag.AlignCenter,
+               "Shlem nazorati · xavfsizlik kuzatuv tizimi")
+
+    # Yuklanish chizig'i
+    bw = 160
+    track = QRectF(x0 + (W - bw) / 2, y0 + 186, bw, 3)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(BORDER))
+    p.drawRoundedRect(track, 1.5, 1.5)
+    g = QLinearGradient(track.x(), 0, track.x() + bw * 0.45, 0)
+    g.setColorAt(0, QColor(31, 182, 255, 40))
+    g.setColorAt(1, QColor(ACCENT))
+    p.setBrush(QBrush(g))
+    p.drawRoundedRect(QRectF(track.x(), track.y(), bw * 0.45, 3), 1.5, 1.5)
+
+    p.setFont(sans(12, 400))
+    p.setPen(QColor(MUTED))
+    p.drawText(QRectF(x0, y0 + 198, W, 18), Qt.AlignmentFlag.AlignCenter, "Yuklanmoqda…")
+    p.setFont(mono(10.5, 400))
+    p.setPen(QColor(DIM))
+    p.drawText(QRectF(x0, y0 + H - 26, W - 16, 16),
+               Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, f"v{__version__}")
+    p.end()
+
+    splash = QSplashScreen(px, Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
+    splash.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
     return splash
 
 
@@ -180,13 +240,32 @@ def main():
     app.setApplicationVersion(__version__)
     app.setWindowIcon(QIcon(str(resource_path("images", "app.ico"))))
 
-    # Font
-    font = QFont("Segoe UI", 10)
+    # Yagona nusxa: ikkinchi nusxa bildirishnoma va buzilishlarni dublikat qiladi.
+    # QLockFile jarayon yiqilsa ham eskirgan lockni o'zi aniqlaydi.
+    from PyQt6.QtCore import QLockFile
+    from app.shared.paths import data_path
+
+    instance_lock = QLockFile(str(data_path("smartgui.lock")))
+    instance_lock.setStaleLockTime(0)
+    if not instance_lock.tryLock(100):
+        _log.warning("Ikkinchi nusxa ishga tushirildi — chiqilmoqda")
+        QMessageBox.information(None, "SafeZone", "SafeZone allaqachon ishlayapti")
+        sys.exit(0)
+
+    # Font — Figma dizayni: Inter + JetBrains Mono (fonts/ papkasidan)
+    try:
+        from app.ui import fz
+        fz.init_fonts()
+        font = QFont(fz.SANS)
+        font.setPointSizeF(fz.pt(13))
+    except Exception as e:
+        _log.warning("Shriftlar yuklanmadi: %s", e)
+        font = QFont("Segoe UI", 10)
     app.setFont(font)
 
     # QSS stil
     try:
-        set_theme(_ui_theme())
+        set_theme("dark")      # Figma dizayni: faqat qorong'i mavzu
         app.setStyleSheet(get_main_stylesheet())
     except Exception as e:
         _log.warning("Stil yuklanmadi: %s", e)
@@ -228,7 +307,25 @@ def main():
 
     QTimer.singleShot(800, _open_main)
 
-    sys.exit(app.exec())
+    code = app.exec()
+    instance_lock.unlock()
+    _exit_safely(code)
+
+
+def _exit_safely(code: int) -> None:
+    """Vaqtida to'xtamagan QThread qolsa — Python finalizatsiyasini o'tkazib
+    yuboramiz: aks holda u QThread'ni o'chirib "Destroyed while thread is still
+    running" bilan dastur abort bo'ladi."""
+    try:
+        from app.ui.controllers.camera_runtime_controller import running_orphan_threads
+        orphans = running_orphan_threads()
+    except Exception:
+        orphans = []
+    if orphans:
+        _log.warning("%s ta thread hali ishlayapti — majburiy chiqish", len(orphans))
+        logging.shutdown()
+        os._exit(code)
+    sys.exit(code)
 
 
 if __name__ == "__main__":

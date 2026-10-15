@@ -17,10 +17,16 @@ yozuv yo'qolmaydi.
 
 BackendClient bitta nusxada saqlanadi (token keshlanadi) — har job uchun
 qayta login qilinmaydi.
+
+Job yuborishdan oldin atomar egallanadi ('pending' -> 'sending'), shuning
+uchun ikki worker bitta jobni ikki marta yubormaydi; startda qolib ketgan
+'sending' joblar 'pending' ga qaytariladi. Abadiy 4xx xatolar (401/408/429
+dan tashqari) 'rejected' bo'ladi — ular hech qachon qayta navbatga qo'yilmaydi.
 """
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 
@@ -30,9 +36,28 @@ from app.application.services.notification_queue_service import NotificationQueu
 
 _log = logging.getLogger(__name__)
 
+# Ilova yopilayotganda HTTP so'rovlar shu timeout bilan ketadi (sekund)
+_SHUTDOWN_HTTP_TIMEOUT = 3.0
+_NORMAL_HTTP_TIMEOUT = 15.0
+
+# Shu 4xx kodlar vaqtinchalik (auth yangilanadi / timeout / rate-limit)
+_TRANSIENT_4XX = (401, 408, 429)
+
 
 class _ChannelDisabled(Exception):
     """Kanal cfg da o'chirilgan/sozlanmagan — retry qilmaymiz."""
+
+
+def is_permanent_error(exc: BaseException) -> bool:
+    """Qayta urinish foyda bermaydigan xato (server so'rovni rad etgan)."""
+    if getattr(exc, "permanent", False):
+        return True
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        return False
+    return 400 <= status < 500 and status not in _TRANSIENT_4XX
 
 
 class NotificationWorker(QThread):
@@ -52,6 +77,8 @@ class NotificationWorker(QThread):
         self.backfill_limit = int(backfill_limit)
         self.backfill_interval = float(backfill_interval)
         self._running = False
+        self._stop_event = threading.Event()
+        self._http_timeout = _NORMAL_HTTP_TIMEOUT
         self._backend = None
         self._backend_key: tuple = ()
 
@@ -60,10 +87,17 @@ class NotificationWorker(QThread):
     def run(self):
         self._running = True
         try:
+            # Oldingi sessiya yuborish paytida yopilgan bo'lsa — joblar qaytadi
+            n = self.db.reset_stale_sending_jobs()
+            if n:
+                _log.info("%s ta tugallanmagan notification job navbatga qaytarildi", n)
+        except Exception as exc:
+            _log.error("Stale 'sending' joblarni tiklab bo'lmadi: %s", exc)
+        try:
             self._backfill_unsent()
             self._drain_all()
         except Exception as exc:
-            _log.error("NotificationWorker backfill xatosi: %s", exc)
+            _log.error("NotificationWorker backfill xatosi: %s", self._safe_error(exc))
         last_backfill = time.monotonic()
         while self._running:
             try:
@@ -72,17 +106,25 @@ class NotificationWorker(QThread):
                     self._backfill_unsent()
                 self._drain_once()
             except Exception as exc:  # navbat ishlashi hech qachon to'xtamasin
-                _log.error("NotificationWorker drain xatosi: %s", exc)
+                _log.error("NotificationWorker drain xatosi: %s", self._safe_error(exc))
             self._sleep(self.poll_interval)
 
-    def stop(self):
+    def request_stop(self):
+        """Bloklamaydigan to'xtatish: sikl to'xtaydi, joriy HTTP so'rov qisqa timeout oladi."""
         self._running = False
-        self.wait(2000)
+        self._stop_event.set()
+        self._http_timeout = _SHUTDOWN_HTTP_TIMEOUT
+        if self._backend is not None:
+            self._backend.timeout = _SHUTDOWN_HTTP_TIMEOUT
+
+    def stop(self, timeout_ms: int = 5000) -> bool:
+        """To'xtatadi va timeout_ms gacha kutadi. Thread tugagan bo'lsa True."""
+        self.request_stop()
+        return self.wait(int(timeout_ms))
 
     def _sleep(self, seconds: float):
-        end = time.perf_counter() + seconds
-        while self._running and time.perf_counter() < end:
-            time.sleep(0.2)
+        if self._running:
+            self._stop_event.wait(seconds)
 
     # ── Drain ──────────────────────────────────────────────────────────────
 
@@ -110,11 +152,14 @@ class NotificationWorker(QThread):
 
     def _process_job(self, job: dict):
         job_id = job["id"]
+        # Atomar egallash: boshqa worker/nusxa olgan bo'lsa — tegmaymiz
+        if not self.db.claim_notification_job(job_id):
+            return
         channel = job.get("channel", "")
         payload = self.queue.decode_payload(job.get("payload", "{}"))
         try:
             if channel == "telegram":
-                self._send_telegram(payload, self._load_image(payload))
+                self._send_telegram(job_id, payload)
             elif channel == "backend":
                 self._send_backend(payload)
             else:
@@ -125,8 +170,15 @@ class NotificationWorker(QThread):
             self._on_job_given_up(job, "local")
             _log.warning("Notification job #%s abadiy xato: %s", job_id, exc)
         except Exception as exc:
-            self.queue.mark_failed(job_id, str(exc))
-            _log.warning("Notification job #%s yuborilmadi (retry): %s", job_id, exc)
+            err = self._safe_error(exc)
+            if is_permanent_error(exc):
+                # Server rad etdi (4xx) — retry ham, backfill ham foyda bermaydi
+                self.db.update_notification_job(job_id, status="rejected", last_error=err[:500])
+                self._on_job_given_up(job, "rejected")
+                _log.warning("Notification job #%s rad etildi (retry yo'q): %s", job_id, err)
+            else:
+                self.queue.mark_failed(job_id, err)
+                _log.warning("Notification job #%s yuborilmadi (retry): %s", job_id, err)
         else:
             self.queue.mark_sent(job_id)
             if channel == "backend":
@@ -134,24 +186,52 @@ class NotificationWorker(QThread):
 
     # ── Yuborish ─────────────────────────────────────────────────────────────
 
-    def _send_telegram(self, payload: dict, image_bytes: bytes):
+    def _send_telegram(self, job_id: int, payload: dict):
         if not (self.cfg.telegram_enabled and self.cfg.telegram_token and self.cfg.telegram_chat_ids):
             raise _ChannelDisabled("telegram cfg da o'chirilgan")
         from app.infrastructure.notifications.telegram_notifier import TelegramNotifier
 
-        notifier = TelegramNotifier(self.cfg.telegram_token, self.cfg.telegram_chat_ids)
+        notifier = TelegramNotifier(self.cfg.telegram_token, self.cfg.telegram_chat_ids,
+                                    timeout=self._http_timeout)
+        delivered = [str(c) for c in payload.get("delivered_chat_ids") or []]
+
+        def on_delivered(chat_id: str):
+            # Darhol saqlaymiz — retry (yoki yiqilishdan keyingi start) shu
+            # chat'ga qayta yubormasin.
+            delivered.append(chat_id)
+            payload["delivered_chat_ids"] = list(delivered)
+            try:
+                self.db.update_notification_job(job_id, payload=payload)
+            except Exception as exc:
+                _log.warning("Job #%s delivered_chat_ids saqlanmadi: %s", job_id, exc)
+
         caption = f"⚠️ Shlem yo'q! ID:{payload.get('track_id', '?')}"
-        notifier.send_photo_bytes(image_bytes, caption)
+        image_bytes = self._load_image(payload)
+        if image_bytes is not None:
+            notifier.send_photo_bytes(image_bytes, caption, skip_chat_ids=delivered,
+                                      on_delivered=on_delivered)
+        else:
+            # Rasm saqlanmagan (save_violations=False) — matnli xabar
+            camera = payload.get("camera_name", "")
+            text = caption + (f"\nKamera: {camera}" if camera else "")
+            notifier.send_message(text, skip_chat_ids=delivered, on_delivered=on_delivered)
 
     def _send_backend(self, payload: dict):
         if not (self.cfg.backend_enabled and self.cfg.get("backend_url", "")):
             raise _ChannelDisabled("backend cfg da o'chirilgan")
+        from app.infrastructure.notifications.backend_client import make_idempotency_key
+
+        key = payload.get("idempotency_key") or make_idempotency_key(
+            payload.get("camera_name", ""), payload.get("track_id"),
+            payload.get("timestamp"), payload.get("violation_type", ""),
+        )
         self._backend_client().send_event(
             payload.get("camera_name", ""),
             payload.get("company_id", ""),
             timestamp=payload.get("timestamp"),
             crop_bytes=self._read_file(payload.get("crop_path", "")),
             full_bytes=self._read_file(payload.get("full_path", "")),
+            idempotency_key=key,
         )
 
     def _backend_client(self):
@@ -161,9 +241,25 @@ class NotificationWorker(QThread):
         if self._backend is None or key != self._backend_key:
             from app.infrastructure.notifications.backend_client import BackendClient
 
-            self._backend = BackendClient(api_url=key[0], login=key[1], password=key[2])
+            self._backend = BackendClient(api_url=key[0], login=key[1], password=key[2],
+                                          timeout=self._http_timeout)
             self._backend_key = key
         return self._backend
+
+    def _safe_error(self, exc) -> str:
+        """Xato matnidan maxfiy qiymatlarni (bot token, parol, JWT) olib tashlaydi."""
+        from app.infrastructure.notifications.telegram_notifier import redact_token
+
+        text = redact_token(exc, getattr(self.cfg, "telegram_token", "") or None)
+        if self._backend is not None:
+            text = self._backend.redact(text)
+        try:
+            password = self.cfg.get("backend_password", "")
+        except Exception:
+            password = ""
+        if password and len(str(password)) >= 4:
+            text = text.replace(str(password), "***")
+        return text
 
     # ── Backfill ─────────────────────────────────────────────────────────────
 
@@ -185,6 +281,7 @@ class NotificationWorker(QThread):
                 break
             camera_name = row.get("camera_name", "")
             payload = {
+                "violation_id": row.get("id"),
                 "track_id": row.get("track_id"),
                 "timestamp": row.get("timestamp"),
                 "camera_name": camera_name,
@@ -235,12 +332,13 @@ class NotificationWorker(QThread):
         return None
 
     @staticmethod
-    def _load_image(payload: dict) -> bytes:
+    def _load_image(payload: dict) -> bytes | None:
+        """Buzilish rasmi; topilmasa None (telegram matnli xabar yuboradi)."""
         for key in ("crop_path", "full_path"):
             p = payload.get(key, "")
             if p and Path(p).is_file():
                 return Path(p).read_bytes()
-        raise FileNotFoundError("buzilish rasmi topilmadi (crop_path/full_path)")
+        return None
 
     def _on_job_given_up(self, job: dict, status: str):
         """Backend job'idan voz kechildi — buzilish keyingi backfill'ga qoladi."""

@@ -6,6 +6,8 @@ Ko'p kamera qo'llab-quvvatlash bilan.
 import copy
 import json
 import os
+import shutil
+import time
 from pathlib import Path
 
 import logging
@@ -15,6 +17,36 @@ from app.shared.paths import resolve_model_path
 _log = logging.getLogger(__name__)
 
 SMARTHELMET_DEFAULT = ""
+
+# Ilova bilan birga keladigan shlem modellari (Sozlamalar → AI model'da tanlanadi).
+# (nom, nisbiy yo'l, qisqa tavsif)
+MODEL_PRESETS = (
+    # v4 — standart: asl data qayta augment (uzoqlashtirish mozaikasi) bilan o'qitilgan;
+    # kesishma kameralarida kichik/uzoq odamlarni v2 dan ~1.5 baravar ko'p topadi
+    ("v4", r"app\models\helmet_v4.pt", "Tavsiya etiladi · kichik va uzoq odamlarni yaxshi topadi"),
+    ("YOLO26s", r"app\models\helmet_yolo26s.pt", "Aniqroq · 9.5M parametr"),
+    ("YOLO26n", r"app\models\helmet_yolo26n.pt", "Yengil va tez · 2.4M parametr"),
+    ("v3", r"app\models\helmet_v3.pt", "Odamni yaxshiroq topadi · kesishma kameralari uchun"),
+    ("v1 (eski)", r"app\models\helmet_v1.pt", "Oldingi versiya modeli"),
+)
+DEFAULT_MODEL_PATH = MODEL_PRESETS[0][1]
+_LEGACY_MODEL_PATH = "app/models/best.pt"
+
+
+def _norm_path(path: str) -> str:
+    return str(path or "").replace("\\", "/").strip().lower()
+
+
+def model_preset_index(path: str) -> int:
+    """model_path qaysi presetga mos (-1 — foydalanuvchining boshqa fayli)."""
+    norm = _norm_path(path)
+    if not norm:
+        return -1
+    for i, (_, rel, _) in enumerate(MODEL_PRESETS):
+        rel_n = _norm_path(rel)
+        if norm == rel_n or norm.endswith("/" + rel_n):
+            return i
+    return -1
 
 # Default bitta kamera (namunaviy qiymatlar — real parol/IP yo'q)
 _DEFAULT_CAMERA = {
@@ -52,7 +84,7 @@ DEFAULT_SETTINGS = {
 
     # Model
     "ai_model_enabled": False,
-    "model_path": r"app\models\best.pt",
+    "model_path": DEFAULT_MODEL_PATH,
     "confidence": 0.25,
     "yolo_imgsz": 1024,
     "person_class_id": 0,
@@ -86,6 +118,7 @@ DEFAULT_SETTINGS = {
     "violations_dir": "",
     "keep_files_days": 7,
     "cleanup_files": False,
+    "keep_db_days": 365,          # bazadagi yozuvlar (yuborilmaganlar o'chirilmaydi)
 
     # FaceID / access roster
     "faceid_enabled": False,
@@ -130,8 +163,38 @@ class ConfigManager:
     def __init__(self, settings_file: str = "settings.json"):
         self.settings_file = Path(settings_file)
         self.last_save_error = ""
+        # settings.json buzilgan bo'lsa — UI uchun tushunarli ogohlantirish (bo'sh = hammasi joyida)
+        self.load_warning = ""
         self._settings: dict = {}
         self._load()
+
+    @property
+    def backup_file(self) -> Path:
+        return self.settings_file.with_name(self.settings_file.name + ".bak")
+
+    @staticmethod
+    def _read_json_dict(path: Path) -> dict:
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("settings fayli JSON obyekt emas")
+        return data
+
+    def _quarantine_corrupt_file(self) -> Path | None:
+        """Buzilgan settings.json ni settings.json.bad.<vaqt> ga nusxalaydi —
+        keyingi save() uni ustidan yozib, kamera/foydalanuvchi/tokenlarni yo'qotmasin."""
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        bad = self.settings_file.with_name(f"{self.settings_file.name}.bad.{stamp}")
+        n = 1
+        while bad.exists():
+            bad = self.settings_file.with_name(f"{self.settings_file.name}.bad.{stamp}_{n}")
+            n += 1
+        try:
+            shutil.copy2(self.settings_file, bad)
+            return bad
+        except OSError as exc:
+            _log.error("Buzilgan settings nusxasini saqlab bo'lmadi: %s", exc)
+            return None
 
     # ── Yuklash / Saqlash ─────────────────────────────────────────────────
 
@@ -141,14 +204,30 @@ class ConfigManager:
         self.is_new = not self.settings_file.exists()
         if not self.is_new:
             try:
-                with open(self.settings_file, "r", encoding="utf-8-sig") as f:
-                    saved = json.load(f)
+                saved = self._read_json_dict(self.settings_file)
                 self._settings = {**copy.deepcopy(DEFAULT_SETTINGS), **saved}
                 # Eski o'rnatishlar: kamera haqiqiy bo'lsa ustani qayta ko'rsatmaymiz
                 self._settings.setdefault("setup_completed", True)
             except Exception as e:
                 _log.error("settings.json o'qishda xatolik: %s", e)
-                self._settings = copy.deepcopy(DEFAULT_SETTINGS)
+                bad = self._quarantine_corrupt_file()
+                bad_note = f" Buzilgan fayl nusxasi: {bad.name}." if bad else ""
+                try:
+                    saved = self._read_json_dict(self.backup_file)
+                    self._settings = {**copy.deepcopy(DEFAULT_SETTINGS), **saved}
+                    self._settings.setdefault("setup_completed", True)
+                    self.load_warning = (
+                        "Sozlamalar fayli buzilgan edi — oxirgi zaxira nusxadan "
+                        f"({self.backup_file.name}) tiklandi.{bad_note}"
+                    )
+                    _log.warning("settings.json zaxiradan tiklandi: %s", self.backup_file)
+                except Exception as bak_exc:
+                    _log.error("settings.json.bak ham o'qilmadi: %s", bak_exc)
+                    self._settings = copy.deepcopy(DEFAULT_SETTINGS)
+                    self.load_warning = (
+                        "Sozlamalar fayli buzilgan va zaxira topilmadi — standart "
+                        f"sozlamalar yuklandi.{bad_note}"
+                    )
         else:
             self._settings = copy.deepcopy(DEFAULT_SETTINGS)
             self._settings["setup_completed"] = False
@@ -158,6 +237,7 @@ class ConfigManager:
         self._migrate_users()
         self._migrate_class_ids()
         self._migrate_faceid_threshold()
+        self._migrate_model_path()
 
     @property
     def needs_setup_wizard(self) -> bool:
@@ -173,6 +253,13 @@ class ConfigManager:
         # 40 px eski standart: endi kichik yuzlar bir necha kadr birlashtirilib ishlatiladi
         if int(self._settings.get("faceid_min_face_px", 24)) == 40:
             self._settings["faceid_min_face_px"] = 24
+
+    def _migrate_model_path(self):
+        """Eski `app\\models\\best.pt` endi yo'q — standart YOLO26s ga o'tkaziladi.
+        Foydalanuvchi best.pt ni o'zi qo'ygan bo'lsa (fayl mavjud) — tegilmaydi."""
+        raw = str(self._settings.get("model_path", "") or "")
+        if _norm_path(raw) == _LEGACY_MODEL_PATH and not resolve_model_path(raw).exists():
+            self._settings["model_path"] = DEFAULT_MODEL_PATH
 
     def _migrate_class_ids(self):
         """Eski helmet_class_ids:[0]/no_helmet_class_ids:[1] → [1]/[2] ga ko'chirish."""
@@ -269,6 +356,7 @@ class ConfigManager:
                 json.dump(self._settings, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
+            self._backup_previous()
             os.replace(tmp, self.settings_file)
             self.last_save_error = ""
             return True
@@ -280,6 +368,28 @@ class ConfigManager:
             except OSError:
                 pass
             return False
+
+    def _backup_previous(self) -> None:
+        """Joriy (yaroqli) settings.json ni .bak ga atomik nusxalaydi.
+
+        Buzilgan fayl .bak ga yozilmaydi — oxirgi yaxshi zaxira saqlanib qoladi.
+        Zaxira xatosi saqlashni to'xtatmaydi."""
+        if not self.settings_file.exists():
+            return
+        try:
+            self._read_json_dict(self.settings_file)
+        except Exception:
+            return
+        bak_tmp = self.backup_file.with_name(self.backup_file.name + ".tmp")
+        try:
+            shutil.copy2(self.settings_file, bak_tmp)
+            os.replace(bak_tmp, self.backup_file)
+        except OSError as exc:
+            _log.warning("settings.json zaxirasini yozib bo'lmadi: %s", exc)
+            try:
+                bak_tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _friendly_save_error(self, exc: Exception) -> str:
         folder = str(self.settings_file.resolve().parent)

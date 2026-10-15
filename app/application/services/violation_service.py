@@ -5,9 +5,7 @@ import time
 import numpy as np
 
 from app.domain.entities import ViolationEvent
-from app.infrastructure.notifications.notification_dispatcher import (
-    NotificationDispatcher,
-)
+from app.infrastructure.notifications.backend_client import make_idempotency_key
 from app.infrastructure.persistence.file_storage import ViolationFileStorage
 from app.infrastructure.persistence.sqlite_db import ViolationsDB
 from app.application.services.notification_queue_service import NotificationQueueService
@@ -20,12 +18,10 @@ class ViolationService:
         self,
         db: ViolationsDB,
         file_storage: ViolationFileStorage | None = None,
-        dispatcher: NotificationDispatcher | None = None,
         notification_queue: NotificationQueueService | None = None,
     ):
         self.db = db
         self.file_storage = file_storage or ViolationFileStorage()
-        self.dispatcher = dispatcher or NotificationDispatcher()
         self.notification_queue = notification_queue or NotificationQueueService(db)
 
     def register_violation(
@@ -58,9 +54,11 @@ class ViolationService:
             track_id=track_id,
             timestamp=timestamp,
             enabled=save_files,
+            camera_id=camera_id,
         )
 
-        self.db.add_violation(
+        sync_status = "queued" if backend else "local"
+        violation = dict(
             track_id=track_id,
             crop_path=crop_path,
             full_path=full_path,
@@ -73,8 +71,30 @@ class ViolationService:
             employee_id=employee_id,
             employee_name=employee_name,
             identity_confidence=identity_confidence,
-            sync_status="queued" if backend else "local",
+            sync_status=sync_status,
         )
+        # Har doim navbatga qo'yamiz (rasm bo'lmasa ham — payload rasmsiz):
+        # NotificationWorker ishonchli yuboradi (retry + backoff + offline drain).
+        # Buzilish va joblar bitta tranzaksiyada — oraliqda yiqilsa job yo'qolmaydi.
+        payload = {
+            "track_id": track_id,
+            "timestamp": timestamp,
+            "camera_name": camera_name,
+            "company_id": company_id,
+            "violation_type": violation_type,
+            "employee_id": employee_id,
+            "employee_name": employee_name,
+            "crop_path": crop_path,
+            "full_path": full_path,
+            "idempotency_key": make_idempotency_key(
+                camera_name, track_id, timestamp, violation_type),
+        }
+        jobs = []
+        if notifier is not None:
+            jobs.append(("telegram", dict(payload)))
+        if backend is not None:
+            jobs.append(("backend", dict(payload)))
+        self.db.add_violation_with_jobs(violation, jobs)
 
         event = ViolationEvent(
             track_id=track_id,
@@ -88,20 +108,9 @@ class ViolationService:
             employee_id=employee_id,
             employee_name=employee_name,
             identity_confidence=identity_confidence,
-            sync_status="queued" if backend else "local",
+            sync_status=sync_status,
             crop_path=crop_path,
             full_path=full_path,
             crop_frame=crop_frame,
         )
-        # Diskda rasm bo'lsa — navbatga qo'yamiz (NotificationWorker ishonchli
-        # yuboradi: retry + backoff + offline drain). Aks holda retry uchun rasm
-        # yo'q, shuning uchun darhol (retrysiz) yuboramiz.
-        if crop_path or full_path:
-            self.notification_queue.enqueue_violation_jobs(
-                event,
-                telegram_enabled=notifier is not None,
-                backend_enabled=backend is not None,
-            )
-        else:
-            self.dispatcher.dispatch(event, frame, notifier=notifier, backend=backend)
         return event

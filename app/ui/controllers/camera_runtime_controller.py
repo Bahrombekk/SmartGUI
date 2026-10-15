@@ -10,7 +10,9 @@ signallarga ulanib sahifalarni yangilaydi.
 """
 from __future__ import annotations
 
+import logging
 import threading
+import time
 from typing import Callable
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
@@ -20,6 +22,26 @@ from app.workers.camera_service import svc_destroy
 from app.workers.cleanup_worker import CleanupWorker
 from app.workers.detection_worker import DetectionWorker
 from app.workers.notification_worker import NotificationWorker
+
+_log = logging.getLogger(__name__)
+
+# Tozalash har kuni bir marta (startdagidan tashqari)
+_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+# Yopilishda vaqtida to'xtamagan threadlar — havola shu yerda qoladi.
+_ORPHAN_THREADS: list = []
+
+
+def running_orphan_threads() -> list:
+    """Ilova yopilgandan keyin ham ishlayotgan QThread'lar (main.py tekshiradi)."""
+    alive = []
+    for t in _ORPHAN_THREADS:
+        try:
+            if t.isRunning():
+                alive.append(t)
+        except RuntimeError:  # C++ obyekt allaqachon o'chirilgan
+            continue
+    return alive
 
 
 class CameraRuntimeController(QObject):
@@ -43,7 +65,12 @@ class CameraRuntimeController(QObject):
         self.db = db
 
         self._workers: dict[int, DetectionWorker] = {}
-        self._stopping_workers: list[DetectionWorker] = []
+        # To'xtatilgan, lekin hali tugamagan threadlar (kamera/notification/cleanup).
+        # finished signalida olib tashlanadi — ungacha havola GC'dan himoya qiladi.
+        self._stopping_workers: list = []
+        self._cleanup_timer = QTimer(self)
+        self._cleanup_timer.setInterval(_CLEANUP_INTERVAL_MS)
+        self._cleanup_timer.timeout.connect(self.start_cleanup)
         self._cleanup_worker: CleanupWorker | None = None
         self._notification_worker: NotificationWorker | None = None
         self.persons_per_cam: dict[int, int] = {}
@@ -54,6 +81,7 @@ class CameraRuntimeController(QObject):
 
         # Faqat Dashboard/Cameras sahifasida frame emit qilish uchun joriy holat.
         self._emit_frames = True
+        self._focus_cam: int | None = None
 
         # Non-blocking restart state-machine
         self._restart_in_progress = False
@@ -92,6 +120,7 @@ class CameraRuntimeController(QObject):
         worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
 
         worker.set_emit_frames(self._emit_frames)
+        self._apply_display_width(cam_id, worker)
         worker.start()
         self._workers[cam_id] = worker
         return True
@@ -115,25 +144,58 @@ class CameraRuntimeController(QObject):
 
     # ── To'xtatish ──────────────────────────────────────────────────────────
 
-    def stop_all_blocking(self) -> None:
-        """Bloklovchi to'xtatish — faqat ilova yopilganda (closeEvent) ishlatiladi."""
+    def stop_all_blocking(self, total_timeout_ms: int = 5000) -> None:
+        """Bloklovchi to'xtatish — faqat ilova yopilganda (closeEvent) ishlatiladi.
+
+        Barcha threadlar (kamera, notification, cleanup, oldin "fon rejimida"
+        qolganlar) umumiy `total_timeout_ms` ichida kutiladi. Hali ishlayotgan
+        QThread hech qachon GC qilinmaydi — havola `_stopping_workers` da
+        qoladi (aks holda "QThread: Destroyed while thread is still running").
+        """
+        self._cleanup_timer.stop()
         running = [w for w in self._workers.values() if w and w.isRunning()]
         for worker in running:
             worker.request_stop()
-        for worker in running:
-            worker.wait(1200)
-        pending = [w for w in running if w.isRunning()]
-        self._stopping_workers.extend(w for w in pending if w not in self._stopping_workers)
+        self._park(running)
 
         self._workers.clear()
         self.persons_per_cam.clear()
         self.pause_changed.emit(False)
 
-        if self._notification_worker is not None:
-            self._notification_worker.stop()
+        notif = self._notification_worker
+        if notif is not None:
+            notif.request_stop()          # HTTP timeout qisqaradi, sikl to'xtaydi
+            self._park([notif])
             self._notification_worker = None
+        if self._cleanup_worker is not None:
+            self._park([self._cleanup_worker])
+            self._cleanup_worker = None
 
+        self.wait_parked(total_timeout_ms)
         svc_destroy()
+
+    def _park(self, threads) -> None:
+        """Ishlayotgan threadlarni tugaguncha havolada ushlab turadi."""
+        for t in threads:
+            if t is not None and t.isRunning() and t not in self._stopping_workers:
+                self._stopping_workers.append(t)
+
+    def wait_parked(self, total_timeout_ms: int = 5000) -> bool:
+        """Barcha "to'xtayotgan" threadlarni umumiy timeout ichida kutadi."""
+        deadline = time.monotonic() + max(0, total_timeout_ms) / 1000.0
+        for t in list(self._stopping_workers):
+            left_ms = int((deadline - time.monotonic()) * 1000)
+            if left_ms <= 0:
+                break
+            t.wait(left_ms)
+        still = [t for t in self._stopping_workers if t.isRunning()]
+        self._stopping_workers[:] = still
+        if still:
+            # Havolalar saqlanib qoladi (modul darajasida ham) — interpreter
+            # chiqishida ham ishlayotgan QThread o'chirilmaydi.
+            _ORPHAN_THREADS.extend(t for t in still if t not in _ORPHAN_THREADS)
+            _log.warning("%s ta thread %s ms ichida to'xtamadi", len(still), total_timeout_ms)
+        return not still
 
     def _request_stop_all(self) -> None:
         for worker in self._workers.values():
@@ -212,8 +274,7 @@ class CameraRuntimeController(QObject):
         Worker allaqachon to'xtatilgan bo'lsa to'liq restart qilinadi.
         """
         worker = self._workers.get(cam_id)
-        if worker and worker.isRunning():
-            worker.reconnect()
+        if worker and worker.isRunning() and worker.reconnect():
             self.runtime_status.emit(f"Kamera {cam_id:02d}: qayta ulanmoqda...")
             return True
         return self.restart_camera(cam_id)
@@ -244,27 +305,39 @@ class CameraRuntimeController(QObject):
         """
         if self._notification_worker and self._notification_worker.isRunning():
             return
-        self._notification_worker = NotificationWorker(self.db, self.cfg)
-        self._notification_worker.start()
+        worker = NotificationWorker(self.db, self.cfg)
+        worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
+        self._notification_worker = worker
+        worker.start()
 
     def start_cleanup(self) -> None:
+        """Tozalashni ishga tushiradi: startda va keyin har 24 soatda.
+
+        Sozlamalar har safar yangidan o'qiladi (foydalanuvchi o'zgartirgan bo'lishi mumkin).
+        """
+        if not self._cleanup_timer.isActive():
+            self._cleanup_timer.start()
         if self._cleanup_worker and self._cleanup_worker.isRunning():
             return
-        self._cleanup_worker = CleanupWorker(
+        worker = CleanupWorker(
             self.db,
             self.cfg,
-            keep_days=int(self.cfg.get("keep_files_days", 7)),
+            keep_days=int(self.cfg.get("keep_files_days", 7) or 7),
             cleanup_files=bool(self.cfg.get("cleanup_files", False)),
+            keep_db_days=int(self.cfg.get("keep_db_days", 365) or 365),
         )
-        self._cleanup_worker.finished_cleanup.connect(
+        worker.finished_cleanup.connect(
             lambda info: self.cleanup_status.emit(
-                f"Tozalash bajarildi: {info.get('keep_days')} kun, {info.get('deleted_files')} fayl"
+                f"Tozalash bajarildi: {info.get('deleted_rows', 0)} yozuv, "
+                f"{info.get('deleted_files')} fayl"
             )
         )
-        self._cleanup_worker.error_occurred.connect(
+        worker.error_occurred.connect(
             lambda msg: self.cleanup_status.emit(f"Tozalash xatosi: {msg[:60]}")
         )
-        self._cleanup_worker.start()
+        worker.finished.connect(lambda w=worker: self._forget_stopping_worker(w))
+        self._cleanup_worker = worker
+        worker.start()
 
     # ── Pauza / frame emission ──────────────────────────────────────────────
 
@@ -282,6 +355,22 @@ class CameraRuntimeController(QObject):
             else:
                 worker.resume()
         self.pause_changed.emit(paused)
+
+    def set_focus_camera(self, cam_id: int | None) -> None:
+        """Katta oynada ko'rsatilayotgan kamera to'liq sifatda (display_focus_width),
+        qolganlari display_max_width da uzatiladi — CPU/QImage trafigi tejaladi."""
+        self._focus_cam = int(cam_id) if cam_id is not None else None
+        for cid, worker in self._workers.items():
+            self._apply_display_width(cid, worker)
+
+    def _apply_display_width(self, cam_id, worker) -> None:
+        if not hasattr(worker, "set_display_width"):
+            return
+        focus = getattr(self, "_focus_cam", None)
+        if focus is not None and int(cam_id) == focus:
+            worker.set_display_width(int(self.cfg.get("display_focus_width", 1920)))
+        else:
+            worker.set_display_width(None)
 
     def set_frame_emission(self, enabled: bool) -> None:
         """Faqat Dashboard/Cameras sahifasi ko'rinib turganda True."""
@@ -311,6 +400,8 @@ class CameraRuntimeController(QObject):
         self.model_loaded_cameras.add(cam_id)
         self.model_loaded.emit(cam_id)
 
-    def _forget_stopping_worker(self, worker: DetectionWorker) -> None:
+    def _forget_stopping_worker(self, worker) -> None:
         if worker in self._stopping_workers:
             self._stopping_workers.remove(worker)
+        if worker in _ORPHAN_THREADS:
+            _ORPHAN_THREADS.remove(worker)
