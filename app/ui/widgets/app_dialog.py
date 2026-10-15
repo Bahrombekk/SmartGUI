@@ -11,12 +11,12 @@ QMessageBox.StandardButton, shuning uchun chaqiruvchi kod o'zgarmaydi:
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QPoint, QRectF
-from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap, QFont
-from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout
+from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtGui import QColor, QPainter
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
-from app.ui.styles import C
-from app.ui.widgets.frameless import FramedDialog
+from app.ui import fz
+from app.ui.widgets.frameless import FramedDialog, dialog_button, dialog_footer
 
 SB = QMessageBox.StandardButton
 
@@ -34,41 +34,37 @@ _BUTTON_TEXT = {
 _BUTTON_ORDER = [SB.Cancel, SB.No, SB.Discard, SB.Close, SB.Retry, SB.Save, SB.Ok, SB.Yes]
 _REJECT_BUTTONS = (SB.No, SB.Cancel, SB.Close)
 
-_KIND_COLOR = {
-    "question": "info",
-    "information": "info",
-    "warning": "warning",
-    "critical": "danger",
+# (ikon foni, belgi rangi, belgi) — Figma tokenlari
+_KIND_STYLE = {
+    "question":    (fz.BLUE_BG, fz.ACCENT, "?"),
+    "information": (fz.BLUE_BG, fz.ACCENT, "i"),
+    "warning":     ("#2e2410", "#f3b348", "!"),
+    "critical":    (fz.RED_BG, fz.RED, "×"),
 }
 
 
-def _kind_icon(kind: str, size: int = 40) -> QPixmap:
-    """Doira ichida belgi: ?, i, !, ×."""
-    color = QColor(C(_KIND_COLOR.get(kind, "info")))
-    pix = QPixmap(size, size)
-    pix.fill(Qt.GlobalColor.transparent)
-    p = QPainter(pix)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    bg = QColor(color)
-    bg.setAlpha(38)
-    p.setPen(QPen(color, 1.6))
-    p.setBrush(bg)
-    p.drawEllipse(QRectF(1.5, 1.5, size - 3, size - 3))
-    p.setPen(color)
-    if kind == "critical":
-        pen = QPen(color, 2.6, cap=Qt.PenCapStyle.RoundCap)
-        p.setPen(pen)
-        m = size * 0.34
-        p.drawLine(QPoint(int(m), int(m)), QPoint(int(size - m), int(size - m)))
-        p.drawLine(QPoint(int(size - m), int(m)), QPoint(int(m), int(size - m)))
-    else:
-        glyph = {"question": "?", "warning": "!", "information": "i"}.get(kind, "i")
-        f = QFont("Segoe UI", int(size * 0.42))
-        f.setBold(True)
-        p.setFont(f)
-        p.drawText(pix.rect(), Qt.AlignmentFlag.AlignCenter, glyph)
-    p.end()
-    return pix
+class _KindIcon(QWidget):
+    """40x40 radius 10 rangli quti ichida belgi (KPI ikon qutilari uslubida)."""
+
+    def __init__(self, kind: str, parent=None):
+        super().__init__(parent)
+        self._bg, self._fg, self._glyph = _KIND_STYLE.get(kind, _KIND_STYLE["information"])
+        self.setFixedSize(40, 40)
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(self._bg))
+        p.drawRoundedRect(QRectF(0, 0, 40, 40), 10, 10)
+        p.setPen(QColor(self._fg))
+        p.setFont(fz.qfont(20 if self._glyph == "×" else 18, 700))
+        p.drawText(QRectF(0, 0, 40, 39), Qt.AlignmentFlag.AlignCenter, self._glyph)
+        p.end()
+
+
+_dialog_button = dialog_button
+_footer = dialog_footer
 
 
 class AppMessageBox(FramedDialog):
@@ -84,40 +80,44 @@ class AppMessageBox(FramedDialog):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # ── Matn ─────────────────────────────────────────────────────────
+        # ── Matn: birinchi qator — asosiy, qolgani — izoh ────────────────
         body = QHBoxLayout()
-        body.setContentsMargins(22, 20, 24, 8)
-        body.setSpacing(16)
-        icon_lbl = QLabel()
-        icon_lbl.setPixmap(_kind_icon(kind))
-        icon_lbl.setFixedSize(40, 40)
-        body.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop)
-        text_lbl = QLabel(text, objectName="appDialogText")
-        text_lbl.setWordWrap(True)
-        text_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        text_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        text_lbl.setMinimumWidth(300)
-        text_lbl.setMaximumWidth(460)
-        body.addWidget(text_lbl, 1)
+        body.setContentsMargins(20, 20, 24, 20)
+        body.setSpacing(14)
+        body.addWidget(_KindIcon(kind), 0, Qt.AlignmentFlag.AlignTop)
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 1, 0, 0)
+        col.setSpacing(5)
+        head, _, rest = str(text).strip().partition("\n")
+        main_lbl = fz.label(head, 14, 600, fz.TEXT, wrap=True)
+        main_lbl.setObjectName("appDialogText")
+        main_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        main_lbl.setMinimumWidth(320)
+        main_lbl.setMaximumWidth(480)
+        col.addWidget(main_lbl)
+        rest = rest.strip()
+        if rest:
+            sub = fz.label(rest, 13, 400, fz.TEXT2, wrap=True)
+            sub.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            sub.setMinimumWidth(320)
+            sub.setMaximumWidth(480)
+            col.addWidget(sub)
+        col.addStretch(1)
+        body.addLayout(col, 1)
         lay.addLayout(body)
 
         # ── Tugmalar ─────────────────────────────────────────────────────
-        btn_row = QHBoxLayout()
-        btn_row.setContentsMargins(22, 14, 18, 18)
-        btn_row.setSpacing(10)
-        btn_row.addStretch(1)
+        footer, btn_row = _footer()
         chosen = [b for b in _BUTTON_ORDER if buttons & b] or [SB.Ok]
         if default_button == SB.NoButton:
             default_button = chosen[-1]
         self._escape_button = next((b for b in chosen if b in _REJECT_BUTTONS), chosen[0])
         for sb in chosen:
-            btn = QPushButton(_BUTTON_TEXT.get(sb, "OK"))
-            btn.setMinimumSize(96, 34)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
             primary = sb not in _REJECT_BUTTONS and sb != SB.Discard
-            btn.setObjectName("appDialogPrimary" if primary else "appDialogSecondary")
-            if kind == "critical" and primary and sb in (SB.Yes, SB.Ok):
-                btn.setObjectName("appDialogDanger" if len(chosen) > 1 else "appDialogPrimary")
+            kind_btn = "primary" if primary else "ghost"
+            if kind == "critical" and primary and sb in (SB.Yes, SB.Ok) and len(chosen) > 1:
+                kind_btn = "danger"
+            btn = _dialog_button(_BUTTON_TEXT.get(sb, "OK"), kind_btn)
             btn.clicked.connect(lambda _=False, s=sb: self._finish(s))
             if sb == default_button:
                 btn.setDefault(True)
@@ -126,37 +126,12 @@ class AppMessageBox(FramedDialog):
             else:
                 btn.setAutoDefault(False)
             btn_row.addWidget(btn)
-        lay.addLayout(btn_row)
+        lay.addWidget(footer)
 
         self._apply_frame_style()
 
     def frame_style(self) -> str:
-        accent = C("accent")
-        return f"""
-            QLabel#appDialogText {{
-                color: {C('text_primary')}; font-size: 14px; background: transparent;
-            }}
-            QPushButton#appDialogPrimary {{
-                background: {accent}; color: {C('text_on_accent')};
-                border: 1px solid {accent}; border-radius: 8px;
-                font-size: 13px; font-weight: 600; padding: 0 18px;
-            }}
-            QPushButton#appDialogPrimary:hover {{ background: {C('accent_hover')}; }}
-            QPushButton#appDialogDanger {{
-                background: {C('danger')}; color: #ffffff;
-                border: 1px solid {C('danger')}; border-radius: 8px;
-                font-size: 13px; font-weight: 600; padding: 0 18px;
-            }}
-            QPushButton#appDialogSecondary {{
-                background: transparent; color: {C('text_secondary')};
-                border: 1px solid {C('border_strong')}; border-radius: 8px;
-                font-size: 13px; padding: 0 18px;
-            }}
-            QPushButton#appDialogSecondary:hover {{
-                background: {C('bg_hover')}; color: {C('text_primary')};
-            }}
-            QPushButton:focus {{ outline: none; }}
-        """
+        return ""
 
     def _finish(self, sb):
         self._result = sb
@@ -199,47 +174,38 @@ class AppInputDialog(FramedDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        lay = QVBoxLayout(self.body)
-        lay.setContentsMargins(22, 18, 22, 18)
-        lay.setSpacing(10)
-        lbl = QLabel(label, objectName="appDialogText")
+        outer = QVBoxLayout(self.body)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        lay = QVBoxLayout()
+        lay.setContentsMargins(20, 18, 20, 18)
+        lay.setSpacing(7)
+        lbl = fz.label(label, 12.5, 500, fz.TEXT2)
         lay.addWidget(lbl)
-        self._edit = QLineEdit(text)
-        self._edit.setPlaceholderText(placeholder)
-        self._edit.setMinimumWidth(340)
-        self._edit.setFixedHeight(36)
+        self._edit = fz.line_edit(placeholder, h=36, px=13.5)
+        self._edit.setText(text)
+        self._edit.setMinimumWidth(360)
         self._edit.returnPressed.connect(self._accept_if_valid)
         lay.addWidget(self._edit)
-        self._error = QLabel("", objectName="appInputError")
+        self._error = fz.label("", 12, 400, fz.RED, wrap=True)
         self._error.hide()
         lay.addWidget(self._error)
-        row = QHBoxLayout()
-        row.setSpacing(10)
-        row.addStretch(1)
-        cancel = QPushButton("Bekor qilish", objectName="appDialogSecondary")
-        cancel.setMinimumSize(96, 34)
+        outer.addLayout(lay)
+        footer, row = _footer()
+        cancel = _dialog_button("Bekor qilish", "ghost")
         cancel.setAutoDefault(False)
         cancel.clicked.connect(self.reject)
-        ok = QPushButton("OK", objectName="appDialogPrimary")
-        ok.setMinimumSize(96, 34)
+        ok = _dialog_button("OK", "primary")
         ok.setDefault(True)
         ok.clicked.connect(self._accept_if_valid)
         row.addWidget(cancel)
         row.addWidget(ok)
-        lay.addLayout(row)
+        outer.addWidget(footer)
         self._apply_frame_style()
         self._edit.setFocus()
 
     def frame_style(self) -> str:
-        return AppMessageBox.frame_style(self) + f"""
-            QLineEdit {{
-                background: {C('input_bg')}; color: {C('text_primary')};
-                border: 1px solid {C('input_border')}; border-radius: 8px; padding: 0 10px;
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{ border: 1px solid {C('accent')}; }}
-            QLabel#appInputError {{ color: {C('danger')}; font-size: 12px; background: transparent; }}
-        """
+        return AppMessageBox.frame_style(self)
 
     def _accept_if_valid(self):
         if not self._edit.text().strip():

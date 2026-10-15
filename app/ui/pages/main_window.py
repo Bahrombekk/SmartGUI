@@ -13,10 +13,11 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QMainWindow, QStackedWidget, QStatusBar, QLabel, QPushButton,
     QMessageBox, QSizePolicy, QWidget, QHBoxLayout, QVBoxLayout,
-    QApplication, QLineEdit
+    QApplication, QLineEdit, QAbstractButton, QComboBox, QAbstractSpinBox,
+    QAbstractItemView, QTextEdit, QPlainTextEdit, QAbstractSlider,
 )
 from PyQt6.QtCore import Qt, QTimer, QSize, QEvent
-from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QImage, QPainter, QBrush, QShortcut
+from PyQt6.QtGui import QAction, QKeySequence, QFont, QColor, QIcon, QPixmap, QImage, QPainter, QBrush, QShortcut, QKeyEvent
 
 from app.ui.widgets.app_dialog import AppMessageBox
 from app.ui.widgets.toast import show_toast
@@ -32,7 +33,7 @@ from app.ui.pages.cameras_page import CamerasPage
 from app.ui.pages.violations_page import ViolationsPage
 from app.ui.pages.analytics_page import AnalyticsPage
 from app.ui.pages.users_page import UsersPage
-from app.ui.pages.settings_dialog import SettingsPage
+from app.ui.pages.settings_page import SettingsPage
 from app.ui.styles import C, build_main_stylesheet as get_main_stylesheet, set_theme
 
 
@@ -40,547 +41,7 @@ from app.ui.styles import C, build_main_stylesheet as get_main_stylesheet, set_t
 #  Top Navbar
 # тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
-class TopNavBar(QWidget):
-    """SmartHelmet dizaynidagi gorizontal top navbar."""
-
-    PAGE_DASHBOARD  = 0
-    PAGE_REPORTS    = 3
-    PAGE_ANALYTICS  = 2
-    PAGE_USERS      = 5
-    PAGE_SETTINGS   = 6
-
-    def __init__(self, on_page_change, on_settings, on_quit, on_search=None,
-                 on_notifications=None, on_theme_change=None, on_refresh=None, parent=None):
-        super().__init__(parent)
-        self._on_page_change = on_page_change
-        self._on_settings    = on_settings
-        self._on_quit        = on_quit
-        self._on_search      = on_search
-        self._on_notifications = on_notifications
-        self._on_theme_change = on_theme_change
-        self._on_refresh = on_refresh
-        self._nav_btns: dict[int, QPushButton] = {}
-        self._icon_dir = Path(__file__).resolve().parents[3] / "images"
-        self._notif_count = 0
-        self._is_light_mode = False
-        self._restore_maximized_after_fullscreen = True
-
-        self.setFixedHeight(58)
-        self.setStyleSheet("background: #0c1a2e;")
-        self._setup_ui()
-
-    def _setup_ui(self):
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        # тФАтФА Nav tugmalari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
-        nav_items = [
-            (self.PAGE_DASHBOARD, "Bosh sahifa", "dashboard.svg"),
-            (1,                   "Kameralar", "camera.svg"),
-            (self.PAGE_ANALYTICS, "Tahlil",    "analytics.svg"),
-            (self.PAGE_REPORTS,   "Hisobotlar", "reports.svg"),
-            (self.PAGE_USERS,     "Xodimlar",  "users.svg"),
-        ]
-
-        for page_id, label, icon_name in nav_items:
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            btn.setFixedHeight(58)
-            btn.setMinimumWidth(86)
-            btn.setIcon(self._icon(icon_name))
-            btn.setIconSize(QSize(16, 16))
-            btn.setStyleSheet(self._nav_style())
-            btn.clicked.connect(lambda _, p=page_id: self._nav_click(p))
-            lay.addWidget(btn)
-            self._nav_btns[page_id] = btn
-
-        settings_btn = QPushButton("Sozlamalar")
-        settings_btn.setCheckable(True)
-        settings_btn.setFixedHeight(58)
-        settings_btn.setMinimumWidth(86)
-        settings_btn.setIcon(self._icon("settings.svg"))
-        settings_btn.setIconSize(QSize(16, 16))
-        settings_btn.setStyleSheet(self._nav_style())
-        settings_btn.clicked.connect(lambda: self._nav_click(self.PAGE_SETTINGS))
-        lay.addWidget(settings_btn)
-        self._nav_btns[self.PAGE_SETTINGS] = settings_btn
-
-        self._refresh_btn = QPushButton("Yangilash")
-        self._refresh_btn.setFixedHeight(58)
-        self._refresh_btn.setMinimumWidth(86)
-        self._refresh_btn.setIcon(self._colored_icon("refresh.svg", C("text_primary"), 16))
-        self._refresh_btn.setIconSize(QSize(16, 16))
-        self._refresh_btn.setToolTip("Dastur interfeysini to'liq yangilash")
-        self._refresh_btn.setStyleSheet(self._nav_style())
-        self._refresh_btn.clicked.connect(self._refresh_requested)
-        lay.addWidget(self._refresh_btn)
-
-        # ── Logo (markaz) ─────────────────────────────────────────────────────
-        lay.addStretch(1)
-
-        logo_w = QWidget()
-        logo_w.setStyleSheet("background: transparent;")
-        logo_lay = QHBoxLayout(logo_w)
-        logo_lay.setContentsMargins(0, 0, 0, 0)
-        logo_lay.setSpacing(12)
-
-        self._logo_circle = QLabel("SZ")
-        self._logo_circle.setFixedSize(38, 38)
-        self._logo_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._logo_circle.setStyleSheet(
-            "background: transparent; color: #e2e8f0; border-radius: 0px;"
-            " font-size: 12px; font-weight: 900; border: none;"
-        )
-        logo_lay.addWidget(self._logo_circle)
-
-        self._logo_txt = QLabel()
-        self._logo_txt.setTextFormat(Qt.TextFormat.RichText)
-        self._apply_logo_text()
-        self._logo_txt.setStyleSheet("background: transparent;")
-        logo_lay.addWidget(self._logo_txt)
-
-        self._apply_logo_image()
-        lay.addWidget(logo_w)
-
-        lay.addStretch(1)
-
-        self._logo_sep = QWidget()
-        self._logo_sep.setFixedSize(0, 0)
-
-        # ── O'ng tomon: qidiruv + bell + controls тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("Qidirish...")
-        self._search.setFixedWidth(160)
-        self._search.setFixedHeight(32)
-        self._search.setStyleSheet(self._search_style())
-        self._search.textChanged.connect(self._on_search_changed)
-        lay.addWidget(self._search)
-        lay.addSpacing(8)
-
-        # Bell
-        self._bell_btn = QPushButton()
-        self._bell_btn.setFixedSize(30, 30)
-        self._bell_btn.setIcon(self._icon("bell.svg"))
-        self._bell_btn.setIconSize(QSize(18, 18))
-        self._bell_btn.setStyleSheet(self._icon_btn_style())
-        self._bell_btn.setToolTip("Hisobotlar / buzilishlar")
-        self._bell_btn.clicked.connect(self._open_notifications)
-        lay.addWidget(self._bell_btn)
-
-        # Notification badge
-        self._notif_badge = QLabel("0")
-        self._notif_badge.setFixedSize(18, 18)
-        self._notif_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._notif_badge.setStyleSheet(
-            f"background: {C('accent_hover')}; color: white; border-radius: 9px;"
-            " font-size: 10px; font-weight: bold;"
-        )
-        self._notif_badge.setParent(self)
-        self._notif_badge.hide()
-
-        # Moon / tema
-        self._theme_btn = QPushButton()
-        self._theme_btn.setFixedSize(30, 30)
-        self._theme_btn.setIcon(self._icon("moon.svg"))
-        self._theme_btn.setIconSize(QSize(18, 18))
-        self._theme_btn.setToolTip("Yashil mavzu")
-        self._theme_btn.setCheckable(True)
-        self._theme_btn.setStyleSheet(self._icon_btn_style())
-        self._theme_btn.clicked.connect(self._toggle_theme)
-        lay.addWidget(self._theme_btn)
-
-        # Expand (fullscreen)
-        self._expand_btn = QPushButton()
-        self._expand_btn.setFixedSize(30, 30)
-        self._expand_btn.setIcon(self._icon("expand.svg"))
-        self._expand_btn.setIconSize(QSize(18, 18))
-        self._expand_btn.setToolTip("To'liq ekran")
-        self._expand_btn.setStyleSheet(self._icon_btn_style())
-        self._expand_btn.clicked.connect(self._toggle_fullscreen)
-        lay.addWidget(self._expand_btn)
-
-        lay.addSpacing(2)
-
-        # Kamera soni badge
-        self._cam_badge = QLabel("0/0 kamera")
-        self._cam_badge.setFixedHeight(74)
-        self._cam_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._cam_badge.setStyleSheet(
-            f"color: {C('accent')}; font-size: 11px; font-weight: 600;"
-            f"background: {C('accent_dim')}; padding: 0 12px;"
-            f"border-left: 1px solid {C('border')}; border-right: 1px solid {C('border')};"
-        )
-        lay.addWidget(self._cam_badge)
-        self._cam_badge.hide()
-        lay.addSpacing(8)
-
-        # Pauza
-        self._pause_btn = QPushButton("|| Pauza")
-        self._pause_btn.setFixedHeight(32)
-        self._pause_btn.setEnabled(False)
-        self._pause_btn.setStyleSheet(self._action_btn_style())
-        lay.addWidget(self._pause_btn)
-        self._pause_btn.hide()
-
-        # Restart
-        self._restart_btn = QPushButton("Qayta")
-        self._restart_btn.setFixedHeight(32)
-        self._restart_btn.setStyleSheet(self._action_btn_style())
-        lay.addWidget(self._restart_btn)
-        self._restart_btn.hide()
-
-        lay.addSpacing(8)
-
-        # Screenshot
-        ss_btn = QPushButton("Skrinshot")
-        ss_btn.setFixedHeight(32)
-        ss_btn.setStyleSheet(self._action_btn_style())
-        lay.addWidget(ss_btn)
-        self._ss_btn = ss_btn
-        self._ss_btn.hide()
-
-        lay.addSpacing(10)
-
-        # ── Oyna boshqaruvi: minimize / maximize / close ─────────────────
-        self._min_btn = self._window_btn(self._GLYPH_MIN, "Kichraytirish")
-        self._min_btn.clicked.connect(lambda: self.window().showMinimized())
-        self._max_btn = self._window_btn(self._GLYPH_MAX, "Kattalashtirish")
-        self._max_btn.clicked.connect(self._toggle_maximize)
-        self._quit_btn = self._window_btn(self._GLYPH_CLOSE, "Yopish")
-        self._quit_btn.clicked.connect(self._on_quit)
-        for btn in (self._min_btn, self._max_btn, self._quit_btn):
-            lay.addWidget(btn)
-        self._apply_window_btn_styles()
-
-        # Dashboard boshlang'ich holat
-        self._set_active(self.PAGE_DASHBOARD)
-
-    # тФАтФА Uslublar тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
-
-    @staticmethod
-    def _nav_style() -> str:
-        return f"""
-        QPushButton {{
-            background: transparent;
-            color: {C('text_secondary')};
-            border: none;
-            padding: 0 10px;
-            font-size: 12px;
-            font-weight: 600;
-        }}
-        QPushButton:hover {{
-            color: #ffffff;
-        }}
-        QPushButton:checked {{
-            color: {C('accent')};
-            background: rgba(249,115,22,0.10);
-        }}
-        """
-
-    def _icon(self, filename: str) -> QIcon:
-        return QIcon(str(self._icon_dir / filename))
-
-    def _colored_icon(self, filename: str, color: str, size: int) -> QIcon:
-        src = QPixmap(str(self._icon_dir / filename))
-        if src.isNull():
-            return QIcon()
-        pix = src.scaled(
-            size, size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        tinted = QPixmap(pix.size())
-        tinted.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(tinted)
-        painter.drawPixmap(0, 0, pix)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(tinted.rect(), QColor(color))
-        painter.end()
-        return QIcon(tinted)
-
-    @staticmethod
-    def _icon_btn_style() -> str:
-        return f"""
-        QPushButton {{
-            background: transparent;
-            color: {C('text_secondary')};
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-        }}
-        QPushButton:hover {{
-            background: rgba(148,163,184,0.10);
-            color: #ffffff;
-        }}
-        QPushButton:checked {{
-            background: rgba(249,115,22,0.14);
-            color: {C('accent')};
-        }}
-        """
-
-    @staticmethod
-    def _search_style() -> str:
-        return f"""
-            QLineEdit {{
-                background: {C('bg_input')};
-                color: {C('text_primary')};
-                border: 1px solid {C('border')};
-                border-radius: 7px;
-                padding: 0 10px;
-                font-size: 13px;
-            }}
-            QLineEdit:hover {{
-                background: {C('bg_panel')};
-                border-color: {C('border_hover')};
-            }}
-            QLineEdit:focus {{
-                background: {C('bg_panel')};
-                border: 1px solid {C('accent')};
-            }}
-        """
-
-    _GLYPH_MIN, _GLYPH_MAX = GLYPH_MIN, GLYPH_MAX
-    _GLYPH_RESTORE, _GLYPH_CLOSE = GLYPH_RESTORE, GLYPH_CLOSE
-
-    def _window_btn(self, glyph: str, tooltip: str) -> QPushButton:
-        btn = QPushButton(glyph)
-        btn.setFixedSize(46, 58)
-        btn.setToolTip(tooltip)
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        return btn
-
-    @staticmethod
-    def _window_btn_style(close: bool = False) -> str:
-        hover_bg = "#e81123" if close else "rgba(148,163,184,0.14)"
-        pressed_bg = "#f1707a" if close else "rgba(148,163,184,0.22)"
-        return f"""
-            QPushButton {{
-                background: transparent;
-                color: {C('text_secondary')};
-                border: none;
-                border-radius: 0px;
-                font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
-                font-size: 10px;
-            }}
-            QPushButton:hover {{ background: {hover_bg}; color: #ffffff; }}
-            QPushButton:pressed {{ background: {pressed_bg}; color: #ffffff; }}
-        """
-
-    def _apply_window_btn_styles(self):
-        self._min_btn.setStyleSheet(self._window_btn_style())
-        self._max_btn.setStyleSheet(self._window_btn_style())
-        self._quit_btn.setStyleSheet(self._window_btn_style(close=True))
-
-    def _toggle_maximize(self):
-        window = self.window()
-        if window.isFullScreen():
-            return
-        if window.isMaximized():
-            window.showNormal()
-        else:
-            window.showMaximized()
-
-    def update_window_state(self, maximized: bool):
-        self._max_btn.setText(self._GLYPH_RESTORE if maximized else self._GLYPH_MAX)
-        self._max_btn.setToolTip("Tiklash" if maximized else "Kattalashtirish")
-
-    # ── Navbar bo'sh joyi = sarlavha qatori (sudrash, ikki marta bosish) ──
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and not self.window().isFullScreen():
-            handle = self.window().windowHandle()
-            if handle is not None:
-                handle.startSystemMove()
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._toggle_maximize()
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
-
-    @staticmethod
-    def _action_btn_style() -> str:
-        return f"""
-        QPushButton {{
-            background: {C('bg_hover')};
-            color: {C('text_secondary')};
-            border: 1px solid {C('border')};
-            border-radius: 6px;
-            padding: 0 10px;
-            font-size: 12px;
-        }}
-        QPushButton:hover {{
-            background: {C('border')};
-            color: {C('text_primary')};
-        }}
-        QPushButton:disabled {{
-            color: {C('text_muted')};
-            border-color: {C('border_light')};
-        }}
-        """
-
-    # тФАтФА Ichki metodlar тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
-
-    def _nav_click(self, page_id: int):
-        real_page = {
-            0: 0,  # Dashboard
-            1: 1,  # Cameras
-            2: 3,  # Analytics
-            3: 2,  # Reports тЖТ Violations
-            5: 4,  # Users тЖТ stack 4
-            6: 5,  # Settings тЖТ stack 5
-        }.get(page_id, 0)
-        self._set_active(page_id)
-        if page_id == self.PAGE_SETTINGS:
-            self._on_settings()
-        else:
-            self._on_page_change(real_page, page_id)
-
-    def _on_search_changed(self, text: str):
-        if self._on_search:
-            self._on_search(text)
-
-    def _open_notifications(self):
-        self._violation_count_seen()
-        if self._on_notifications:
-            self._on_notifications()
-        else:
-            self._nav_click(self.PAGE_REPORTS)
-
-    def _violation_count_seen(self):
-        self._notif_count = 0
-        self._notif_badge.hide()
-
-    def _toggle_theme(self):
-        self._is_light_mode = not self._is_light_mode
-        self.apply_theme("light" if self._is_light_mode else "dark")
-        if self._on_theme_change:
-            self._on_theme_change("light" if self._is_light_mode else "dark")
-
-    def apply_theme(self, theme: str):
-        app = QApplication.instance()
-        is_light = theme == "light"
-        set_theme(theme)
-        self._is_light_mode = is_light
-        self._theme_btn.setChecked(is_light)
-        if app:
-            app.setStyleSheet(get_main_stylesheet())
-        self.setStyleSheet("background: #0c1a2e;")
-        self._theme_btn.setToolTip("Ko'k mavzu" if is_light else "Yashil mavzu")
-        self._apply_navbar_style()
-
-    def _refresh_requested(self):
-        if self._on_refresh:
-            self._on_refresh()
-
-    def _apply_logo_text(self):
-        """Logo matni — SafeZone brand text."""
-        primary = C('text_primary')
-        accent = C('accent')
-        self._logo_txt.setText(
-            f'<span style="font-family:Segoe UI Semibold,Segoe UI,sans-serif;'
-            f'color:{primary};font-size:18px;font-weight:800;letter-spacing:.2px">Safe</span>'
-            f'<span style="font-family:Segoe UI Semibold,Segoe UI,sans-serif;'
-            f'color:{accent};font-size:18px;font-weight:900;letter-spacing:.2px">Zone</span>'
-        )
-
-    def _apply_logo_image(self):
-        logo_path = Path(__file__).resolve().parents[3] / "images" / "logs.png"
-        pix = QPixmap(str(logo_path)) if logo_path.exists() else QPixmap()
-        if not pix.isNull():
-            self._logo_circle.setPixmap(pix.scaled(
-                60, 60,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            ))
-            self._logo_circle.setText("")
-        else:
-            self._logo_circle.clear()
-            self._logo_circle.setText("SZ")
-
-    def _apply_navbar_style(self):
-        self._apply_logo_text()
-        self._apply_logo_image()
-        self._logo_circle.setStyleSheet(
-            "background: transparent; color: #e2e8f0; border-radius: 0px;"
-            " font-size: 12px; font-weight: 900; border: none;"
-        )
-        self._logo_sep.setStyleSheet(f"background: {C('border')};")
-        for btn in self._nav_btns.values():
-            btn.setStyleSheet(self._nav_style())
-        self._search.setStyleSheet(self._search_style())
-        for btn in (self._bell_btn, self._theme_btn, self._expand_btn):
-            btn.setStyleSheet(self._icon_btn_style())
-        self._refresh_btn.setIcon(self._colored_icon("refresh.svg", C("text_primary"), 16))
-        self._refresh_btn.setStyleSheet(self._nav_style())
-        self._notif_badge.setStyleSheet(
-            f"background: {C('accent_hover')}; color: white; border-radius: 9px;"
-            " font-size: 10px; font-weight: bold;"
-        )
-        self._cam_badge.setStyleSheet(
-            f"color: {C('accent')}; font-size: 11px; font-weight: 600;"
-            f"background: {C('accent_dim')}; padding: 0 12px;"
-            f"border-left: 1px solid {C('border')}; border-right: 1px solid {C('border')};"
-        )
-        for btn in (self._pause_btn, self._restart_btn, self._ss_btn):
-            btn.setStyleSheet(self._action_btn_style())
-        self._apply_window_btn_styles()
-
-    def _toggle_fullscreen(self):
-        window = self.window()
-        if not window:
-            return
-        if window.isFullScreen():
-            if self._restore_maximized_after_fullscreen:
-                window.showMaximized()
-            else:
-                window.showNormal()
-            self._expand_btn.setToolTip("To'liq ekran")
-            self._expand_btn.setChecked(False)
-        else:
-            self._restore_maximized_after_fullscreen = window.isMaximized()
-            window.showFullScreen()
-            self._expand_btn.setToolTip("To'liq ekrandan chiqish")
-            self._expand_btn.setChecked(True)
-        QTimer.singleShot(0, self._position_notif_badge)
-
-    def _set_active(self, page_id: int):
-        for pid, btn in self._nav_btns.items():
-            btn.setChecked(pid == page_id)
-
-    def set_active_page(self, page_id: int):
-        self._set_active(page_id)
-
-    def update_cam_badge(self, active: int, total: int):
-        self._cam_badge.setText(f"{active}/{total} kamera")
-
-    def set_pause_enabled(self, enabled: bool):
-        self._pause_btn.setEnabled(enabled)
-
-    def set_notif_count(self, count: int):
-        self._notif_count = max(0, count)
-        if count > 0:
-            self._notif_badge.setText(str(min(count, 99)))
-            self._position_notif_badge()
-            self._notif_badge.show()
-        else:
-            self._notif_badge.hide()
-
-    def _position_notif_badge(self):
-        if not hasattr(self, "_notif_badge") or not hasattr(self, "_bell_btn"):
-            return
-        pos = self._bell_btn.mapTo(self, self._bell_btn.rect().topRight())
-        self._notif_badge.move(pos.x() - 8, pos.y() - 2)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if getattr(self, "_notif_count", 0) > 0:
-            self._position_notif_badge()
-
+from app.ui.widgets.top_bar import TopNavBar  # Figma top bar
 
 # тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 #  MainWindow
@@ -630,10 +91,23 @@ class MainWindow(QMainWindow):
         self._setup_shortcuts()
         self._startup_checks = run_startup_checks(self.cfg, self.db)
         failed_checks = [check for check in self._startup_checks if not check.ok]
+        self._cam_err_toasts: dict[int, tuple[str, float]] = {}
+        self._applied_search: dict[int, str] = {}
         if getattr(self.db, "recovered_from_corruption", False):
-            self._sb_status.setText(f"DB tiklandi: {Path(str(self.db.db_path)).name}")
+            msg = (f"Ma'lumotlar bazasi buzilgan edi va qayta yaratildi: {Path(str(self.db.db_path)).name}."
+                   " Eski fayl zaxiraga ko'chirildi.")
+            self._sb_status.setText(msg)
+            QTimer.singleShot(1500, lambda: show_toast(self, msg, "warning", 10000))
         elif failed_checks:
-            self._sb_status.setText(f"Ishga tushirish tekshiruvi: {len(failed_checks)} ta ogohlantirish")
+            details = "; ".join(f"{c.name}: {c.message}" for c in failed_checks[:3])
+            more = f" (+{len(failed_checks) - 3})" if len(failed_checks) > 3 else ""
+            msg = f"Ishga tushirish tekshiruvi: {len(failed_checks)} ta ogohlantirish — {details}{more}"
+            self._sb_status.setText(msg)
+            QTimer.singleShot(1500, lambda: show_toast(self, msg, "warning", 8000))
+        load_warning = getattr(self.cfg, "load_warning", "")
+        if load_warning:
+            # settings.json buzilgan edi — zaxiradan tiklandi yoki standartga qaytdi
+            QTimer.singleShot(2500, lambda: show_toast(self, load_warning, "warning", 12000))
         self.showMaximized()
 
         QTimer.singleShot(600, self._start_all_cameras)
@@ -659,19 +133,20 @@ class MainWindow(QMainWindow):
             on_quit        = self.close,
             on_search      = self._on_global_search,
             on_notifications = self._open_notifications_from_nav,
-            on_theme_change = self._on_theme_changed,
-            on_refresh = self._refresh_application,
         )
         self._navbar._pause_btn.clicked.connect(self._toggle_pause_all)
         self._navbar._restart_btn.clicked.connect(self._restart_all_cameras)
         self._navbar._ss_btn.clicked.connect(self._save_screenshot)
+        self._navbar.set_site_name(str(self.cfg.get("site_name", "") or ""))
+        self._navbar.set_initials(str(self.cfg.get("operator_initials", "") or ""))
+        self._navbar.set_ai_enabled(bool(self.cfg.ai_model_enabled))
         v_lay.addWidget(self._navbar)
+        central.setStyleSheet("background: #070e1c;")
 
-        # Aksent rang chizig'i — full width
+        # Ajratgich navbar ichida chiziladi (Figma: y51, 1px #1a2842)
         self._accent_sep = QWidget()
-        self._accent_sep.setFixedHeight(2)
-        self._accent_sep.setStyleSheet(f"background: {C('accent')};")
-        v_lay.addWidget(self._accent_sep)
+        self._accent_sep.setFixedHeight(0)
+        self._accent_sep.hide()
 
         # Sahifalar
         self._stack = QStackedWidget()
@@ -682,8 +157,8 @@ class MainWindow(QMainWindow):
 
         self._stack.addWidget(self._dashboard)   # 0
         self._stack.addWidget(self._cameras)     # 1
-        self._stack.addWidget(self._lazy_placeholder("Hisobotlar"))    # 2
-        self._stack.addWidget(self._lazy_placeholder("Tahlil"))  # 3
+        self._stack.addWidget(self._lazy_placeholder("Hodisalar"))    # 2
+        self._stack.addWidget(self._lazy_placeholder("Analitika"))  # 3
         self._stack.addWidget(self._lazy_placeholder("Xodimlar"))      # 4
         self._stack.addWidget(self._lazy_placeholder("Sozlamalar"))   # 5
 
@@ -693,7 +168,6 @@ class MainWindow(QMainWindow):
         self._dashboard.setup_cameras(cameras)
         self._cameras.setup_cameras(cameras)
         self._update_cam_badge()
-        self._navbar.apply_theme(str(self.cfg.get("theme", "dark")).lower())
 
     def _lazy_placeholder(self, title: str) -> QWidget:
         w = QWidget()
@@ -718,57 +192,15 @@ class MainWindow(QMainWindow):
         )
         self._dashboard.add_camera_requested.connect(self._open_add_camera)
         self._dashboard.ai_pause_requested.connect(self._set_ai_paused)
+        if hasattr(self._dashboard, "go_cameras"):
+            self._dashboard.go_cameras.connect(lambda: self._switch_page(self.PAGE_CAMERAS))
         self._cameras.add_camera_requested.connect(self._open_add_camera)
+        self._dashboard.focus_changed.connect(self._sync_focus_camera)
+        self._cameras.focus_changed.connect(self._sync_focus_camera)
         self._cameras.departments_changed.connect(self._on_departments_changed)
         self._cameras.reconnect_requested.connect(self._restart_camera)
-
-    def _rebuild_stack_pages(self) -> None:
-        current = self._stack.currentIndex()
-        cameras = self.cfg.get_enabled_cameras()
-
-        self._dashboard = DashboardPage(self.db, self.cfg)
-        self._cameras = CamerasPage(self.db, self.cfg)
-        self._connect_primary_pages()
-        self._replace_stack_page(self.PAGE_DASHBOARD, self._dashboard)
-        self._replace_stack_page(self.PAGE_CAMERAS, self._cameras)
-
-        if self._violations is not None:
-            self._violations = ViolationsPage(self.db, cfg=self.cfg)
-            self._replace_stack_page(self.PAGE_VIOLATIONS, self._violations)
-        if self._analytics is not None:
-            self._analytics = AnalyticsPage(self.db, self.cfg)
-            self._analytics.go_cameras.connect(lambda: self._switch_page(self.PAGE_CAMERAS))
-            self._replace_stack_page(self.PAGE_ANALYTICS, self._analytics)
-        if self._users is not None:
-            self._users = UsersPage(self.cfg)
-            self._replace_stack_page(self.PAGE_USERS, self._users)
-            self._users_loaded = False
-        if self._settings is not None:
-            self._settings = SettingsPage(self.cfg)
-            self._connect_settings_page()
-            self._replace_stack_page(self.PAGE_SETTINGS, self._settings)
-
-        self._dashboard.setup_cameras(cameras)
-        self._cameras.setup_cameras(cameras)
-        self._stack.setCurrentIndex(current)
-
-        if current in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
-            self._apply_cached_camera_state(current)
-        elif current == self.PAGE_VIOLATIONS and self._violations is not None:
-            self._violations._load_violations()
-        elif current == self.PAGE_ANALYTICS and self._analytics is not None:
-            self._analytics.refresh()
-        elif current == self.PAGE_USERS and self._users is not None:
-            self._users.refresh()
-            self._users_loaded = True
-        elif current == self.PAGE_SETTINGS and self._settings is not None:
-            self._settings._load_values()
-
-        self._update_cam_badge()
-        self._refresh_sb_cams()
-        self._apply_frame_emission(current)
-        self.update()
-        self.repaint()
+        if hasattr(self._cameras, "cameras_changed"):
+            self._cameras.cameras_changed.connect(self._on_cameras_changed)
 
     def _ensure_page(self, page: int) -> QWidget:
         if page == self.PAGE_VIOLATIONS:
@@ -784,7 +216,7 @@ class MainWindow(QMainWindow):
             return self._analytics
         if page == self.PAGE_USERS:
             if self._users is None:
-                self._users = UsersPage(self.cfg)
+                self._users = UsersPage(self.cfg, db=self.db)
                 self._replace_stack_page(page, self._users)
             return self._users
         if page == self.PAGE_SETTINGS:
@@ -852,22 +284,18 @@ class MainWindow(QMainWindow):
         )
         QShortcut(QKeySequence("Ctrl+Q"), self).activated.connect(self.close)
         QShortcut(QKeySequence("Esc"), self).activated.connect(self._exit_fullscreen)
+        QShortcut(QKeySequence("Ctrl+K"), self).activated.connect(self._navbar.focus_search)
+        QShortcut(QKeySequence("F11"), self).activated.connect(self._navbar._toggle_fullscreen)
         QShortcut(QKeySequence("F5"),     self).activated.connect(
             self._refresh_current
         )
-        QShortcut(QKeySequence("Space"), self).activated.connect(
-            self._toggle_pause_all
-        )
+        QShortcut(QKeySequence("Space"), self).activated.connect(self._on_space)
 
     # тФАтФА Sahifa almashtirish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
     def _switch_page(self, page: int, nav_page: int | None = None):
-        import time as _t
-        _t0 = _t.perf_counter()
         self._ensure_page(page)
-        _t_ensure = _t.perf_counter()
         self._stack.setCurrentIndex(page)
-        _t_stack = _t.perf_counter()
         if nav_page is None:
             nav_page = {
                 self.PAGE_DASHBOARD:  0,
@@ -879,7 +307,9 @@ class MainWindow(QMainWindow):
             }.get(page)
         if nav_page is not None:
             self._navbar.set_active_page(nav_page)
-        _t_nav = _t.perf_counter()
+        if page == self.PAGE_VIOLATIONS and self._violation_count:
+            self._violation_count = 0
+            self._navbar.set_notif_count(0)
         if page == self.PAGE_ANALYTICS:
             self._analytics.refresh()
         elif page == self.PAGE_VIOLATIONS and self._violations_dirty:
@@ -888,33 +318,69 @@ class MainWindow(QMainWindow):
         elif page == self.PAGE_USERS and not self._users_loaded:
             self._users.refresh()
             self._users_loaded = True
-        _t_load = _t.perf_counter()
         if page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}:
             self._apply_cached_camera_state(page)
-        _t_cache = _t.perf_counter()
+        self._sync_search_box(page)
         self._apply_frame_emission(page)
-        _t_emit = _t.perf_counter()
-        print(
-            f"[SWITCH p={page}] ensure={(_t_ensure-_t0)*1000:.1f} "
-            f"stack={(_t_stack-_t_ensure)*1000:.1f} nav={(_t_nav-_t_stack)*1000:.1f} "
-            f"load={(_t_load-_t_nav)*1000:.1f} cache={(_t_cache-_t_load)*1000:.1f} "
-            f"emit={(_t_emit-_t_cache)*1000:.1f} | JAMI={(_t_emit-_t0)*1000:.1f} ms",
-            flush=True,
-        )
 
     def _apply_frame_emission(self, page: int):
         """Faqat Dashboard yoki Cameras sahifasida frame'larni UI ga uzatamiz.
         Boshqa sahifalarda QImage konversiyasi va signal trafigi to'xtatiladi."""
         emit = page in {self.PAGE_DASHBOARD, self.PAGE_CAMERAS}
         self._runtime.set_frame_emission(emit)
+        self._sync_focus_camera()
+
+    def _sync_focus_camera(self, *_):
+        """Faqat hozir ko'rinib turgan katta oynadagi kamera to'liq sifatda uzatiladi."""
+        page = self._stack.currentIndex()
+        src = {self.PAGE_DASHBOARD: self._dashboard, self.PAGE_CAMERAS: self._cameras}.get(page)
+        self._runtime.set_focus_camera(getattr(src, "_selected", None) if src is not None else None)
+
+    # Qidiruv qaysi sahifalarda ishlaydi (Analitika/Sozlamalarda qidiruv yo'q)
+    _SEARCH_PAGES = (PAGE_DASHBOARD, PAGE_CAMERAS, PAGE_VIOLATIONS, PAGE_USERS)
+
+    def _search_target(self, page: int):
+        if page == self.PAGE_DASHBOARD:
+            return self._dashboard
+        if page == self.PAGE_CAMERAS:
+            return self._cameras
+        if page == self.PAGE_VIOLATIONS:
+            return self._violations
+        if page == self.PAGE_USERS:
+            return self._users
+        return None
 
     def _on_global_search(self, text: str):
-        if self._stack.currentIndex() == self.PAGE_USERS and self._users is not None:
-            self._users.set_search_text(text)
-        elif self._stack.currentIndex() == self.PAGE_CAMERAS:
-            self._cameras.set_search_text(text)
-        else:
-            self._dashboard.set_search_text(text)
+        page = self._stack.currentIndex()
+        target = self._search_target(page)
+        if target is not None and hasattr(target, "set_search_text"):
+            target.set_search_text(text)
+            self._applied_search[page] = text
+
+    def _sync_search_box(self, page: int):
+        """Sahifa almashganda: joriy qidiruv matni yangi sahifaga qo'llanadi;
+        qidiruvi yo'q sahifada maydon tozalanib o'chiriladi."""
+        edit = self._navbar._search
+        if page in self._SEARCH_PAGES:
+            edit.setEnabled(True)
+            edit.setPlaceholderText("Qidirish")
+            # Sahifaning o'z qidiruv maydonidagi matnni bo'sh global matn bilan o'chirmaymiz
+            if edit.text() or self._applied_search.get(page):
+                self._on_global_search(edit.text())
+            return
+        if edit.text():
+            edit.blockSignals(True)
+            edit.clear()
+            edit.blockSignals(False)
+            self._navbar._search_box._place()
+            # Boshqa sahifalarda qolgan filtr ham bekor qilinsin
+            for p in self._SEARCH_PAGES:
+                t = self._search_target(p)
+                if t is not None and hasattr(t, "set_search_text") and self._applied_search.get(p):
+                    t.set_search_text("")
+                    self._applied_search[p] = ""
+        edit.setPlaceholderText("Bu sahifada qidiruv yo'q")
+        edit.setEnabled(False)
 
     # тФАтФА Ko'p kamera worker boshqaruvi тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
@@ -929,12 +395,17 @@ class MainWindow(QMainWindow):
         r.error_occurred.connect(self._on_error)
         r.model_loaded.connect(self._on_model_loaded)
         r.runtime_status.connect(self._set_sb_status)
-        r.cleanup_status.connect(self._set_sb_status)
+        r.cleanup_status.connect(self._on_cleanup_status)
         r.all_started.connect(self._on_all_started)
         r.pause_changed.connect(self._on_pause_changed)
 
     def _set_sb_status(self, text: str):
         self._sb_status.setText(text)
+
+    def _on_cleanup_status(self, text: str):
+        self._sb_status.setText(text)
+        if "xato" in text.lower():
+            show_toast(self, text, "error")
 
     def _start_all_cameras(self):
         self._runtime.start_all()
@@ -945,6 +416,7 @@ class MainWindow(QMainWindow):
 
     def _on_pause_changed(self, paused: bool):
         self._navbar._pause_btn.setText("Davom" if paused else "|| Pauza")
+        self._navbar.set_ai_active(not paused)
 
     def _rebuild_camera_pages(self):
         """Restart paytida — to'xtagandan keyin, start dan oldin sahifalarni qayta quradi."""
@@ -961,12 +433,30 @@ class MainWindow(QMainWindow):
         self._cameras.on_status(cam_id, "Kameraga ulanmoqda...")
         self._runtime.restart_camera(cam_id)
 
+    def _on_space(self):
+        """Space — faqat kamera sahifalarida pauza. Fokus tugma/checkbox/maydonda
+        bo'lsa, oyna shortcut'i bosishni "yutib" yubormasligi uchun klavishni
+        o'sha widget'ga qaytaramiz."""
+        fw = QApplication.focusWidget()
+        if fw is not None and isinstance(fw, (
+            QAbstractButton, QComboBox, QAbstractSpinBox, QAbstractItemView,
+            QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSlider,
+        )):
+            for typ in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+                QApplication.sendEvent(fw, QKeyEvent(typ, Qt.Key.Key_Space,
+                                                     Qt.KeyboardModifier.NoModifier, " "))
+            return
+        if self._stack.currentIndex() in (self.PAGE_DASHBOARD, self.PAGE_CAMERAS):
+            self._toggle_pause_all()
+
     def _toggle_pause_all(self):
         paused = self._runtime.toggle_pause_all()
         if paused is None:
             return
         # Tugma matni pause_changed signali orqali yangilanadi.
-        self._sb_status.setText("Pauza" if paused else "Davom etmoqda")
+        msg = "Kameralar pauzada" if paused else "Kameralar davom etmoqda"
+        self._sb_status.setText(msg)
+        show_toast(self, msg, "info")
 
     # тФАтФА Worker signallari тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 
@@ -974,7 +464,9 @@ class MainWindow(QMainWindow):
         if not self._runtime.has_workers():
             return
         self._runtime.set_paused(paused)
-        self._sb_status.setText("AI pauza" if paused else "AI davom etmoqda")
+        msg = "AI pauza" if paused else "AI davom etmoqda"
+        self._sb_status.setText(msg)
+        show_toast(self, msg, "info")
 
     def _on_frame(self, cam_id: int, frame):
         page = self._stack.currentIndex()
@@ -1006,8 +498,9 @@ class MainWindow(QMainWindow):
         else:
             self._violations_dirty = True
 
-        self._violation_count += 1
-        self._navbar.set_notif_count(self._violation_count)
+        if page != self.PAGE_VIOLATIONS:     # Hodisalar ochiq — foydalanuvchi hodisani ko'rib turibdi
+            self._violation_count += 1
+            self._navbar.set_notif_count(self._violation_count)
 
         # today_count worker payload dan keladi тАФ main thread da DB so'rov yo'q
         today = data.get("today_count")
@@ -1028,6 +521,8 @@ class MainWindow(QMainWindow):
         cam = self.cfg.get_camera_by_id(cam_id)
         data["camera_name"] = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._dashboard.count_face_attempt(bool(data.get("matched")))
+        if self._users is not None and hasattr(self._users, "on_face_recognized"):
+            self._users.on_face_recognized(data)
         if self._stack.currentIndex() == self.PAGE_DASHBOARD:
             self._dashboard.on_face_recognized(data)
 
@@ -1043,6 +538,10 @@ class MainWindow(QMainWindow):
                 self._dashboard.set_total_persons(total)
         elif page == self.PAGE_CAMERAS:
             self._cameras.on_stats(cam_id, stats)
+        # Navbar "AI faol · N fps" — jonli kameralarning o'rtacha FPS'i
+        live = [float(s.get("fps", 0) or 0) for s in self._runtime.latest_stats.values()
+                if s.get("connected")]
+        self._navbar.set_ai_fps(sum(live) / len(live) if live else None)
 
     def _on_status(self, cam_id: int, text: str):
         cam  = self.cfg.get_camera_by_id(cam_id)
@@ -1058,6 +557,11 @@ class MainWindow(QMainWindow):
         cam  = self.cfg.get_camera_by_id(cam_id)
         name = cam.get("name", f"Cam{cam_id}") if cam else f"Cam{cam_id}"
         self._sb_status.setText(f"[{name}] XATOLIK: {msg[:50]}")
+        last = self._cam_err_toasts.get(cam_id)
+        now = time.monotonic()
+        if last is None or last[0] != msg or now - last[1] > 60:
+            self._cam_err_toasts[cam_id] = (msg, now)
+            show_toast(self, f"[{name}] {msg[:160]}", "error")
         page = self._stack.currentIndex()
         if page == self.PAGE_DASHBOARD:
             self._dashboard.on_error(cam_id, msg)
@@ -1110,7 +614,8 @@ class MainWindow(QMainWindow):
 
     def _open_settings(self):
         self._ensure_page(self.PAGE_SETTINGS)
-        self._settings._load_values()
+        if not self._settings._dirty:      # saqlanmagan tahrirlar ustidan yozmaymiz
+            self._settings._load_values()
         self._switch_page(self.PAGE_SETTINGS)
 
     def _open_add_camera(self):
@@ -1133,6 +638,11 @@ class MainWindow(QMainWindow):
         self._settings.settings_saved.connect(self._on_settings_saved)
         self._settings.cameras_changed.connect(self._on_cameras_changed)
         self._settings.departments_changed.connect(self._on_departments_changed)
+        self._settings.branding_changed.connect(self._on_branding_changed)
+
+    def _on_branding_changed(self, site: str, initials: str):
+        self._navbar.set_site_name(site or "")
+        self._navbar.set_initials(initials or "")
 
     def _on_cameras_changed(self):
         """Kamera qo'shildi/o'zgardi/o'chirildi — workerlar va sahifalar yangilanadi."""
@@ -1143,45 +653,24 @@ class MainWindow(QMainWindow):
         self._violation_count = 0
         self._switch_page(self.PAGE_VIOLATIONS, 3)
 
-    def _on_theme_changed(self, theme: str):
-        self.cfg.set("theme", theme)
-        self.cfg.save()
-        self._apply_theme_refresh(theme)
-
-    def _apply_theme_refresh(self, theme: str):
-        app = QApplication.instance()
-        if app:
-            app.setStyleSheet(get_main_stylesheet())
-        self._navbar.apply_theme(theme)
-        if hasattr(self, "_accent_sep"):
-            self._accent_sep.setStyleSheet(f"background: {C('accent')};")
-        self._apply_statusbar_style()
-        self._rebuild_stack_pages()
-        self._sb_status.setText("Mavzu yangilandi")
-
-    def _refresh_application(self):
-        app = QApplication.instance()
-        if app:
-            app.setStyleSheet(get_main_stylesheet())
-        self._navbar.apply_theme(str(self.cfg.get("theme", "dark")).lower())
-        if hasattr(self, "_accent_sep"):
-            self._accent_sep.setStyleSheet(f"background: {C('accent')};")
-        self._apply_statusbar_style()
-        self._rebuild_stack_pages()
-        self._sb_status.setText("Dastur to'liq yangilandi")
-
     def _exit_fullscreen(self):
         if self.isFullScreen():
             self._navbar._toggle_fullscreen()
 
     def _on_settings_saved(self):
+        self._navbar.set_ai_enabled(bool(self.cfg.ai_model_enabled))
         self._refresh_sb_cams()
         self._users_loaded = False
         self._restart_all_cameras()
 
     def _on_departments_changed(self):
         if self._settings is not None:
-            self._settings._load_values()
+            # Faqat kamera/bo'lim ro'yxati — boshqa maydonlardagi saqlanmagan
+            # tahrirlar (masalan, Telegram token) o'chib ketmasin.
+            self._settings._refresh_cameras()
+        for page in (self._violations, self._analytics):
+            if page is not None:
+                page.reload_departments()
         self._users_loaded = False
         self._sb_status.setText("Bo'limlar yangilandi")
 
@@ -1193,12 +682,21 @@ class MainWindow(QMainWindow):
 
         first_panel = next(iter(self._dashboard._panels.values()), None)
         if first_panel:
-            pm = first_panel._video.pixmap()
-            if pm and not pm.isNull():
-                pm.save(path, "JPEG", 95)
-                self._sb_status.setText(f"Skrinshot saqlandi: {path}")
+            video = first_panel._video
+            src = video.image() if hasattr(video, "image") else None
+            if src is None or src.isNull():
+                src = video.pixmap() if hasattr(video, "pixmap") else None
+            if src is not None and not src.isNull():
+                full = str(Path(path).resolve())
+                if src.save(full, "JPEG", 95):
+                    self._sb_status.setText(f"Skrinshot saqlandi: {full}")
+                    show_toast(self, f"Skrinshot saqlandi: {full}", "success", 5000)
+                else:
+                    self._sb_status.setText("Skrinshot saqlanmadi")
+                    show_toast(self, f"Skrinshot saqlanmadi: {full}", "error")
                 return
         self._sb_status.setText("Skrinshot: video kadr topilmadi")
+        show_toast(self, "Skrinshot: video kadr topilmadi", "warning")
 
     def _refresh_current(self):
         page = self._stack.currentIndex()
@@ -1221,7 +719,8 @@ class MainWindow(QMainWindow):
             self._users.refresh()
         elif page == self.PAGE_SETTINGS:
             self._ensure_page(self.PAGE_SETTINGS)
-            self._settings._load_values()
+            if not self._settings._dirty:
+                self._settings._load_values()
 
     # тФАтФА Yopish тФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФАтФА
 

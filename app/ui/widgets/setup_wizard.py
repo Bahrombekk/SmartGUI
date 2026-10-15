@@ -8,6 +8,8 @@ Settings > Diagnostika dan qayta ochish mumkin.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import threading
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -21,6 +23,36 @@ from app.ui.widgets.app_dialog import AppMessageBox
 from app.ui.widgets.frameless import FramedDialog
 
 _RTSP_HINT = "rtsp://login:parol@192.168.1.10:554/Streaming/Channels/101"
+
+# Ishlab turgan tekshiruv thread'lari shu yerda saqlanadi: dialog yopilib GC
+# bo'lsa ham QThread tugaguncha yashaydi ("QThread: Destroyed while thread
+# is still running" bilan ilova yiqilmasin).
+_RUNNING_CHECKS: set = set()
+
+
+def _release_check(t: "_CheckThread") -> None:
+    t.wait(2000)               # `finished` dan keyin run() bir zumda tugaydi
+    _RUNNING_CHECKS.discard(t)
+    t.deleteLater()
+
+
+def detect_nvidia_gpu() -> str:
+    """NVIDIA videokarta nomi (`nvidia-smi` orqali) yoki "".
+
+    torch GUI thread'da import qilinmaydi: sekin va Qt'dan keyin import
+    qilinganda CUDA DLL yuklanishini buzishi mumkin (main.py ga qarang)."""
+    try:
+        res = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=4,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if res.returncode != 0:
+        return ""
+    lines = [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip()]
+    return lines[0] if lines else ""
 
 
 class _CheckThread(QThread):
@@ -86,6 +118,7 @@ class SetupWizard(FramedDialog):
         super().__init__(parent)
         self.cfg = cfg
         self._thread: _CheckThread | None = None
+        self._threads: list[_CheckThread] = []
         self.setWindowTitle("SafeZone — sozlash ustasi")
         self.setModal(True)
         self.setMinimumSize(640, 540)
@@ -219,13 +252,15 @@ class SetupWizard(FramedDialog):
 
     def _page_ai(self) -> QWidget:
         w, lay = self._page("AI va FaceID", "Shlemsiz odamlarni aniqlash va xodimlarni yuzidan tanish.")
-        gpu = self._gpu_name()
         self._ai_check = QCheckBox("AI aniqlashni yoqish (shlem nazorati)")
-        self._ai_check.setChecked(bool(self.cfg.get("ai_model_enabled", False)) or bool(gpu))
+        self._ai_check.setChecked(bool(self.cfg.get("ai_model_enabled", False)))
+        self._ai_touched = False
+        self._ai_check.clicked.connect(lambda: setattr(self, "_ai_touched", True))
         lay.addWidget(self._ai_check)
-        lay.addWidget(QLabel(f"Videokarta: {gpu}" if gpu else
-                             "NVIDIA videokarta topilmadi — AI CPU da sekinroq ishlaydi",
-                             objectName="wizHint"))
+        self._gpu_lbl = QLabel("Videokarta tekshirilmoqda...", objectName="wizHint")
+        lay.addWidget(self._gpu_lbl)
+        from app.ui.async_task import run_async
+        run_async(self, detect_nvidia_gpu, self._on_gpu, lambda _e: self._on_gpu(""))
         self._face_check = QCheckBox("FaceID — buzilishni xodim bilan bog'lash")
         self._face_check.setChecked(bool(self.cfg.get("faceid_enabled", False)))
         lay.addWidget(self._face_check)
@@ -310,7 +345,7 @@ class SetupWizard(FramedDialog):
     # ── Tekshiruvlar ───────────────────────────────────────────────────────
 
     def _validate_camera(self) -> bool:
-        from app.ui.pages.settings_dialog import confirm_camera_fields
+        from app.ui.pages.settings_common import confirm_camera_fields
 
         name, url = self._cam_name.text().strip(), self._cam_url.text().strip()
         cam = self._first_camera()
@@ -324,6 +359,8 @@ class SetupWizard(FramedDialog):
         out.setText("Tekshirilmoqda...")
         out.setStyleSheet(f"color: {C('text_secondary')};")
         t = _CheckThread(mode, data)
+        _RUNNING_CHECKS.add(t)
+        t.finished.connect(lambda: _release_check(t))
 
         def _done(ok: bool, msg: str):
             btn.setEnabled(True)
@@ -332,7 +369,19 @@ class SetupWizard(FramedDialog):
 
         t.done.connect(_done)
         self._thread = t
+        self._threads = [x for x in self._threads if x in _RUNNING_CHECKS] + [t]
         t.start()
+
+    def done(self, r: int):
+        # Dialog yopilmoqda — ishlab turgan tekshiruv natijasi o'chirilgan
+        # widgetlarga yozilmasin (thread o'zi _RUNNING_CHECKS da tugaydi).
+        for t in self._threads:
+            try:
+                t.done.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+        self._threads = []
+        super().done(r)
 
     def _test_camera(self):
         url = self._cam_url.text().strip()
@@ -354,13 +403,11 @@ class SetupWizard(FramedDialog):
         cams = self.cfg.get_cameras()
         return cams[0] if cams else None
 
-    @staticmethod
-    def _gpu_name() -> str:
-        try:
-            import torch
-            return torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
-        except Exception:
-            return ""
+    def _on_gpu(self, gpu: str):
+        self._gpu_lbl.setText(f"Videokarta: {gpu}" if gpu else
+                              "NVIDIA videokarta topilmadi — AI CPU da sekinroq ishlaydi")
+        if gpu and not self._ai_touched:
+            self._ai_check.setChecked(True)
 
     def _summary_html(self) -> str:
         def row(k, v):

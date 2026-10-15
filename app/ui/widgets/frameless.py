@@ -22,8 +22,7 @@ from PyQt6.QtWidgets import (
     QLabel, QPushButton, QVBoxLayout, QWidget,
 )
 
-from app.shared.paths import resource_path
-from app.ui.styles import C
+from app.ui import fz
 
 # Segoe Fluent Icons / MDL2 Assets — Windows'ning o'z sarlavha belgilari
 GLYPH_MIN = "\uE921"
@@ -46,8 +45,24 @@ class EdgeResizer(QObject):
         self.margin = margin
         self.inset = inset
         self._cursor_set = False
-        QApplication.instance().installEventFilter(self)
+        self._app_filter = False
+        # Butun ilova filtri faqat oyna ko'rinib turganda — yopilgan dialoglar
+        # har bir Qt hodisasiga (25–30 fps kadrlar ham) Python chaqiruvi qo'shmasin.
+        window.installEventFilter(self)
+        if window.isVisible():
+            self._set_app_filter(True)
         window.destroyed.connect(self._restore_cursor)
+
+    def _set_app_filter(self, on: bool):
+        app = QApplication.instance()
+        if app is None or on == self._app_filter:
+            return
+        if on:
+            app.installEventFilter(self)
+        else:
+            app.removeEventFilter(self)
+            self._restore_cursor()
+        self._app_filter = on
 
     def _edges_at(self, gpos) -> Qt.Edge:
         w = self._window
@@ -99,6 +114,9 @@ class EdgeResizer(QObject):
 
     def eventFilter(self, obj, event):
         et = event.type()
+        if obj is self._window and et in (QEvent.Type.Show, QEvent.Type.Hide):
+            self._set_app_filter(et == QEvent.Type.Show)
+            return False
         if et not in (QEvent.Type.MouseMove, QEvent.Type.MouseButtonPress):
             return False
         if not isinstance(obj, QWidget) or obj.window() is not self._window:
@@ -167,6 +185,107 @@ class _TitleBar(QWidget):
         super().mouseDoubleClickEvent(event)
 
 
+def _form_qss() -> str:
+    """Dialog ichidagi standart forma elementlari — Figma tokenlari.
+
+    Ota oyna (sahifa) uslubi meros bo'lib o'tmasligi uchun aniq beriladi;
+    o'z stylesheet'i bor widgetlar o'z ko'rinishini saqlaydi.
+    """
+    chev = str(fz.ICONS / "chevron_down.svg").replace("\\", "/")
+    check = str(fz.ICONS / "check_dark.svg").replace("\\", "/")
+    font = fz.css_font(13, 400)
+    return f"""
+        QWidget#appFrameBody QLabel {{ background: transparent; border: none; color: {fz.TEXT2}; }}
+        QWidget#appFrameBody QLineEdit, QWidget#appFrameBody QComboBox,
+        QWidget#appFrameBody QDateEdit, QWidget#appFrameBody QSpinBox,
+        QWidget#appFrameBody QDoubleSpinBox {{
+            background: {fz.INPUT}; color: {fz.TEXT}; border: 1px solid {fz.BORDER};
+            border-radius: 7px; padding: 0 10px; min-height: 34px; {font}
+            selection-background-color: {fz.ACCENT}; selection-color: {fz.ON_ACCENT};
+        }}
+        QWidget#appFrameBody QLineEdit:hover, QWidget#appFrameBody QComboBox:hover,
+        QWidget#appFrameBody QDateEdit:hover {{ border-color: {fz.SEG_BORDER}; }}
+        QWidget#appFrameBody QLineEdit:focus, QWidget#appFrameBody QComboBox:focus,
+        QWidget#appFrameBody QDateEdit:focus, QWidget#appFrameBody QComboBox:on {{ border-color: {fz.ACCENT}; }}
+        QWidget#appFrameBody QComboBox::drop-down, QWidget#appFrameBody QDateEdit::drop-down {{
+            border: none; width: 30px; subcontrol-origin: padding; subcontrol-position: center right;
+        }}
+        QWidget#appFrameBody QComboBox::down-arrow, QWidget#appFrameBody QDateEdit::down-arrow {{
+            image: url("{chev}"); width: 13px; height: 13px;
+        }}
+        QWidget#appFrameBody QComboBox QAbstractItemView {{
+            background: {fz.CARD}; color: {fz.TEXT}; border: 1px solid {fz.SEG_BORDER};
+            border-radius: 8px; padding: 4px; outline: 0;
+            selection-background-color: {fz.ACTIVE}; selection-color: {fz.TEXT}; {font}
+        }}
+        QWidget#appFrameBody QCheckBox {{ background: transparent; color: {fz.TEXT}; spacing: 9px; {font} }}
+        QWidget#appFrameBody QCheckBox::indicator {{
+            width: 16px; height: 16px; border-radius: 4px;
+            border: 1px solid {fz.SEG_BORDER}; background: {fz.INPUT};
+        }}
+        QWidget#appFrameBody QCheckBox::indicator:checked {{
+            background: {fz.ACCENT}; border-color: {fz.ACCENT}; image: url("{check}");
+        }}
+        QWidget#appDialogFooter {{ background: transparent; border-top: 1px solid {fz.BORDER}; }}
+        QWidget#appFrameBody QPushButton:focus {{ outline: none; }}
+    """
+
+
+def dialog_footer() -> tuple[QWidget, QHBoxLayout]:
+    """Dialog pastki tugmalar qatori (ustida ajratgich). Tugmalar o'ngga tekislanadi."""
+    w = QWidget(objectName="appDialogFooter")
+    w.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    row = QHBoxLayout(w)
+    row.setContentsMargins(20, 14, 20, 16)
+    row.setSpacing(8)
+    row.addStretch(1)
+    return w, row
+
+
+def dialog_button(text: str, kind: str = "ghost") -> QPushButton:
+    """Figma dialog tugmasi (h34): primary | ghost | danger."""
+    if kind == "primary":
+        b = fz.primary_button(text, h=34, px=13, pad=18, radius=8)
+    elif kind == "danger":
+        b = fz.danger_button(text, h=34, px=13, pad=16, radius=8)
+    else:
+        b = fz.ghost_button(text, h=34, px=13, pad=16, radius=8)
+    b.setMinimumWidth(96)
+    b.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+    return b
+
+
+def field_label(text: str) -> QLabel:
+    return fz.label(text, 12.5, 500, fz.TEXT2)
+
+
+class _BarButton(QPushButton):
+    """Sarlavha qatori tugmasi — Figma SVG ikonka, yopishda hover qizil + oq ikonka."""
+
+    def __init__(self, icon: str, close: bool = False):
+        super().__init__()
+        self._icon = icon
+        self._close = close
+        self.setFixedSize(28, 28)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.set_icon(icon)
+
+    def set_icon(self, icon: str, color: str | None = None):
+        self._icon = icon
+        self.setIcon(fz.svg_icon(icon, 12, color or fz.MUTED))
+        from PyQt6.QtCore import QSize
+        self.setIconSize(QSize(12, 12))
+
+    def enterEvent(self, e):
+        self.set_icon(self._icon, fz.RED if self._close else fz.TEXT)
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.set_icon(self._icon)
+        super().leaveEvent(e)
+
+
 class FramedDialog(QDialog):
     SHADOW = 16
 
@@ -194,27 +313,25 @@ class FramedDialog(QDialog):
         card_lay.setContentsMargins(1, 1, 1, 1)
         card_lay.setSpacing(0)
 
+        fz.init_fonts()
         bar = _TitleBar(self)
-        bar.setFixedHeight(40)
+        bar.setFixedHeight(48)
         bar_lay = QHBoxLayout(bar)
-        bar_lay.setContentsMargins(14, 0, 4, 0)
-        bar_lay.setSpacing(8)
-        logo = QLabel()
-        logo_pix = QPixmap(str(resource_path("images", "app_icon.png")))
-        if not logo_pix.isNull():
-            logo.setPixmap(logo_pix.scaled(18, 18, Qt.AspectRatioMode.KeepAspectRatio,
-                                           Qt.TransformationMode.SmoothTransformation))
+        bar_lay.setContentsMargins(16, 0, 10, 0)
+        bar_lay.setSpacing(9)
+        logo = fz.Icon("logo", 16)
         logo.setStyleSheet("background: transparent;")
         bar_lay.addWidget(logo)
         self._title_lbl = QLabel(objectName="appFrameTitle")
         bar_lay.addWidget(self._title_lbl, 1)
         self._max_btn = None
         if resizable:
-            self._max_btn = self._bar_button(GLYPH_MAX, "Kattalashtirish")
+            self._max_btn = self._bar_button("win_max", "Kattalashtirish")
             self._max_btn.clicked.connect(self.toggle_maximize)
             bar_lay.addWidget(self._max_btn)
-        close_btn = self._bar_button(GLYPH_CLOSE, "Yopish", object_name="appFrameClose")
+        close_btn = self._bar_button("win_close", "Yopish", object_name="appFrameClose")
         close_btn.clicked.connect(self.reject)
+        self._close_btn = close_btn
         bar_lay.addWidget(close_btn)
         card_lay.addWidget(bar)
 
@@ -227,14 +344,34 @@ class FramedDialog(QDialog):
             self._resizer = EdgeResizer(self, margin=6, inset=self.SHADOW)
         self._apply_frame_style()
 
-    def _bar_button(self, glyph: str, tooltip: str, object_name: str = "appFrameBtn") -> QPushButton:
-        btn = QPushButton(glyph, objectName=object_name)
-        btn.setFixedSize(40, 32)
+    def exec(self) -> int:
+        """Yopilgach dialog ota-widget'dan ajratiladi: chaqiruvchi havolani
+        qo'yib yuborganda Python uni o'chiradi (aks holda har ochilgan dialog
+        ota-widget o'chguncha xotirada qolardi)."""
+        res = super().exec()
+        flags = self.windowFlags()
+        self.setParent(None)
+        self.setWindowFlags(flags)
+        return res
+
+    def _bar_button(self, icon: str, tooltip: str, object_name: str = "appFrameBtn") -> QPushButton:
+        btn = _BarButton(icon, object_name == "appFrameClose")
+        btn.setObjectName(object_name)
         btn.setToolTip(tooltip)
-        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         return btn
 
     def toggle_maximize(self):
+        # Qt'ning showNormal() ramkasiz oynada Windows oynasini "zoomed" holatda
+        # qoldiradi — Windows'da ShowWindow (SW_RESTORE=9 / SW_MAXIMIZE=3) ishlatiladi.
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = int(self.winId())
+                zoomed = bool(ctypes.windll.user32.IsZoomed(hwnd))
+                ctypes.windll.user32.ShowWindow(hwnd, 9 if zoomed else 3)
+                return
+            except Exception:
+                pass
         if self.isMaximized():
             self.showNormal()
         else:
@@ -246,7 +383,7 @@ class FramedDialog(QDialog):
             maximized = self.isMaximized()
             self._outer.setContentsMargins(*((0 if maximized else self.SHADOW),) * 4)
             if self._max_btn is not None:
-                self._max_btn.setText(GLYPH_RESTORE if maximized else GLYPH_MAX)
+                self._max_btn.set_icon("win_restore" if maximized else "win_max")
                 self._max_btn.setToolTip("Tiklash" if maximized else "Kattalashtirish")
             self._apply_frame_style()
 
@@ -265,34 +402,33 @@ class FramedDialog(QDialog):
         return ""
 
     def _apply_frame_style(self):
+        # Figma tokenlari: karta #0b1426, chegara #2a3a56, ajratgich #1a2842, Inter
         radius = 0 if self.isMaximized() else 12
+        r1 = max(0, radius - 1)
         self.setStyleSheet(f"""
             QFrame#appFrameCard {{
-                background: {C('bg_card')};
-                border: 1px solid {C('border_strong')};
+                background: {fz.CARD};
+                border: 1px solid {fz.SEG_BORDER};
                 border-radius: {radius}px;
             }}
             QWidget#appFrameBar {{
-                background: {C('bg_panel')};
-                border-top-left-radius: {max(0, radius - 1)}px;
-                border-top-right-radius: {max(0, radius - 1)}px;
-                border-bottom: 1px solid {C('border')};
+                background: {fz.CARD};
+                border-top-left-radius: {r1}px;
+                border-top-right-radius: {r1}px;
+                border-bottom: 1px solid {fz.BORDER};
             }}
             QWidget#appFrameBody {{
-                background: {C('bg_card')};
-                border-bottom-left-radius: {max(0, radius - 1)}px;
-                border-bottom-right-radius: {max(0, radius - 1)}px;
+                background: {fz.CARD};
+                border-bottom-left-radius: {r1}px;
+                border-bottom-right-radius: {r1}px;
             }}
             QWidget#appFrameBody QCheckBox {{ background: transparent; }}
             QLabel#appFrameTitle {{
-                color: {C('text_primary')}; font-size: 13px; font-weight: 600;
-                background: transparent;
+                color: {fz.TEXT}; background: transparent; {fz.css_font(14, 600)}
             }}
             QPushButton#appFrameBtn, QPushButton#appFrameClose {{
-                background: transparent; color: {C('text_secondary')};
-                border: none; border-radius: 6px; padding: 0; min-width: 0;
-                font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets"; font-size: 10px;
+                background: transparent; border: none; border-radius: 7px; padding: 0; min-width: 0;
             }}
-            QPushButton#appFrameBtn:hover {{ background: rgba(148,163,184,0.16); color: #ffffff; }}
-            QPushButton#appFrameClose:hover {{ background: #e81123; color: #ffffff; }}
-        """ + self.frame_style())
+            QPushButton#appFrameBtn:hover {{ background: {fz.RAISED}; }}
+            QPushButton#appFrameClose:hover {{ background: {fz.RED_BG}; }}
+        """ + _form_qss() + self.frame_style())

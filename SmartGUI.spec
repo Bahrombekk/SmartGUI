@@ -10,6 +10,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 datas = [
     ("images", "images"),
+    ("fonts", "fonts"),          # Inter + JetBrains Mono (Figma dizayni)
     ("app/ui/styles/qss", "app/ui/styles/qss"),
     ("app/models", "app/models"),
     ("settings.example.json", "."),
