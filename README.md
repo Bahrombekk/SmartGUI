@@ -161,7 +161,7 @@ SmartGUI/
 │   │   ├── pages/               # main_window, dashboard/, cameras, violations, analytics, users, settings
 │   │   ├── widgets/             # camera_panel, video_label, violation_card, stat_card, bar_chart, polygon_editor
 │   │   └── styles/              # QSS + tema tokenlari
-│   └── models/                  # best.pt, yunet.onnx, sface.onnx (git'ga kirmaydi)
+│   └── models/                  # helmet_v4.pt, helmet_v3.pt, helmet_yolo26s/n.pt, yunet.onnx, sface.onnx (git'ga kirmaydi)
 ├── docs/                        # Batafsil hujjatlar (o'zbekcha)
 ├── images/                      # SVG ikonalar, logo
 ├── violations/                  # Buzilish rasmlari (runtime)
@@ -177,7 +177,8 @@ SmartGUI/
 
 - **Python 3.10+** (Windows tavsiya etiladi; ilova win32 uchun moslangan)
 - AI rejim uchun: **PyTorch + CUDA** (GPU bilan tavsiya etiladi)
-- YOLO modeli: `app/models/best.pt`
+- YOLO modellari: `app/models/helmet_v4.pt` (standart — kichik/uzoq odamlarni yaxshi topadi), `helmet_v3.pt`, `helmet_yolo26s.pt`, `helmet_yolo26n.pt` (yengil) — Sozlamalar → AI model → **Model** da tanlanadi.
+  v4 qanday o'qitilgani: `D:\Data Sentir\smart_v4_build.py` (asl data qayta bo'lingan, 3×3 "uzoqlashtirish" mozaikasi + kuchli augment) va `train_v4.py` (COCO person head, freeze=6; eng yaxshi natija ~25-epoch, keyin kesishma kameralarida odamni "unutadi")
 
 ### Qadamlar
 
@@ -200,7 +201,7 @@ pip install -r requirements.txt
 pip install torch torchvision
 
 # 6. Modelni joylashtirish
-#    app/models/best.pt  (shlem detection modeli)
+#    app/models/helmet_v4.pt (+ ixtiyoriy helmet_v3 / helmet_yolo26s / helmet_yolo26n)  (shlem detection modellari)
 #    app/models/yunet.onnx + sface.onnx  (FaceID uchun, ixtiyoriy)
 
 # 7. Konfiguratsiya
@@ -269,7 +270,7 @@ Sozlamalar `settings.example.json` dan nusxalanadi. Asosiy maydonlar:
 | Kalit | Default | Tavsif |
 |---|---|---|
 | `ai_model_enabled` | `false` | AI ni yoqish/o'chirish (o'chirilsa — faqat video) |
-| `model_path` | `app\models\best.pt` | YOLO model yo'li (`.pt` yoki `.engine`) |
+| `model_path` | `app\models\helmet_v4.pt` | YOLO model yo'li (`.pt` yoki `.engine`); eski `best.pt` yo'q bo'lsa avtomatik shunga o'tkaziladi |
 | `confidence` | `0.5` | Detection ishonch chegarasi |
 | `yolo_imgsz` | `1024` | Inference rasm o'lchami |
 | `use_gpu` | `true` | CUDA ishlatish |
@@ -337,8 +338,10 @@ qo'yiladi — `NotificationWorker` uni fon rejimida yuboradi:
 - ✅ **`max_retries`** dan oshsa — `failed` deb belgilanadi (cheksiz urinmaydi).
 - ✅ Yuborilgach `violations.sync_status = 'synced'` qilinadi.
 
-Rasm yo'q bo'lsa (saqlash o'chirilgan), `NotificationDispatcher` orqali darhol
-(retrysiz) yuboriladi.
+Rasm saqlanmagan bo'lsa ham job navbatga qo'yiladi (Telegram'ga matnli xabar
+ketadi). Buzilish yozuvi va uning joblari bitta tranzaksiyada yoziladi, backend'ga
+`Idempotency-Key` sarlavhasi bilan yuboriladi, doimiy 4xx xatolar `rejected`
+holatiga o'tadi va qayta yuborilmaydi.
 
 ---
 
@@ -375,7 +378,7 @@ Batafsil texnik hujjatlar `docs/` papkasida (o'zbekcha):
 |---|---|
 | `PyQt6 o'rnatilmagan` | `pip install PyQt6` |
 | `torch yuklanmadi` | `pip install torch torchvision` (pytorch.org dan CUDA mos versiyasi) |
-| `Model topilmadi` | `app/models/best.pt` ni joylang yoki `model_path` ni to'g'rilang |
+| `Model topilmadi` | `app/models/helmet_v4.pt` ni joylang yoki `model_path` ni to'g'rilang |
 | Kamera ulanmayapti | RTSP URL, login/parol, tarmoqni tekshiring; UI dagi "↻ Reconnect" tugmasi |
 | Yuqori CPU | `use_gpu: true`, `ai_fps_limit` va `process_every_n` ni sozlang |
 | DB buzilgan | Avtomatik karantin qilinadi (`*.corrupt.*`) va yangisi yaratiladi |
