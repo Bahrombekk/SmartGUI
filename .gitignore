@@ -62,7 +62,6 @@ build/
 
 # Training / runs
 runs/
-tests/
 train.py
 yolov8*.pt
 
@@ -72,3 +71,22 @@ yolov8*.pt
 
 # Inno Setup natijasi
 installer/Output/
+
+# Shaxsiy sinov skriptlari va oqim yozuvlari (maxfiy ma'lumot bor — git'ga qo'shilmasin)
+ezvz.py
+ezviz_token.json
+m[0-9]*.py
+tests.py
+*.ts
+*.bak
+*.corrupt.*
+smartgui_recovered.db
+torchinductor_*/
+
+# Sozlamalar zaxiralari (token va parollar bor)
+settings.json.bak
+settings.json.bad.*
+smartgui.lock
+
+# Xodimlarning yuz rasmlari (FaceID) — shaxsiy ma'lumot, repoga kirmasin
+faces/
