@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
 from datetime import date
 
 import cv2
@@ -877,6 +877,10 @@ class DetectionWorker(QThread):
         lateness: deque = deque(maxlen=200)
         delay = 0.12 if buffer_on else 0.0
         hist: deque = deque(maxlen=60)     # (ts, persons) — AI natijalari tarixi
+        # Ekrandagi odamlar soni — chizilgan qutilar bilan bir xil manbadan; oxirgi
+        # kadrlar bo'yicha eng ko'p uchragan qiymat (bir kadrlik miltillash sakratmasin)
+        shown_counts: deque = deque(maxlen=15)
+        shown_helmet = {"helmet": 0, "no_helmet": 0, "unknown": 0}
         last_total = -1
         last_no_frame_emit = 0.0
         n_seen = 0
@@ -936,18 +940,28 @@ class DetectionWorker(QThread):
             self._update_fps(due.ts)
             self._frame_count += 1
             persons = self._persons_for(due.ts, hist) if has_ai else []
+            if has_ai:
+                shown_counts.append(len(persons))
+                shown_helmet = {
+                    "helmet": sum(1 for p in persons if p.get("has_helmet") is True),
+                    "no_helmet": sum(1 for p in persons if p.get("has_helmet") is False),
+                    "unknown": sum(1 for p in persons if p.get("has_helmet") is None),
+                }
             if self._emit_frames and self._should_emit_frame_at(due.ts):
                 frame = due.frame.copy()          # kadr AI bilan umumiy — ustiga chizmaymiz
                 display_frame = self._draw_overlay(frame, persons) if persons else frame
                 self._emit_frame(display_frame)
 
             if self._frame_count % 30 == 0:
-                live = [p for p in self._last_persons if not p.get("coasting")]
+                # Oldin: har 30 kadrda _last_persons'dan bir lahzalik surat (coasting'siz,
+                # ko'rsatilayotgan kadrdan oldinda) — ekranda 2 quti, sonda 1 chiqardi
+                shown = max(Counter(shown_counts).most_common(1)[0][0], 0) if shown_counts else 0
                 self.stats_updated.emit({
                     "fps":            self._fps,
                     "today_count":    self._violation_runtime.camera_today,
                     "detections_today": self._detections_today,
-                    "active_persons": len(live) if has_ai else 0,
+                    "active_persons": shown if has_ai else 0,
+                    "helmet_counts":  dict(shown_helmet) if has_ai else None,
                     "connected":      connected,
                     "ping_ms":        self._ping_ms() if connected else None,
                     "buffer_ms":      round(delay * 1000),

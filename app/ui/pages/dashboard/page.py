@@ -900,6 +900,7 @@ class DashboardPage(QWidget):
         self._event_hours: list[float] = []
         self._no_helmet_today = 0
         self._total_persons = 0
+        self._helmet_counts: dict[int, dict] = {}
         self._persons_hist: list[int] = []
         self._yesterday_comp: float | None = None
         self._focus_mode = False
@@ -1153,6 +1154,8 @@ class DashboardPage(QWidget):
         fps = float(stats.get("fps", 0.0) or 0.0)
         self._fps[cam_id] = fps
         self._persons[cam_id] = int(stats.get("active_persons", 0) or 0)
+        if stats.get("helmet_counts") is not None:
+            self._helmet_counts[cam_id] = dict(stats["helmet_counts"])
         det = stats.get("detections_today")
         if det is not None:
             self._det_today[cam_id] = int(det or 0)
@@ -1266,7 +1269,16 @@ class DashboardPage(QWidget):
         if st == "live":
             n = self._persons.get(self._selected, 0)
             alert = self._alert_until.get(self._selected, 0) > time.time()
-            state = "shlemsiz ishchi bor" if alert else ("barchasi shlemda" if n else "kadrda ishchi yo‘q")
+            hc = self._helmet_counts.get(self._selected, {})
+            if alert or hc.get("no_helmet", 0) > 0:
+                state = "shlemsiz ishchi bor"
+            elif not n:
+                state = "kadrda ishchi yo‘q"
+            elif hc.get("unknown", 0) > 0:
+                # sariq quti — shlem hali aniqlanmagan; "barchasi shlemda" deyish noto'g'ri edi
+                state = "shlem holati aniqlanmoqda"
+            else:
+                state = "barchasi shlemda"
             parts = [dept, f"{n} ishchi kadrda", state] if n else [dept, state]
             self.live.sub.setText(" · ".join(p for p in parts if p))
             self.live.live.show()
