@@ -15,7 +15,8 @@ from pathlib import Path
 
 import cv2
 import torch
-from ultralytics import YOLO
+
+from app.infrastructure.detection.sarbon_backend import is_sarbon_model, load_model
 
 from app.shared.paths import resolve_model_path
 from app.shared.utils.rate_gate import RateGate
@@ -119,7 +120,10 @@ class DetectorGroup(threading.Thread):
 
         # Model yuklash
         self._is_engine = model_path.endswith(".engine")
-        self.model = YOLO(model_path, task="detect")
+        # Sarbon (fayl nomida "sarbon") yoki Ultralytics YOLO — bir xil interfeys
+        self.model = load_model(model_path)
+        if is_sarbon_model(model_path):
+            self.half = False  # Sarbon o'zi bf16 da ishlaydi (o'lchangan ko'rinish)
         if device != "cpu" and not self._is_engine:
             self.model.to(device)
             try:

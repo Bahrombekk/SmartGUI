@@ -28,6 +28,8 @@ MODEL_PRESETS = (
     ("YOLO26n", r"app\models\helmet_yolo26n.pt", "Yengil va tez · 2.4M parametr"),
     ("v3", r"app\models\helmet_v3.pt", "Odamni yaxshiroq topadi · kesishma kameralari uchun"),
     ("v1 (eski)", r"app\models\helmet_v1.pt", "Oldingi versiya modeli"),
+    # Sarbon (D:\Sarbon, tijoriy litsenziya toza): yengil G, 8.7M, 1024 px
+    ("Sarbon yengil", r"app\models\sarbon_safezone_light.pt", "Sarbon detektori · 8.7M parametr · 1024"),
 )
 DEFAULT_MODEL_PATH = MODEL_PRESETS[0][1]
 _LEGACY_MODEL_PATH = "app/models/best.pt"

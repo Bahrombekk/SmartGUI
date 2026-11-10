@@ -83,9 +83,9 @@ class _TestThread(QThread):
                 return
             try:
                 import numpy as np
-                from ultralytics import YOLO
+                from app.infrastructure.detection.sarbon_backend import load_model
 
-                model = YOLO(model_path, task="detect")
+                model = load_model(model_path)
                 dummy = np.zeros((320, 320, 3), dtype=np.uint8)
                 model.predict([dummy], imgsz=320, conf=0.25, verbose=False, max_det=1, device="cpu")
                 size = os.path.getsize(model_path) // (1024 * 1024)
